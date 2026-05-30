@@ -76,6 +76,23 @@ Every constant (28.27, 4.94, 0.77, [1.5, 8.0], SR_ref) is shown in the UI's assu
 
 **Confidence: HIGH** (human capital, Merton); **MEDIUM** (glidepath shape); **PRACTICE** (capacity caps tolerance).
 
+### 3.1 Committed capacity score → capacity γ
+
+A 0–100 weighted score (weights are disclosed defaults in `05 §10 CAPACITY_WEIGHTS`), each sub-score in [0,100]:
+
+| Factor | Weight | Sub-score rule (0–100) |
+|--------|--------|------------------------|
+| Time horizon | 0.30 | `min(100, horizon_years/30·100)` (30+ yrs → 100; grounded in BMS lifecycle) |
+| Income stability (human-capital beta) | 0.25 | `bond_like=100, mixed=60, stock_like=25` (Ibbotson-Chen) |
+| Emergency-fund adequacy | 0.15 | `min(100, months_covered/6·100)` (6+ months → 100) |
+| Savings rate | 0.15 | `min(100, (surplus/income)/0.20·100)` (20%+ → 100) |
+| Debt burden | 0.15 | `100 − min(100, debt_to_income·100)`, with any APR > `HIGH_APR` forcing this sub-score to 0 |
+
+`capacity_score = Σ weightᵢ · subscoreᵢ`. Map to **capacity γ** with the *same* log map as tolerance (02 §2.1), but using the capacity percentile `p_cap = capacity_score/100`:
+`capacity_gamma = exp(ln(GAMMA_MAX) − p_cap·(ln(GAMMA_MAX) − ln(GAMMA_MIN)))`.
+
+**Worked derivation (Maya, T1):** horizon 37→100 (×0.30=30); income mixed→60 (×0.25=15); EF 3.1mo→52 (×0.15=7.8); savings ~10%→50 (×0.15=7.5); debt (4.5% student, low DTI)→~85 (×0.15=12.75). `capacity_score ≈ 73`. `p_cap=0.73` → `capacity_gamma = exp(2.079 − 0.73·1.674) = exp(0.858) = 2.36`. Since Maya's `tolerance_gamma.mid = 2.75 > capacity_gamma = 2.36`, the more-conservative (higher-γ) **tolerance** binds at the mid → `binding_axis = tolerance`. *(Note: capacity caps the **aggressive** side — `gamma_band.aggressive = max(2.11, 2.36) = 2.36`. So Maya's effective band is `{2.36, 2.75, 3.78}`. The earlier "capacity_gamma=2.0" example used a looser estimate; this 2.36 derivation is canonical.)*
+
 ---
 
 ## 4. Debt-vs-invest decision (the gate's economic core)

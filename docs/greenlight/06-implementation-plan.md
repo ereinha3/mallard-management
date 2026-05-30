@@ -14,6 +14,38 @@
 
 ---
 
+## Critical path, workstreams & R&D spikes — READ FIRST
+
+**The phases below are NOT a strict sequential order.** They are dependency-ordered *units*; the team runs them as **three parallel workstreams** (per [04-build-and-demo.md](./04-build-and-demo.md) §3) with named owners. Following Phase 0→9 literally would build the backtest before the gate screen renders — don't.
+
+**Critical path (protect at all costs):** Phase 0 (schemas) → **Phase 1 gate** → Phase 2 profiler → Phase 3 one optimizer (ERC + CAL-blend) → Phase 4 Monte Carlo → **Phase 8 the 3 hero screens + gate-flip**. If only this finishes, you still have a winning demo.
+
+**Workstreams (assign an owner to each):**
+- **A (engine):** Phases 0 → 1 → 2 → 3 → 4 → 5. Owner: ____
+- **B (frontend):** Phase 8 from H0 against mocked fixtures (don't wait for the engine). Owner: ____
+- **C (LLM + data + offline):** Phase 7 + Task 0.3 (cached prices) + Phase 9 hardening. Owner: ____
+
+**Cut-if-behind (build only if the critical path is solid; named kill-clock):**
+| Item | Cut decision by |
+|------|-----------------|
+| Phase 6.1 tax layer + Screen 4 (8.6) | H16 — if not started, show one screenshot + one sentence |
+| Phase 6.2 backtest Deflated-Sharpe table | H18 — if `backtest.json` isn't rendering, show the equity curve without the DSR table |
+| Task 3.4 BL/CVaR toggle | H14 — if ERC core isn't solid, drop the toggle entirely |
+
+**Run these R&D spikes in H0–1 (parallel, timeboxed ~30 min each) BEFORE committing to Phase 0+.** Each has a kill/proceed criterion:
+
+| Spike | Hypothesis | Kill → fallback |
+|-------|-----------|-----------------|
+| **A. riskfolio-lib ERC** | `riskfolio-lib>=7.2 + cvxpy>=1.6` installs on 3.12 and `rp_optimization` returns equal-RC weights on 4 sleeves in <5s | not equal-RC / won't install → **hand-roll 20-line ERC** (cyclical-coordinate descent on the Ledoit-Wolf covariance) |
+| **B. LLM extraction** | tool-calling returns a schema-valid `UserProfile` ≥9/10 on the Maya transcript and fires the contradiction catch | <9/10 → **guided form + cached responses** (Task 7.2); live call becomes roadmap |
+| **C. Monte Carlo speed** | 10k paths × 37yr block-bootstrap + wealth sim runs <2s vectorized | >10s → vectorize or pre-compute and animate from JSON |
+| **D. CAL-blend sanity** | sweeping γ∈[1.5,8] gives monotonic `a*` and sensible donuts; the §7.3 case reproduces `a*≈0.90` | non-monotonic / degenerate → fix calibration NOW (not at H12) |
+| **E. Offline cold-start** | lockfile `pip install` + `npm ci` + run with **wifi off** works | any live network call → remove before stage |
+
+Run **A and D first** (they protect the technical centerpiece); B and C just decide live-vs-cached (the demo survives either way).
+
+---
+
 ## Phase 0 — Scaffolding & contracts
 
 ### Task 0.1: Repo skeleton + tooling
@@ -55,9 +87,15 @@ def test_userprofile_roundtrips_and_rejects_bad_enum():
         Debt(balance=1, apr=0.1, kind="bitcoin")   # invalid enum
 ```
 - [ ] **Step 2: Run** `pytest engine/tests/test_schemas.py -v` → FAIL (module missing).
-- [ ] **Step 3: Implement** all §2 objects as Pydantic v2 models with the exact fields, enums (use `Literal[...]`), and constraints (`Field(ge=0)`, ranges). Include `UserProfile, Debt, ValidatedProfile, RiskProfile, GateResult, Universe, TargetWeights, RiskMetrics, Projection, OrderPlan, Fill, Position, Positions, RebalanceDecision, TaxReport, BacktestResult` and the `Sleeve` Literal.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -am "feat(schemas): contract models per 05-contracts §2"`
+- [ ] **Step 3: Implement** all §2 objects as Pydantic v2 models with the exact fields, enums (`Literal[...]`), and constraints (`Field(ge=0)`, ranges). Include `GammaBand` (fields `aggressive, mid, conservative`), `UserProfile, Debt, ValidatedProfile, RiskProfile` (uses `GammaBand`), `GateResult` (with `failed_check`, `notes`, and `math.interest_accruing_annual` + `math.net_advantage_annual`), `Universe, TargetWeights, RiskMetrics, Projection, OrderPlan, Fill, Position, Positions, RebalanceDecision, TaxReport, BacktestResult` and the `Sleeve` Literal.
+- [ ] **Step 4: Create `engine/schemas/constants.py`** with every value from `05-contracts.md` §10 (`EF_MONTHS=3, HIGH_APR=0.08, LOW_APR=0.05, LTCG_RATE=0.15, EXPECTED_MARKET_RETURN=0.07, GAMMA_MIN=1.5, GAMMA_MAX=8.0, GL_MEAN=28.27, GL_SD=4.94, GL_ALPHA=0.77, SR_REF=0.4, CAPACITY_WEIGHTS={...}, DRIFT_BAND_PP=5, TX_COST_BPS=10, BLOCK_L=12, N_PATHS=10000, GLIDE_BASE_AGE=25, GLIDE_FLOOR=0.3`). **All later tasks import from here — no hardcoded magic numbers.**
+- [ ] **Step 5: Run** → PASS. **Commit** — `git commit -am "feat(schemas): contract models + constants per 05 §2/§10"`
+
+### Task 0.4: Persona fixtures + test factories (MOVED EARLY — Phase 1 depends on these)
+**Files:** Create `engine/fixtures/persona_halt.json`, `engine/fixtures/persona_greenlight.json`, `engine/tests/factories.py`.
+- [ ] **Step 1:** Author the two `UserProfile` JSON fixtures (Maya T0 = halt: ef=1500, 22% card; Maya T1 = greenlight: ef=10000, card paid, 4.5% loan) matching the §8 spec.
+- [ ] **Step 2:** Write `factories.py` exposing `maya_t0()` and `maya_greenlit()` that load + return the fixtures as `UserProfile` objects.
+- [ ] **Step 3: Commit** — `git commit -am "test: persona fixtures + factories"` (Phases 1–9 import these.)
 
 ### Task 0.3: Universe data + cached prices (build-time fetch)
 **Files:** Create `engine/data/universe.csv` (per `05` §5), `engine/scripts/fetch_prices.py`, `engine/data/prices.csv`.
@@ -101,11 +139,12 @@ def test_boundary_exactly_three_months_passes_ef_check():
 def test_halt_on_high_apr_with_harm_math():
     p = maya_greenlit()                 # ef ok
     p.debts = [Debt(balance=9000, apr=0.22, kind="credit_card")]
-    r = evaluate_gate(p, bracket=0.22, expected_market_return=0.07)
+    r = evaluate_gate(p)                # SINGLE pinned signature: evaluate_gate(profile) — constants come from constants.py
     assert r.status == "halt" and r.failed_check == "high_interest_debt"
     assert r.math.guaranteed_return == 0.22
-    assert round(r.math.expected_after_tax_market_return, 4) == 0.0595   # 0.07*(1-0.15)
-    assert r.math.harm_prevented_annual == 1980.0                        # 9000*0.22
+    assert round(r.math.expected_after_tax_market_return, 4) == 0.0595   # EXPECTED_MARKET_RETURN*(1-LTCG_RATE)
+    assert r.math.interest_accruing_annual == 1980.0                     # 9000*0.22 (headline)
+    assert round(r.math.net_advantage_annual, 1) == 1444.5               # 9000*(0.22-0.0595) (true harm prevented)
 def test_boundary_apr_exactly_threshold_does_not_halt():
     p = maya_greenlit(); p.debts = [Debt(balance=5000, apr=0.08, kind="personal")]
     assert evaluate_gate(p).failed_check != "high_interest_debt"          # >8% halts, ==8% does not
@@ -115,14 +154,14 @@ def test_low_interest_debt_noted_not_halted():
     assert r.status == "greenlight" and any("student" in n or "4.5" in n for n in r.notes)
 ```
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement:** after EF passes, scan debts; `apr > 0.08` → halt with `harm_prevented_annual = balance*apr`, `expected_after_tax_market_return = expected_market_return*(1-0.15)`. `apr < 0.05` → append a note. Ordering: EF check first, then debt. Long-term-cap-gains rate `0.15` is a module constant.
+- [ ] **Step 3: Implement** (import thresholds from `constants.py`): after EF passes, scan debts; `apr > HIGH_APR` → halt with `interest_accruing_annual = balance*apr`, `expected_after_tax_market_return = EXPECTED_MARKET_RETURN*(1-LTCG_RATE)`, `net_advantage_annual = balance*(apr - expected_after_tax_market_return)`. `apr < LOW_APR` → append a note. Ordering: EF check first, then debt.
 - [ ] **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit.**
 
 ### Task 1.3: Greenlight path + deferred-conversion framing string
 - [ ] **Step 1: Test** that a clean profile returns `status=greenlight`, `failed_check="none"`, `math=None`, and `recommended_action==""`.
 - [ ] **Step 2–4:** Implement/verify.
-- [ ] **Step 5: Commit.** (`tests/factories.py` builds `maya_t0` and `maya_greenlit` from the §8 personas — create it in this task if not present.)
+- [ ] **Step 5: Commit.** (`maya_t0`/`maya_greenlit` come from `tests/factories.py`, already created in Task 0.4.)
 
 ---
 
@@ -135,25 +174,27 @@ def test_low_interest_debt_noted_not_halted():
 ```python
 from profiler.tolerance import score_to_gamma_band
 def test_gamma_band_matches_worked_example():
-    band = score_to_gamma_band(raw_score=30.0)   # constants per 05 §2.1
+    band = score_to_gamma_band(raw_score=30.0)
     assert round(band.mid, 2) == 2.75
-    assert round(band.low, 2) == 2.11    # aggressive bound (score+SEM)
-    assert round(band.high, 2) == 3.78   # conservative bound (score-SEM)
-    assert band.low <= band.mid <= band.high
+    assert round(band.aggressive, 2) == 2.11    # score+SEM -> higher percentile -> LOWER gamma
+    assert round(band.conservative, 2) == 3.78  # score-SEM -> CONSERVATIVE
+    assert band.aggressive <= band.mid <= band.conservative
 ```
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement** using constants mean=28.27, sd=4.94, alpha=0.77, GAMMA_MIN=1.5, GAMMA_MAX=8.0:
+- [ ] **Step 3: Implement** importing from `constants.py` (no hardcoded numbers):
 ```python
 from math import log, exp, sqrt
 from scipy.stats import norm
+from schemas.constants import GL_MEAN, GL_SD, GL_ALPHA, GAMMA_MIN, GAMMA_MAX
+from schemas.models import GammaBand
 def _gamma_at(score):
-    p = norm.cdf((score-28.27)/4.94)
-    return exp(log(8.0) - p*(log(8.0)-log(1.5)))
+    p = norm.cdf((score - GL_MEAN) / GL_SD)
+    return exp(log(GAMMA_MAX) - p*(log(GAMMA_MAX) - log(GAMMA_MIN)))
 def score_to_gamma_band(raw_score):
-    sem = 4.94*sqrt(1-0.77)                     # ~2.369
+    sem = GL_SD * sqrt(1 - GL_ALPHA)              # ~2.369
     return GammaBand(mid=_gamma_at(raw_score),
-                     low=_gamma_at(raw_score+sem),   # higher score -> lower gamma
-                     high=_gamma_at(raw_score-sem))
+                     aggressive=_gamma_at(raw_score + sem),    # higher score -> lower gamma
+                     conservative=_gamma_at(raw_score - sem))
 ```
 - [ ] **Step 4: Run** → PASS (tolerances allow ±0.01).
 - [ ] **Step 5: Commit.**
@@ -161,7 +202,7 @@ def score_to_gamma_band(raw_score):
 ### Task 2.2: Capacity score → γ floor, and `min(capacity,tolerance)` combine
 **Files:** Create `engine/profiler/capacity.py`, `engine/profiler/profile.py`; tests.
 
-- [ ] **Step 1: Test** capacity weighting (horizon 30%, income-stability 25%, EF 15%, savings 15%, debt 15% per `02` §3) and the combine rule: `gamma_used = max(tolerance_gamma, capacity_gamma)`; `binding_axis` is whichever is larger. Pin Maya: horizon 37 → high capacity → `capacity_gamma≈2.0` → tolerance binds (`binding_axis=="tolerance"`).
+- [ ] **Step 1: Test** the capacity score (weights + sub-score rules per **02 §3.1**, weights from `constants.CAPACITY_WEIGHTS`) and the combine rule: `gamma_band = max(tolerance_gamma, capacity_gamma)` **elementwise**; `binding_axis` = the axis that determines the **mid**. Pin Maya: `capacity_score≈73 → capacity_gamma≈2.36`; since `tolerance.mid=2.75 > 2.36`, tolerance binds the mid → `binding_axis=="tolerance"`, and `gamma_band.aggressive = max(2.11,2.36) = 2.36` (capacity caps the aggressive end).
 ```python
 def test_capacity_does_not_bind_for_long_horizon():
     rp = build_risk_profile(maya_greenlit())
@@ -172,7 +213,7 @@ def test_short_horizon_capacity_caps():
     rp = build_risk_profile(p)
     assert rp.binding_axis == "capacity" and rp.gamma_band.mid >= rp.tolerance_gamma.mid
 ```
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** the weighted 0–100 capacity score, map to `capacity_gamma` via the same log map, combine with `max`, set `target_vol_band = SR_ref/gamma` with `SR_ref=0.4`. **Step 4:** PASS. **Step 5: Commit.**
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** the weighted 0–100 capacity score (sub-score rules per 02 §3.1, weights from `constants.CAPACITY_WEIGHTS`), map to `capacity_gamma` via the same `_gamma_at`-style log map (using `p_cap = capacity_score/100`), combine elementwise with `max`, set posture-keyed `target_vol_band` (`aggressive = SR_REF/gamma_band.aggressive`, etc.) using `constants.SR_REF`. **Step 4:** PASS. **Step 5: Commit.**
 
 ---
 
@@ -203,13 +244,13 @@ def test_erc_risk_contributions_are_equal():
 ```python
 def test_cal_blend_hits_target_vol():
     a = solve_blend_alpha(sigma_risky=0.16, sigma_safe=0.05, rho=0.15, sigma_target=0.145)
-    assert 0.86 <= a <= 0.90                     # ~0.88, no clamp
+    assert 0.89 <= a <= 0.91                     # ~0.90 (verified: sigma_blend(0.901)=0.145), no clamp
 def test_clamp_when_target_exceeds_risky():
     assert solve_blend_alpha(0.16, 0.05, 0.15, 0.20) == 1.0
 def test_glide_factor_reduces_alpha_with_age():
     assert glide_factor(age=28, horizon=37) > glide_factor(age=60, horizon=5)
 ```
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** bisection on `σ_blend(a)` with the §4 formula; clamp rules; `glide_factor = clamp(1-max(0,age-25)/100, 0.3, 1.0)`; `a_final = a*·glide_factor`; assemble final `TargetWeights` (`by_sleeve`, `by_ticker`, `blend_alpha`, `method="erc"`). **Step 4:** PASS. **Step 5: Commit.**
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** bisection on `σ_blend(a)` with the §4 formula; clamp rules; `glide_factor = clamp(1 - max(0, age-GLIDE_BASE_AGE)/100, GLIDE_FLOOR, 1.0)` (constants); `a_final = a*·glide_factor`. **Assemble final** `TargetWeights` as `a_final·w_risky + (1-a_final)·w_safe` (the glide-freed mass goes to the safe sleeve), store `blend_alpha = a_final`, `method="erc"`. **Step 4:** PASS, and add an invariant test: `abs(sum(by_ticker.values()) - 1.0) < 1e-6`. **Step 5: Commit.**
 
 ### Task 3.4: Pre-bake BL/CVaR toggle weights (fixture generator)
 **Files:** Create `engine/scripts/gen_toggle_weights.py`, output `engine/fixtures/toggle_weights.json`.
@@ -231,11 +272,15 @@ def test_p_success_deterministic_and_in_range():
                    generator="stationary_bootstrap", n_paths=2000, seed=42)
     assert 0.0 <= proj.p_success <= 1.0
     assert proj.median_terminal > 0 and proj.bad_case_terminal <= proj.median_terminal
-def test_gaussian_is_more_optimistic_on_fat_tailed_series():
-    boot = project(..., generator="stationary_bootstrap", seed=1).p_success
-    gauss = project(..., generator="gaussian", seed=1).p_success
-    assert gauss >= boot   # Gaussian ignores fat tails -> optimistic (05 §7.4)
+def test_gaussian_understates_left_tail_on_neg_skewed_series():
+    # Use an EXPLICITLY negatively-skewed series (occasional large losses).
+    series = neg_skewed_returns()   # mean>0, strong left tail
+    boot  = project(returns=series, generator="stationary_bootstrap", seed=1, n_paths=4000)
+    gauss = project(returns=series, generator="gaussian",            seed=1, n_paths=4000)
+    # The honest, robust comparison is on the LEFT TAIL, not the headline p_success:
+    assert boot.bad_case_terminal < gauss.bad_case_terminal   # bootstrap preserves fat left tail
 ```
+Do NOT assert `gauss.p_success >= boot.p_success` unconditionally — per 05 §7.4 the ordering can flip for right-skewed series or right-tail goals.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement** geometric-block resampling (default `L=12`), per-path monthly wealth accumulation with contributions, percentile paths (p5/25/50/75/95), `p_success`, `bad_case_terminal`. RNG seeded (`numpy.random.default_rng(seed)`) — required for resumable/repeatable runs. **Step 4:** PASS. **Step 5: Commit.**
 
 ---
@@ -336,4 +381,6 @@ def test_gaussian_is_more_optimistic_on_fat_tailed_series():
 - Every component in `01` §3 maps to a task: gate (P1), profiler/γ (P2), universe+optimizer+CAL-blend (P3), Monte Carlo (P4), sizer/broker/rebalancer (P5), tax/backtest (P6), LLM layer (P7), API/frontend (P8), integration (P9). Pre-baked BL/CVaR (3.4), backtest (6.2), tax scenario (6.1 + 9.1 seed) per the Focused-MVP cut list (`04`).
 - Worked examples in `05` §7 are each turned into a pinning test (gate 1.1–1.2, γ 2.1, CAL 3.3, MC 4.1, Deflated Sharpe 6.2).
 - Demo-safety items from `04` §4 are tasks 9.2–9.4.
-- **Known intentional gap:** literal frontend component code is not enumerated step-by-step (Phase 8 uses acceptance criteria) — visual work is verified by rendering against fixtures, not unit assertions. Flag for reviewers if more granularity is wanted.
+- Persona fixtures + `factories.py` are in **Phase 0 (Task 0.4)** so Phase 1 has no forward dependency. All magic numbers come from `constants.py` (Task 0.2 Step 4 / 05 §10).
+- The **critical path + parallel workstreams + cut-if-behind + R&D spikes** are declared in the "READ FIRST" section — execute by workstream, not strict phase order.
+- **Known intentional gap:** literal frontend component code is not enumerated step-by-step (Phase 8 uses acceptance criteria) — visual work is verified by rendering against fixtures, not unit assertions.

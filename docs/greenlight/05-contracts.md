@@ -55,18 +55,27 @@ Debt {
 ### 2.2 `ValidatedProfile`
 Same fields as `UserProfile` minus `confidence`/`uncertainty_flags`, **after** validation (§6 rules). Adds `derived: { required_emergency_fund: money, monthly_surplus: money }` where `monthly_surplus = household_income/12 − monthly_expenses` (may be negative).
 
-### 2.3 `RiskProfile`
+### 2.3 `RiskProfile` and `GammaBand`
 ```
+GammaBand {                              # keyed by RISK POSTURE, not numeric size
+  aggressive:   number                   # the SMALLEST gamma (lower gamma = more risk)
+  mid:          number
+  conservative: number                   # the LARGEST gamma
+}                                        # invariant: aggressive <= mid <= conservative, each in [1.5, 8.0]
+
 RiskProfile {
-  gamma_band:        { low: number, mid: number, high: number }   # low<=mid<=high, each in [1.5, 8.0]
-  tolerance_gamma:   { low, mid, high }
-  capacity_gamma:    number                # implied floor from capacity
+  gamma_band:        GammaBand           # combined (capacity-capped) gamma
+  tolerance_gamma:   GammaBand
+  capacity_gamma:    number              # implied floor (a single gamma); caps the aggressive side
   capacity_score:    number [0..100]
   tolerance_score:   number [0..100]
   binding_axis:      enum(tolerance|capacity)
-  target_vol_band:   { low: percent, mid: percent, high: percent }   # = SR_ref / gamma
+  target_vol_band:   { aggressive: percent, mid: percent, conservative: percent }
+                                         # target_vol.aggressive = SR_ref / gamma_band.aggressive  (HIGHEST vol)
+                                         # both bands keyed by posture, so aggressive<->aggressive — no index crossing
 }
 ```
+**Why posture-keyed, not `low/high`:** gamma is inverted relative to risk (low gamma = aggressive = high vol). Naming the band `low/high` invites `target_vol.low = SR_ref/gamma.low`, which silently inverts the dial. Keying both bands by posture removes the trap.
 
 ### 2.4 `GateResult`
 ```
@@ -80,7 +89,8 @@ GateResult {
     debt:                 Debt | null
     guaranteed_return:    percent        # = debt.apr
     expected_after_tax_market_return: percent
-    harm_prevented_annual: money         # see §7.1
+    interest_accruing_annual: money      # = balance * apr (gross interest; the punchy headline number)
+    net_advantage_annual:     money      # = balance * (apr - expected_after_tax_market_return); the TRUE harm prevented vs investing
   } | null
   notes: [ string ]                      # e.g. low-interest debt noted
 }
@@ -210,6 +220,8 @@ if σ_target <= σ_safe:   a* = 0
 ```
 `σ_risky`, `σ_safe`, `ρ` come from the (shrunk) covariance of the realized sleeve portfolios.
 
+**Expected saturation (by design, not a bug).** Long-only with no leverage means the most aggressive reachable portfolio *is* the all-risky ERC sleeve (`a=1`, vol = `σ_risky` ≈ 0.16). Any `σ_target > σ_risky` clamps to `a=1`. With `SR_ref=0.4`, every `γ < SR_ref/σ_risky = 0.4/0.16 = 2.5` maps to the same all-risky portfolio. This is correct (you cannot be more aggressive than 100% growth assets without leverage) — but it means the dial is only *responsive* over roughly `γ ∈ [2.5, 8.0]` → `σ_target ∈ [0.05, 0.16]`. If you want responsiveness at more aggressive γ, either concentrate the risky sleeve (drop gold/REIT weight to raise `σ_risky`) or lower `SR_ref`. Document whichever you pick; do not silently present a smooth dial that secretly saturates.
+
 **Glide path** then nudges `a` down with age (linear MVP): `a_final = a* · glide_factor(age, horizon)`, `glide_factor ∈ [0,1]`, e.g. `glide_factor = clamp(1 − max(0, age−25)/100, 0.3, 1.0)`. (The U-shaped bond-tent is a future replacement for `glide_factor`; the Monte Carlo layer is what would justify it.)
 
 BL and CVaR variants replace the *risky-sleeve* construction only (the blend mechanic is unchanged).
@@ -271,34 +283,34 @@ HTTP 422 for `validation`, 404 `not_found`, 500 `engine`, 502 `upstream`.
 ### 7.1 Gate math (persona: Maya at T0)
 Inputs: `monthly_expenses=3200`, `emergency_fund=1500`, debt `{balance:9000, apr:0.22}`, `bracket=0.22`, `expected_market_return=0.07`.
 - **Emergency check:** `required = 3 × 3200 = 9600`. `1500 < 9600` → **HALT**, `failed_check=emergency_fund`, `target_amount=9600`, shortfall `8100`.
-- **Debt check (shown as next-up):** `0.22 > 0.08` → would halt. `guaranteed_return = 0.22`. `expected_after_tax_market_return = 0.07 × (1 − 0.15) = 0.0595` (15% LTCG). Displayed **`harm_prevented_annual = balance × apr = 9000 × 0.22 = 1980`** (interest accruing), with the secondary line "net advantage of paydown vs. investing ≈ `9000 × (0.22 − 0.0595) = 1444`/yr."
+- **Debt check (shown as next-up):** `0.22 > 0.08` → would halt. `guaranteed_return = 0.22`. `expected_after_tax_market_return = 0.07 × (1 − 0.15) = 0.0595` (15% LTCG). `interest_accruing_annual = balance × apr = 9000 × 0.22 = 1980` (the punchy headline number). `net_advantage_annual = balance × (apr − 0.0595) = 9000 × 0.1605 = 1444.5` — this is the **true harm prevented** by choosing paydown over investing (the headline $1,980 is gross interest; don't conflate the two on stage).
 - First failing check wins; the gate returns the emergency-fund halt.
 
 ### 7.2 γ calibration (persona: Maya at T1, greenlit)
 Inputs: Grable-Lytton raw `score = 30`; constants mean `28.27`, SD `4.94`, α `0.77`, range `[1.5, 8.0]`, `SR_ref = 0.4`.
 - `z = (30 − 28.27)/4.94 = 0.350` → `p = Φ(0.350) = 0.637`.
 - `ln γ_mid = ln 8.0 − 0.637·(ln 8.0 − ln 1.5) = 2.079 − 0.637·1.674 = 1.013` → **`γ_mid = 2.75`**.
-- `SEM = 4.94·√(1−0.77) = 2.37`. `score_high=32.37 → p=0.797 → γ=2.11` (aggressive bound); `score_low=27.63 → p=0.448 → γ=3.78` (conservative bound). **`gamma_band = {low:2.11, mid:2.75, high:3.78}`**.
-- **Capacity:** Maya's 37-yr horizon → high capacity → `capacity_gamma = 2.0`. `γ_used = max(γ_tol, capacity_gamma)`; since all tolerance values ≥ 2.0, capacity does **not** bind → `binding_axis = tolerance`. *(If her horizon were 1 yr, capacity_gamma≈6.0 would cap: γ_used=max(2.75,6.0)=6.0.)*
-- **Target vol:** `σ_target_mid = SR_ref/γ_mid = 0.4/2.75 = 0.145` (14.5%); band `{low: 0.4/3.78=0.106, mid:0.145, high:0.4/2.11=0.190}`.
+- `SEM = 4.94·√(1−0.77) = 2.37`. `score+SEM=32.37 → p=0.797 → γ=2.11` (this is the **aggressive** bound — higher score, lower γ); `score−SEM=27.63 → p=0.448 → γ=3.78` (**conservative** bound). **`gamma_band = {aggressive:2.11, mid:2.75, conservative:3.78}`** (aggressive ≤ mid ≤ conservative numerically, 2.11 ≤ 2.75 ≤ 3.78).
+- **Capacity:** Maya's `capacity_score ≈ 73 → capacity_gamma = 2.36` (full derivation in 02 §3.1). Combine elementwise `gamma_band = max(tolerance_gamma, capacity_gamma)`: aggressive `max(2.11,2.36)=2.36`, mid `max(2.75,2.36)=2.75`, conservative `max(3.78,2.36)=3.78` → **combined `gamma_band = {aggressive:2.36, mid:2.75, conservative:3.78}`**. The **mid is set by tolerance** (2.75 > 2.36) → `binding_axis = tolerance`; capacity only caps the aggressive end (2.11→2.36). *(If her horizon were 1 yr, capacity_gamma≈6.0 would cap every element: mid=max(2.75,6.0)=6.0, binding_axis=capacity.)*
+- **Target vol** (from the combined band): `target_vol_band = {aggressive: 0.4/2.36=0.169, mid: 0.4/2.75=0.145, conservative: 0.4/3.78=0.106}` — posture-keyed, so `aggressive` is the highest vol. `aggressive=0.169 > σ_risky≈0.16` ⇒ it **clamps to a=1** (the saturation in §4); the responsive part of Maya's band is mid→conservative.
 
 ### 7.3 CAL-blend (continuing 7.2)
 Given `σ_risky=0.16`, `σ_safe=0.05`, `ρ=0.15`, `σ_target=0.145`:
-- Solve `σ_blend(a)=0.145` by bisection → `a* ≈ 0.88`. Since `0.145 < σ_risky=0.16`, no clamp.
-- Glide: `age=28` → `glide_factor = clamp(1 − 3/100, 0.3, 1.0)=0.97` → `a_final ≈ 0.85`.
-- Final = `0.85·w_risky + 0.15·w_safe`. *(The illustrative donut in 03 T1 uses round numbers; exact weights come from the live ERC solve.)*
+- Solve `σ_blend(a)=0.145` by bisection → **`a* ≈ 0.90`** (verify: `σ_blend(0.88)=0.142`, `σ_blend(0.901)=0.145`). Since `0.145 < σ_risky=0.16`, no clamp.
+- Glide: `age=28` → `glide_factor = clamp(1 − 3/100, 0.3, 1.0)=0.97` → **`a_final = 0.90·0.97 ≈ 0.87`**.
+- **Final weights** = `a_final·w_risky + (1 − a_final)·w_safe` = `0.87·w_risky + 0.13·w_safe`. The glide-freed mass `(a* − a_final)` goes to the **safe** sleeve, so the vector still sums to 1.0. *(The illustrative donut in 03 T1 uses round numbers; exact weights come from the live ERC solve.)*
 
 ### 7.4 Monte Carlo (stationary block bootstrap)
 1. Portfolio monthly return series `r_p = w_final · R` (R = historical sleeve returns matrix).
 2. Block length `L` via Politis-White (default `L=12` if unavailable). Generate `n_paths=10000` paths of length `horizon_years×12`: repeatedly pick a random start index and a geometric(L)-length block; concatenate until path length reached.
 3. Wealth sim per path: `W=capital_on_hand`; each month `W = W·(1+r) + monthly_contribution`.
 4. `p_success = mean(W_terminal ≥ goal_target)`; percentile paths from the cross-path wealth distribution per year; `bad_case_terminal = 5th percentile`.
-- **Gaussian toggle:** draw `r ~ Normal(mean(r_p), var(r_p))` i.i.d. — ignores fat tails ⇒ reports a **higher (optimistic)** `p_success`; surface the contrast, never headline it.
+- **Gaussian toggle:** draw `r ~ Normal(mean(r_p), var(r_p))` i.i.d. — ignores fat tails. For the **typical case** (negatively-skewed / left-fat-tailed equity returns, goal not in the far right tail) it reports a **higher (optimistic)** `p_success` — the contrast we surface. **Caveat (not universal):** for right-skewed series or a goal sitting in the right tail, fat tails can *help* success and the ordering can flip. So the honest claim is "Gaussian understates left-tail risk," demonstrated by comparing the **5th-percentile / bad-case terminal wealth** (always worse under bootstrap for left-fat-tailed series), not by asserting `p_success_gaussian ≥ p_success_bootstrap` unconditionally.
 
 ### 7.5 Deflated Sharpe (backtest)
-`DSR = Φ( (SR̂ − SR0) / σ_SR )`, where
-`σ_SR = sqrt( (1 − γ3·SR̂ + ((γ4−1)/4)·SR̂²) / (T−1) )` (γ3=skew, γ4=kurtosis of returns), and
-`SR0` = expected maximum Sharpe under the null given **N trials** (Bailey & López de Prado 2014). **`config.n_trials` MUST equal the real count of configurations tried** (optimizer variants × rebalance freqs × windows). Report `DSR`, not just `SR̂`.
+`DSR = Φ( (SR̂ − SR0) · √(T−1) / √(1 − γ3·SR0 + ((γ4−1)/4)·SR0²) )`
+where γ3 = skew, γ4 = kurtosis of the strategy returns. **Note: the variance term uses `SR0`, not `SR̂`** (this was the bug in v1 — verified against Bailey & López de Prado 2014). `SR0` is the expected maximum Sharpe under the null given **N trials**:
+`SR0 = √Var[SR̂across trials] · [ (1−ζ)·Φ⁻¹(1 − 1/N) + ζ·Φ⁻¹(1 − 1/(N·e)) ]`, with `ζ = 0.5772` (Euler-Mascheroni). **`config.n_trials` MUST equal the real count of configurations tried** (optimizer variants × rebalance freqs × windows). Report `DSR`, not just `SR̂`.
 
 ---
 
@@ -331,7 +343,32 @@ Given `σ_risky=0.16`, `σ_safe=0.05`, `ρ=0.15`, `σ_target=0.145`:
   /screens                  # intake, gate-result, portfolio, (rebalance/tax)
   /components  /lib         # api client + TS types mirrored from /engine/schemas
   /fixtures                 # mocked JSON matching §6
-/docs/greenlight            # 00–05
+/docs/greenlight            # 00–06
 ```
 
 **Source-of-truth rule:** `/engine/schemas` defines the contracts; the frontend TS types mirror them. If they disagree, the schema wins. Acceptance criteria per component live in the implementation plan ([06-implementation-plan.md](./06-implementation-plan.md)).
+
+---
+
+## 10. Canonical constants (single source of truth)
+
+Every magic number lives here and in `engine/schemas/constants.py`. **No other doc or file may redefine these — they reference this table.** (Other docs previously scattered these across 01 §5, 02 §2.1, etc.; those are now illustrative only.)
+
+| Constant | Value | Used by |
+|----------|-------|---------|
+| `EF_MONTHS` | 3 | gate emergency-fund check |
+| `HIGH_APR` | 0.08 | gate debt halt threshold (`apr > HIGH_APR` halts) |
+| `LOW_APR` | 0.05 | gate "allow alongside" threshold |
+| `LTCG_RATE` | 0.15 | after-tax market return in gate math |
+| `EXPECTED_MARKET_RETURN` | 0.07 | gate debt-vs-invest comparison |
+| `GAMMA_MIN` / `GAMMA_MAX` | 1.5 / 8.0 | γ calibration range |
+| `GL_MEAN` / `GL_SD` / `GL_ALPHA` | 28.27 / 4.94 / 0.77 | Grable-Lytton score distribution + reliability |
+| `SR_REF` | 0.4 | γ → target-vol labeling map (`σ_target = SR_REF/γ`) |
+| `CAPACITY_WEIGHTS` | horizon 0.30, income_stability 0.25, ef 0.15, savings 0.15, debt 0.15 | capacity score (02 §3.1) |
+| `DRIFT_BAND_PP` | 5 | rebalancer trade trigger (±5 percentage points) |
+| `TX_COST_BPS` | 10 | backtest transaction cost |
+| `BLOCK_L` | 12 | Monte Carlo stationary-bootstrap default block length (months) |
+| `N_PATHS` | 10000 | Monte Carlo path count (tests may use fewer with a seed) |
+| `GLIDE` | base_age 25, slope 1/100, floor 0.3 | `glide_factor = clamp(1 − max(0,age−25)/100, 0.3, 1.0)` |
+
+Thresholds are **defaults**; `EF_MONTHS`, `HIGH_APR`, `LOW_APR` may be overridden per deployment, but the default lives only here.

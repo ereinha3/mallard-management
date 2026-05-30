@@ -81,6 +81,8 @@ flowchart TD
 
 Each component is described by **what it does**, **its input → output contract** (abstract), and **what it depends on**. Components communicate only through these contracts so each can be built and tested in isolation. The MVP build verdict for each (live / pre-baked / cut) is in [04-build-and-demo.md](./04-build-and-demo.md).
 
+> **Source of truth:** the object shapes named below are *summaries*. The **canonical schemas, constants, and worked examples live in [05-contracts.md](./05-contracts.md) §2 + §10.** If anything here disagrees with 05, **05 wins.**
+
 ### 3.1 Elicitation Agent (LLM)
 - **Does:** Drives a guided, LLM-narrated intake. Asks a small number of scenario questions ("if your portfolio dropped 20% in a year, what would you do?") and detects contradictions between stated and revealed preferences, asking a follow-up to resolve them.
 - **In → Out:** dialogue / form turns → a populated `UserProfile` (typed, §4) with per-field `confidence` and `uncertainty_flags`.
@@ -102,7 +104,7 @@ Each component is described by **what it does**, **its input → output contract
 
 ### 3.4 Responsibility Gate (deterministic) — *the spine*
 - **Does:** Decides whether the user should invest **at all**, before any optimization. Runs ordered checks (§5) and can **halt** with a reason and the supporting math.
-- **In → Out:** `ValidatedProfile` + `RiskProfile` → `GateResult { status, reason?, math?, recommended_action?, harm_prevented? }`.
+- **In → Out:** `ValidatedProfile` + `RiskProfile` → `GateResult` (canonical shape: 05 §2.4 — `status`, `failed_check`, `reason`, `recommended_action`, `math` (incl. `interest_accruing_annual` + `net_advantage_annual`), `notes`).
 - **Depends on:** nothing external — pure logic. **Built first, tested hardest.**
 
 ### 3.5 Universe Builder (deterministic)

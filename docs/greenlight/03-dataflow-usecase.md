@@ -36,7 +36,7 @@ timeline
     T0 Intake : Conversational elicitation builds her profile
     T0 Gate   : HALT - no emergency fund, then HALT - 22% APR debt. Shows the math.
     T1 Fix    : Maya re-inputs after building savings and paying the card. Gate flips GREENLIGHT.
-    T1 Invest : Profile to gamma, ERC + ESG views + glidepath, sizing, Alpaca paper buys.
+    T1 Invest : Profile to gamma, ERC + ESG views + glidepath, sizing, simulator buys.
     T2 Drift  : Fast-forward a quarter. Drift-band check. Steer contribution, one corrective trade.
     T3 Prefs  : Market scare lowers her tolerance + she tightens ESG. Re-profile, re-balance.
     T4 Tax    : Year-end. Harvestable loss flagged with wash-sale caveat. Pay residual loan from gains (after-tax).
@@ -94,7 +94,8 @@ Maya spends a few months building savings and aggressively paying the card. She 
 | Credit card debt @ 22% | $9,000 | **$0** |
 | Student loan @ 4.5% | $14,000 | $14,000 |
 | Capital on hand | $6,000 | **$7,500** |
-| Monthly surplus | ~$0 | **~$600** |
+| Monthly surplus (`income/12 − expenses`) | ~$3,300 | ~$3,300 |
+| Chosen monthly investment contribution | $0 (gate halted) | **$600** (rest → student loan + savings) |
 
 ### The gate re-runs
 
@@ -118,7 +119,7 @@ sequenceDiagram
     participant Opt as Optimizer (ERC + BL + LW)
     participant Gl as Glide-Path Adjuster
     participant Sz as Affordability Sizer
-    participant Br as Broker Adapter (Alpaca paper)
+    participant Br as Broker (in-process simulator)
     participant N as Explanation Agent
 
     G->>Uni: ValidatedProfile.preferences
@@ -134,9 +135,9 @@ sequenceDiagram
     N-->>G: plain-language rationale + disclaimers
 ```
 
-**Representative output (`TargetWeights`, illustrative):** US equity 38% · intl equity 20% · bonds 18% · TIPS 8% · gold 8% · REITs 8% — the ERC risky sleeve blended toward bonds along the capital-allocation line to hit her target volatility (her γ is a *band*, so the engine shows a vol *range*, ~9–12%), ESG-screened, age-tilted. The Sizer turns $7,500 into fractional-share buys plus a $600/mo DCA schedule. Orders go to the **in-process broker simulator** (Alpaca paper optional, same adapter); positions read back into the live portfolio view.
+**Representative output (`TargetWeights`, illustrative):** US equity 38% · intl equity 20% · bonds 18% · TIPS 8% · gold 8% · REITs 8% — the ERC risky sleeve blended toward bonds along the capital-allocation line to hit her target volatility (her γ is a *band*, so the engine shows a vol *range* ≈ 11–15%; numbers illustrative), ESG-screened, age-tilted. The Sizer turns $7,500 into fractional-share buys plus a $600/mo DCA schedule. Orders go to the **in-process broker simulator** (Alpaca paper optional, same adapter); positions read back into the live portfolio view.
 
-**The Monte Carlo beat (headline moment).** With the allocation and her $600/mo contributions, the Goal-Success Engine runs a **stationary block bootstrap** of historical sleeve returns over her 37-year horizon and reports: *"~82% chance of funding your retirement goal,"* with a fan chart of outcome percentiles and a 5th-percentile "bad case." A toggle flips to a **Gaussian** simulation showing a higher (≈88%) number — and the narration calls out that *Gaussian is optimistic in the left tail (Pfau 2010), which is exactly why we don't headline it.* This is the technical-depth-plus-pathos centerpiece of the post-greenlight view (`Projection { p_success, percentile_paths, bad_case }`).
+**The Monte Carlo beat (headline moment).** With the allocation and her $600/mo contributions, the Goal-Success Engine runs a **stationary block bootstrap** of historical sleeve returns over her 37-year horizon and reports an **illustrative** *"~82% chance of funding your retirement goal"* (exact number comes from the live bootstrap — not pinned), with a fan chart of outcome percentiles and a 5th-percentile "bad case." A toggle flips to a **Gaussian** simulation; for Maya's left-fat-tailed return mix it shows a higher number — and the narration calls out that *Gaussian understates left-tail risk (Pfau 2010), which is exactly why we don't headline it* (the honest comparison is on the bad-case/5th-percentile, not the headline %). This is the technical-depth-plus-pathos centerpiece of the post-greenlight view (`Projection { p_success, percentile_paths, bad_case }`).
 
 ---
 
