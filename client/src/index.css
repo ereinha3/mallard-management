@@ -1,22 +1,24 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 :root {
-  --bg-base: #080706;
-  --bg-surface: #0f0d0b;
-  --bg-elevated: #181410;
-  --bg-hover: #211c16;
-  --border: #2b2318;
-  --border-bright: #3e3020;
-  --text-primary: #f2e8d6;
-  --text-secondary: #8a7a62;
-  --text-muted: #4a3e2e;
-  --gold: #b8860b;
-  --gold-light: #d4a017;
-  --gold-bright: #f0c040;
-  --emerald: #1eb87a;
-  --ruby: #e64545;
-  --blue: #4a72e8;
+  --bg-base:      #090806;
+  --bg-surface:   #110f0c;
+  --bg-elevated:  #1c1814;
+  --bg-hover:     #252019;
+  --border:       #2c2620;
+  --border-bright:#3f3629;
+  --border-gold:  rgba(180,130,20,0.18);
+  --text-primary: #ede4d4;
+  --text-secondary:#8a7c66;
+  --text-muted:   #4a4030;
+  --gold:         #b08010;
+  --gold-light:   #c9971a;
+  --gold-bright:  #e8b830;
+  --emerald:      #1aad72;
+  --ruby:         #d94040;
+  --blue:         #3d68d8;
+  --focus-ring:   rgba(201,151,26,0.7);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -26,7 +28,7 @@ html, body, #root {
   margin: 0;
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   text-align: left;
 }
@@ -70,4 +72,27 @@ body::before {
 .d500 { animation-delay: 0.50s; }
 
 .font-display { font-family: 'Cormorant Garamond', serif; }
-.font-mono    { font-family: 'DM Mono', monospace; }
+.font-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* Global focus ring — WCAG 2.4.7 */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Hairline gold top-edge on cards */
+.card-premium {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top-color: var(--border-gold);
+  border-radius: 14px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

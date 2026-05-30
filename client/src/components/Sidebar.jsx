@@ -99,6 +99,7 @@ export default function Sidebar({ active, onNavigate, user }) {
             <button
               key={item.id}
               onClick={() => onNavigate?.(item.id)}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative text-left',
                 isActive ? 'nav-glow' : ''

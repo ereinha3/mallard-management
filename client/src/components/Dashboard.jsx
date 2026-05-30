@@ -78,8 +78,8 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color
     : value
   return (
     <div
-      className={`rounded-2xl p-5 flex flex-col gap-3 transition-all cursor-default card-glow anim-fade-up ${delay} ${className}`}
-      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', ...style }}
+      className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay} ${className}`}
+      style={style}
     >
       <div className="flex items-start justify-between">
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -166,44 +166,46 @@ export default function Dashboard() {
   const savingsRate  = investRow ? Math.abs(investRow.value) / grossMonthly * 100 : 24.3
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+    <div role="main" className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-8 py-5 anim-fade-up"
+      <header className="flex items-center justify-between px-8 py-5 anim-fade-up"
         style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <div>
-          <h1 className="font-display font-semibold text-2xl"
-            style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <h1 className="font-display font-semibold"
+            style={{ fontSize: 22, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
             Retirement Dashboard
           </h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          <p aria-live="polite" className="text-xs mt-1.5" style={{ color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
             {loading
-              ? 'Calculating your profile…'
+              ? 'Calculating your profile...'
               : error
-              ? `⚠ ${error}`
-              : `Last updated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · All values in USD`}
+              ? `${error} (showing estimates)`
+              : `Updated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}  ·  All values in USD`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1" role="group" aria-label="Projection scenario">
           {CHART_SCENARIOS.map((s) => (
             <button key={s} onClick={() => setScenario(s)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all"
+              aria-pressed={scenario === s}
+              className="px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all"
               style={{
                 background: scenario === s ? 'var(--bg-elevated)' : 'transparent',
                 color: scenario === s ? 'var(--gold-light)' : 'var(--text-muted)',
-                border: scenario === s ? '1px solid var(--border-bright)' : '1px solid transparent',
+                border: scenario === s ? '1px solid var(--border-gold)' : '1px solid transparent',
+                letterSpacing: '0.03em',
               }}>
               {s}
             </button>
           ))}
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 p-7 space-y-6">
+      <div className="flex-1 p-7 space-y-5">
         {/* Top metric cards */}
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
           {/* Net Worth */}
-          <div className="rounded-2xl p-5 anim-fade-up d100 transition-all cursor-default"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', position: 'relative', overflow: 'hidden' }}>
+          <div className="card-premium p-5 anim-fade-up d100 transition-all cursor-default"
+            style={{ position: 'relative', overflow: 'hidden' }}>
             <div style={{
               position: 'absolute', top: 0, right: 0, width: 200, height: 200,
               background: 'radial-gradient(circle at 100% 0%, rgba(196,154,44,0.07) 0%, transparent 70%)',
@@ -241,8 +243,7 @@ export default function Dashboard() {
           </div>
 
           {/* Retirement Score */}
-          <div className="rounded-2xl p-4 anim-fade-up d150 transition-all cursor-default"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-4 anim-fade-up d150 cursor-default">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
               Retirement Score
             </div>
@@ -273,8 +274,7 @@ export default function Dashboard() {
 
         {/* Chart + Assets */}
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr' }}>
-          <div className="rounded-2xl p-5 anim-fade-up d300"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-5 anim-fade-up d300">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
@@ -295,8 +295,7 @@ export default function Dashboard() {
             <ProjectionChart data={projections} />
           </div>
 
-          <div className="rounded-2xl p-5 anim-fade-up d350"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-5 anim-fade-up d350">
             <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
               Asset Breakdown
             </div>
@@ -318,8 +317,7 @@ export default function Dashboard() {
         {/* Bottom row */}
         <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
           {/* Milestones — static for now, Phase 3 will drive these */}
-          <div className="rounded-2xl p-5 anim-fade-up d400"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-5 anim-fade-up d400">
             <div className="flex items-center gap-2 mb-4">
               <Calendar size={13} style={{ color: 'var(--gold-light)' }} />
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -347,8 +345,7 @@ export default function Dashboard() {
           </div>
 
           {/* Liabilities — live data with effective APR */}
-          <div className="rounded-2xl p-5 anim-fade-up d450"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-5 anim-fade-up d450">
             <div className="flex items-center gap-2 mb-4">
               <CreditCard size={13} style={{ color: 'var(--ruby)' }} />
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -390,8 +387,7 @@ export default function Dashboard() {
           </div>
 
           {/* Monthly Snapshot — live data */}
-          <div className="rounded-2xl p-5 anim-fade-up d500"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+          <div className="card-premium p-5 anim-fade-up d500">
             <div className="flex items-center gap-2 mb-4">
               <DollarSign size={13} style={{ color: 'var(--emerald)' }} />
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>

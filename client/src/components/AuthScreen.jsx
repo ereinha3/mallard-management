@@ -8,34 +8,49 @@ const VALUE_PROPS = [
   { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
 ]
 
+let _inputId = 0
 function Input({ label, type = 'text', value, onChange, error, placeholder, rightEl }) {
+  const [id] = useState(() => `input-${++_inputId}`)
+  const errorId = `${id}-error`
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+      <label
+        htmlFor={id}
+        style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', color: 'var(--text-muted)', textTransform: 'uppercase' }}
+      >
         {label}
       </label>
       <div style={{ position: 'relative' }}>
         <input
+          id={id}
           type={type}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
+          aria-invalid={!!error}
+          aria-describedby={error ? errorId : undefined}
           style={{
             width: '100%',
             padding: '12px 16px',
             paddingRight: rightEl ? 44 : 16,
             background: 'var(--bg-elevated)',
-            border: `1px solid ${error ? 'rgba(230,69,69,0.6)' : 'var(--border-bright)'}`,
-            borderRadius: 10,
+            border: `1px solid ${error ? 'rgba(200,60,60,0.7)' : 'var(--border-bright)'}`,
+            borderRadius: 8,
             color: 'var(--text-primary)',
             fontSize: 14,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: 'Inter, sans-serif',
             outline: 'none',
-            transition: 'border-color 0.2s',
+            transition: 'border-color 0.15s, box-shadow 0.15s',
             boxSizing: 'border-box',
           }}
-          onFocus={e => { e.target.style.borderColor = error ? 'var(--ruby)' : 'var(--gold)' }}
-          onBlur={e => { e.target.style.borderColor = error ? 'rgba(230,69,69,0.6)' : 'var(--border-bright)' }}
+          onFocus={e => {
+            e.target.style.borderColor = error ? 'var(--ruby)' : 'var(--gold-light)'
+            e.target.style.boxShadow = `0 0 0 3px var(--focus-ring)`
+          }}
+          onBlur={e => {
+            e.target.style.borderColor = error ? 'rgba(200,60,60,0.7)' : 'var(--border-bright)'
+            e.target.style.boxShadow = 'none'
+          }}
         />
         {rightEl && (
           <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)' }}>
@@ -44,8 +59,8 @@ function Input({ label, type = 'text', value, onChange, error, placeholder, righ
         )}
       </div>
       {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--ruby)' }}>
-          <AlertCircle size={11} />
+        <div id={errorId} role="alert" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--ruby)' }}>
+          <AlertCircle size={11} aria-hidden="true" />
           {error}
         </div>
       )}
@@ -97,8 +112,9 @@ function SignInForm({ onAuth }) {
         error={errors.password}
         rightEl={
           <button type="button" onClick={() => setShowPw(v => !v)}
+            aria-label={showPw ? 'Hide password' : 'Show password'}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
-            {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPw ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
           </button>
         }
       />
@@ -157,8 +173,9 @@ function CreateForm({ onAuth }) {
         error={errors.password}
         rightEl={
           <button type="button" onClick={() => setShowPw(v => !v)}
+            aria-label={showPw ? 'Hide password' : 'Show password'}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
-            {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPw ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
           </button>
         }
       />
@@ -180,6 +197,8 @@ function SubmitButton({ loading, label }) {
     <button
       type="submit"
       disabled={loading}
+      aria-busy={loading}
+      aria-live="polite"
       style={{
         width: '100%',
         padding: '13px 24px',
@@ -409,7 +428,7 @@ export default function AuthScreen({ onAuth }) {
                   cursor: 'pointer',
                   fontSize: 13,
                   fontWeight: 600,
-                  fontFamily: 'Plus Jakarta Sans, sans-serif',
+                  fontFamily: 'Inter, sans-serif',
                   transition: 'all 0.18s',
                   background: mode === id
                     ? 'linear-gradient(135deg, var(--gold), var(--gold-bright))'
@@ -438,7 +457,7 @@ export default function AuthScreen({ onAuth }) {
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--gold-light)', fontSize: 13, fontWeight: 600,
-                fontFamily: 'Plus Jakarta Sans, sans-serif', padding: 0,
+                fontFamily: 'Inter, sans-serif', padding: 0,
               }}
             >
               {mode === 'signin' ? 'Create one' : 'Sign in'}
