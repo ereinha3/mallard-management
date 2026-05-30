@@ -1,0 +1,337 @@
+# Greenlight — Data Contracts, API & Worked Examples
+
+**Status:** Design v2 (post-review) · **Date:** 2026-05-30 · **Audience:** implementing agents
+
+This is the precision layer for implementation. Where [01-e2e-design.md](./01-e2e-design.md) says *what* and *why*, this says *exactly what shape*. Every object, endpoint, formula, and fixture an agent needs is pinned here. Notation is language-agnostic pseudo-schema; map to Pydantic (engine) and TypeScript (frontend) 1:1.
+
+**Design refinement flagged here (new):** the **risky/safe sleeve split** that makes the capital-allocation-line blend (01 §3.6) actually work. See §4.
+
+---
+
+## 1. Conventions
+
+- `money` = decimal, USD, ≥ 0 unless noted. `percent` = decimal fraction (0.22 = 22%), not "22".
+- `weight` = decimal in [0, 1]; a weight vector sums to 1.0 ± 1e-6.
+- All enums list their **complete** member set. Unknown enum value → validation error.
+- Timestamps ISO-8601. IDs are UUIDv4 strings.
+- Every API error uses the shape in §6.4.
+
+---
+
+## 2. Object schemas
+
+### 2.1 `UserProfile` (LLM output → engine input)
+```
+UserProfile {
+  household_income:    money            # annual gross
+  monthly_expenses:    money            # essential monthly
+  capital_on_hand:     money            # investable now
+  emergency_fund:      money            # liquid reserves
+  debts: [ Debt ]                       # may be empty
+  age:                 int   [18..100]
+  horizon_years:       int   [1..60]
+  goals:               [ enum(retirement|home|education|general_wealth) ]   # >=1
+  goal_target:         money            # target terminal wealth; 0 if none
+  dependents:          int   [0..20]
+  filing_status:       enum(single|married_joint|married_separate|head_of_household)
+  risk_instrument_responses: [ int ]    # Grable-Lytton item scores, len 13
+  loss_scenario_response:    enum(buy_more|hold|sell_some|sell_all)
+  loss_aversion_probe:       number     # smallest $win to accept 50/50 lose-$100; >=0
+  income_stability:    enum(bond_like|mixed|stock_like)
+  universe_pref:       enum(etf|stock|mix)
+  esg_exclusions:      [ enum(fossil_fuels|weapons|tobacco|gambling|none) ]
+  sector_theme_tilts:  [ string ]       # free tags; may be empty
+  confidence:          map<string, number[0..1]>   # per top-level field
+  uncertainty_flags:   [ string ]                  # field names needing follow-up
+}
+
+Debt {
+  balance: money            # > 0
+  apr:     percent          # e.g. 0.22
+  kind:    enum(credit_card|student|auto|mortgage|personal|other)
+}
+```
+
+### 2.2 `ValidatedProfile`
+Same fields as `UserProfile` minus `confidence`/`uncertainty_flags`, **after** validation (§6 rules). Adds `derived: { required_emergency_fund: money, monthly_surplus: money }` where `monthly_surplus = household_income/12 − monthly_expenses` (may be negative).
+
+### 2.3 `RiskProfile`
+```
+RiskProfile {
+  gamma_band:        { low: number, mid: number, high: number }   # low<=mid<=high, each in [1.5, 8.0]
+  tolerance_gamma:   { low, mid, high }
+  capacity_gamma:    number                # implied floor from capacity
+  capacity_score:    number [0..100]
+  tolerance_score:   number [0..100]
+  binding_axis:      enum(tolerance|capacity)
+  target_vol_band:   { low: percent, mid: percent, high: percent }   # = SR_ref / gamma
+}
+```
+
+### 2.4 `GateResult`
+```
+GateResult {
+  status:             enum(greenlight|halt)
+  failed_check:       enum(emergency_fund|high_interest_debt|none)
+  reason:             string             # human-readable
+  recommended_action: string            # "" if greenlight
+  math: {                                # populated on halt
+    target_amount:        money          # emergency-fund target, if that check
+    debt:                 Debt | null
+    guaranteed_return:    percent        # = debt.apr
+    expected_after_tax_market_return: percent
+    harm_prevented_annual: money         # see §7.1
+  } | null
+  notes: [ string ]                      # e.g. low-interest debt noted
+}
+```
+
+### 2.5 `Universe`
+```
+Universe {
+  tickers:        [ string ]
+  sleeves:        map<sleeve, [ticker]>          # sleeve enum below
+  risky_sleeves:  [ sleeve ]                      # see §4
+  safe_sleeves:   [ sleeve ]
+  market_weights: map<sleeve, weight>             # BL equilibrium prior; sums to 1
+  excluded:       [ { ticker, reason } ]
+}
+sleeve = enum(us_equity|intl_equity|bonds|tips|gold|reits)
+```
+
+### 2.6 `TargetWeights` + `RiskMetrics`
+```
+TargetWeights {
+  by_ticker:  map<ticker, weight>     # sums to 1
+  by_sleeve:  map<sleeve, weight>     # sums to 1
+  blend_alpha: weight                 # a in [0,1]: risky-sleeve fraction (§4)
+  method:     enum(erc|black_litterman|cvar)   # which variant produced this
+}
+RiskMetrics {
+  expected_vol:        percent
+  expected_shortfall_95: percent      # CVaR at 95%
+  risk_contributions:  map<sleeve, percent>     # sums to 100% for ERC ~ equal
+}
+```
+
+### 2.7 `Projection` (Monte Carlo)
+```
+Projection {
+  p_success:        percent                 # P(terminal wealth >= goal_target)
+  generator:        enum(stationary_bootstrap|gaussian)
+  horizon_years:    int
+  percentile_paths: map<enum(p5|p25|p50|p75|p95), [ money ]>   # wealth by year
+  bad_case_terminal: money                  # p5 terminal wealth
+  median_terminal:   money
+  n_paths:          int                     # e.g. 10000
+}
+```
+
+### 2.8 `OrderPlan`, `Fills`, `Positions`
+```
+OrderPlan {
+  method:   enum(lump_sum|dca)
+  buys:     [ { ticker, dollars: money, shares: number } ]   # fractional shares ok
+  schedule: [ { month_offset: int, contribution: money } ]   # dca only
+}
+Fill     { ticker, shares: number, price: money, ts }
+Position { ticker, shares: number, avg_cost: money, market_value: money }
+Positions { items: [Position], portfolio_value: money, cash: money }
+```
+
+### 2.9 `RebalanceDecision`
+```
+RebalanceDecision {
+  action:  enum(none|steer|trade)
+  drifts:  map<sleeve, { current: weight, target: weight, drift_pp: number }>
+  steer:   { next_contribution_to: [sleeve] } | null
+  trades:  [ { ticker, side: enum(buy|sell), shares: number } ]   # empty unless trade
+}
+```
+
+### 2.10 `TaxReport`
+```
+TaxReport {
+  harvestable: [ { ticker, unrealized_loss: money, note: string } ]
+  wash_sale_warnings: [ { ticker, window_days: int=30, suggested_replacement: ticker } ]
+  after_tax_notes: [ string ]
+}
+```
+
+### 2.11 `BacktestResult` (pre-computed, static)
+```
+BacktestResult {
+  strategies: map<enum(greenlight_erc|one_over_n|sixty_forty|target_date|naive_mvo),
+                  { equity_curve: [{date, value:money}],
+                    drawdown_curve: [{date, dd:percent}],
+                    metrics: { cagr, sharpe, deflated_sharpe, sortino, max_drawdown, calmar, turnover } }>
+  config: { window_months:int, rebalance:enum(monthly|quarterly), tx_cost_bps:number, n_trials:int, period:{start,end} }
+}
+```
+
+---
+
+## 3. Component dependency graph (what feeds what)
+
+```mermaid
+flowchart LR
+    UP["UserProfile"] --> VP["ValidatedProfile"]
+    VP --> RP["RiskProfile"]
+    VP --> GR["GateResult"]
+    RP --> GR
+    GR -->|greenlight| UNI["Universe"]
+    UNI --> TW["TargetWeights + RiskMetrics"]
+    RP --> TW
+    TW --> GL["glide-adjusted TargetWeights"]
+    GL --> PRJ["Projection (Monte Carlo)"]
+    GL --> OP["OrderPlan"]
+    OP --> POS["Positions"]
+    POS --> RD["RebalanceDecision"]
+    POS --> TR["TaxReport"]
+```
+
+---
+
+## 4. The risky/safe split & CAL-blend (design refinement)
+
+**Problem.** ERC over all six sleeves yields an inherently moderate volatility (~8–11%). You cannot reach an aggressive investor's higher target vol by *de-risking* alone (we are long-only, no leverage). So a single ERC-over-everything portfolio cannot span aggressive→conservative.
+
+**Resolution.** Two-fund construction:
+- **Risky portfolio** `P_risky` = **ERC over `risky_sleeves` = {us_equity, intl_equity, reits, gold}**. Higher vol (~14–16%).
+- **Safe portfolio** `P_safe` = market-weighted `safe_sleeves` = {bonds, tips} (or a cash proxy). Lower vol (~4–6%).
+- **Final weights** = `a · w_risky + (1 − a) · w_safe`, where `a ∈ [0, 1]` is the single dial that carries **both** the risk budget and the glide path.
+
+**Choosing `a`** to hit `σ_target` (from γ, §7.2):
+```
+σ_blend(a) = sqrt( a²·σ_risky² + (1−a)²·σ_safe² + 2·a·(1−a)·ρ·σ_risky·σ_safe )
+a* = the a in [0,1] solving σ_blend(a) = σ_target   (bisection)
+if σ_target >= σ_risky:  a* = 1   (clamp — cannot exceed all-risky long-only)
+if σ_target <= σ_safe:   a* = 0
+```
+`σ_risky`, `σ_safe`, `ρ` come from the (shrunk) covariance of the realized sleeve portfolios.
+
+**Glide path** then nudges `a` down with age (linear MVP): `a_final = a* · glide_factor(age, horizon)`, `glide_factor ∈ [0,1]`, e.g. `glide_factor = clamp(1 − max(0, age−25)/100, 0.3, 1.0)`. (The U-shaped bond-tent is a future replacement for `glide_factor`; the Monte Carlo layer is what would justify it.)
+
+BL and CVaR variants replace the *risky-sleeve* construction only (the blend mechanic is unchanged).
+
+---
+
+## 5. Universe reference table (committed starter set)
+
+| sleeve | ticker | role | esg_tags | market_weight (prior) |
+|--------|--------|------|----------|----------------------|
+| us_equity | VTI | risky | broad | 0.45 |
+| intl_equity | VEA | risky | broad | 0.20 |
+| reits | VNQ | risky | broad | 0.05 |
+| gold | GLD | risky | broad | 0.05 |
+| bonds | BND | safe | broad | 0.20 |
+| tips | TIP | safe | broad | 0.05 |
+
+ESG exclusions map to substitute tickers (e.g. `fossil_fuels` → swap VTI→ESGV, VEA→ESGD; `none` = no change). Substitution table lives in `engine/data/universe.csv`. `market_weights` are the BL equilibrium prior and must sum to 1.0.
+
+---
+
+## 6. API contract (FastAPI; JSON over HTTP)
+
+Base path `/api`. All POST bodies and responses are JSON matching §2. Frontend mocks these with static fixtures (§8) until the engine is wired.
+
+### 6.1 Pipeline endpoints
+| Method | Path | Body → Response |
+|--------|------|-----------------|
+| POST | `/profile/extract` | `{ turns: [...] }` or `{ form: {...} }` → `UserProfile` |
+| POST | `/profile/validate` | `UserProfile` → `ValidatedProfile` \| `{ clarification_requests: [...] }` |
+| POST | `/risk/profile` | `ValidatedProfile` → `RiskProfile` |
+| POST | `/gate/evaluate` | `{ profile: ValidatedProfile, risk: RiskProfile }` → `GateResult` |
+| POST | `/portfolio/build` | `{ profile, risk }` → `{ universe: Universe, weights: TargetWeights, metrics: RiskMetrics }` |
+| POST | `/projection/montecarlo` | `{ weights, horizon_years, monthly_contribution, capital_on_hand, goal_target, generator }` → `Projection` |
+| POST | `/sizing` | `{ weights, capital_on_hand, monthly_surplus }` → `OrderPlan` |
+| POST | `/execute` | `OrderPlan` → `{ fills: [Fill], positions: Positions }` |
+| GET | `/positions` | → `Positions` |
+| POST | `/rebalance` | `{ positions: Positions, weights: TargetWeights }` → `RebalanceDecision` |
+| POST | `/tax/report` | `{ positions, cost_basis: map<ticker,money>, filing_status, bracket: percent }` → `TaxReport` |
+| GET | `/backtest` | → `BacktestResult` (static) |
+| POST | `/narrate` | `{ kind: string, payload: object }` → `{ text: string }` |
+
+### 6.2 Orchestration (demo convenience)
+| POST | `/run` | `ValidatedProfile` → `{ gate: GateResult, weights?, metrics?, projection?, order_plan? }` (stops at gate if halt) |
+
+### 6.3 Demo controls
+| POST | `/sim/fast-forward` | `{ quarters: int }` → drifts simulator prices, returns new `Positions` |
+
+### 6.4 Error shape
+```
+{ error: { code: enum(validation|not_found|engine|upstream), message: string, field?: string } }
+```
+HTTP 422 for `validation`, 404 `not_found`, 500 `engine`, 502 `upstream`.
+
+---
+
+## 7. Worked numeric examples (these pin behavior — implement to match)
+
+### 7.1 Gate math (persona: Maya at T0)
+Inputs: `monthly_expenses=3200`, `emergency_fund=1500`, debt `{balance:9000, apr:0.22}`, `bracket=0.22`, `expected_market_return=0.07`.
+- **Emergency check:** `required = 3 × 3200 = 9600`. `1500 < 9600` → **HALT**, `failed_check=emergency_fund`, `target_amount=9600`, shortfall `8100`.
+- **Debt check (shown as next-up):** `0.22 > 0.08` → would halt. `guaranteed_return = 0.22`. `expected_after_tax_market_return = 0.07 × (1 − 0.15) = 0.0595` (15% LTCG). Displayed **`harm_prevented_annual = balance × apr = 9000 × 0.22 = 1980`** (interest accruing), with the secondary line "net advantage of paydown vs. investing ≈ `9000 × (0.22 − 0.0595) = 1444`/yr."
+- First failing check wins; the gate returns the emergency-fund halt.
+
+### 7.2 γ calibration (persona: Maya at T1, greenlit)
+Inputs: Grable-Lytton raw `score = 30`; constants mean `28.27`, SD `4.94`, α `0.77`, range `[1.5, 8.0]`, `SR_ref = 0.4`.
+- `z = (30 − 28.27)/4.94 = 0.350` → `p = Φ(0.350) = 0.637`.
+- `ln γ_mid = ln 8.0 − 0.637·(ln 8.0 − ln 1.5) = 2.079 − 0.637·1.674 = 1.013` → **`γ_mid = 2.75`**.
+- `SEM = 4.94·√(1−0.77) = 2.37`. `score_high=32.37 → p=0.797 → γ=2.11` (aggressive bound); `score_low=27.63 → p=0.448 → γ=3.78` (conservative bound). **`gamma_band = {low:2.11, mid:2.75, high:3.78}`**.
+- **Capacity:** Maya's 37-yr horizon → high capacity → `capacity_gamma = 2.0`. `γ_used = max(γ_tol, capacity_gamma)`; since all tolerance values ≥ 2.0, capacity does **not** bind → `binding_axis = tolerance`. *(If her horizon were 1 yr, capacity_gamma≈6.0 would cap: γ_used=max(2.75,6.0)=6.0.)*
+- **Target vol:** `σ_target_mid = SR_ref/γ_mid = 0.4/2.75 = 0.145` (14.5%); band `{low: 0.4/3.78=0.106, mid:0.145, high:0.4/2.11=0.190}`.
+
+### 7.3 CAL-blend (continuing 7.2)
+Given `σ_risky=0.16`, `σ_safe=0.05`, `ρ=0.15`, `σ_target=0.145`:
+- Solve `σ_blend(a)=0.145` by bisection → `a* ≈ 0.88`. Since `0.145 < σ_risky=0.16`, no clamp.
+- Glide: `age=28` → `glide_factor = clamp(1 − 3/100, 0.3, 1.0)=0.97` → `a_final ≈ 0.85`.
+- Final = `0.85·w_risky + 0.15·w_safe`. *(The illustrative donut in 03 T1 uses round numbers; exact weights come from the live ERC solve.)*
+
+### 7.4 Monte Carlo (stationary block bootstrap)
+1. Portfolio monthly return series `r_p = w_final · R` (R = historical sleeve returns matrix).
+2. Block length `L` via Politis-White (default `L=12` if unavailable). Generate `n_paths=10000` paths of length `horizon_years×12`: repeatedly pick a random start index and a geometric(L)-length block; concatenate until path length reached.
+3. Wealth sim per path: `W=capital_on_hand`; each month `W = W·(1+r) + monthly_contribution`.
+4. `p_success = mean(W_terminal ≥ goal_target)`; percentile paths from the cross-path wealth distribution per year; `bad_case_terminal = 5th percentile`.
+- **Gaussian toggle:** draw `r ~ Normal(mean(r_p), var(r_p))` i.i.d. — ignores fat tails ⇒ reports a **higher (optimistic)** `p_success`; surface the contrast, never headline it.
+
+### 7.5 Deflated Sharpe (backtest)
+`DSR = Φ( (SR̂ − SR0) / σ_SR )`, where
+`σ_SR = sqrt( (1 − γ3·SR̂ + ((γ4−1)/4)·SR̂²) / (T−1) )` (γ3=skew, γ4=kurtosis of returns), and
+`SR0` = expected maximum Sharpe under the null given **N trials** (Bailey & López de Prado 2014). **`config.n_trials` MUST equal the real count of configurations tried** (optimizer variants × rebalance freqs × windows). Report `DSR`, not just `SR̂`.
+
+---
+
+## 8. Fixtures & pre-baked artifacts (concrete deliverables)
+
+| Artifact | Path | Shape |
+|----------|------|-------|
+| Cached prices | `engine/data/prices.csv` | `date, ticker, adj_close` (daily, full backtest window) |
+| Universe + ESG subs | `engine/data/universe.csv` | per §5 + substitution columns |
+| Halt persona | `engine/fixtures/persona_halt.json` | a `UserProfile` (Maya T0) |
+| Greenlight persona | `engine/fixtures/persona_greenlight.json` | a `UserProfile` (Maya T1) |
+| BL/CVaR toggle weights | `engine/fixtures/toggle_weights.json` | `{ black_litterman: TargetWeights, cvar: TargetWeights }` |
+| Backtest result | `engine/data/backtest.json` | `BacktestResult` (§2.11) |
+| Cached LLM responses | `engine/fixtures/llm_*.json` | per-persona extraction + narration, for offline demo |
+| Seeded state | `engine/fixtures/state_seed.json` | positions/cost-basis for T2–T4 |
+
+---
+
+## 9. Repo / module layout
+
+```
+/engine                     # Python
+  /schemas                  # Pydantic models = §2 contracts (source of truth)
+  /profiler  /gate  /universe  /optimizer  /montecarlo
+  /sizing  /rebalance  /tax  /backtest        # backtest = offline script + output
+  /broker                   # adapter: simulator (primary) + alpaca (optional)
+  /api                      # FastAPI (§6)
+  /data  /fixtures          # §8
+/frontend                   # React + shadcn
+  /screens                  # intake, gate-result, portfolio, (rebalance/tax)
+  /components  /lib         # api client + TS types mirrored from /engine/schemas
+  /fixtures                 # mocked JSON matching §6
+/docs/greenlight            # 00–05
+```
+
+**Source-of-truth rule:** `/engine/schemas` defines the contracts; the frontend TS types mirror them. If they disagree, the schema wins. Acceptance criteria per component live in the implementation plan ([06-implementation-plan.md](./06-implementation-plan.md)).
