@@ -24,6 +24,22 @@ def load_prices() -> pd.DataFrame:
     return pd.read_csv(PRICES_PATH, parse_dates=["date"]).sort_values(["date", "ticker"])
 
 
+def latest_prices(tickers: Iterable[str] | None = None) -> dict[str, float]:
+    """Return the latest committed cached price for each requested ticker."""
+
+    requested = list(tickers or [])
+    prices = load_prices()
+    if requested:
+        prices = prices[prices["ticker"].isin(requested)]
+
+    latest = prices.sort_values("date").groupby("ticker", as_index=False).tail(1)
+    result = {str(row["ticker"]): float(row["adj_close"]) for row in latest.to_dict("records")}
+    missing = sorted(set(requested) - set(result))
+    if missing:
+        raise KeyError(f"No cached price available for ticker(s): {', '.join(missing)}")
+    return result
+
+
 def load_universe(esg_exclusions: Iterable[EsgExclusion] | None = None) -> Universe:
     """Build a Universe from docs/greenlight/05 §5, applying ESG substitutions."""
 
