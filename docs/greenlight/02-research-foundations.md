@@ -41,7 +41,23 @@ Every design decision is grounded in peer-reviewed research or established profe
 
 **Integration.** Risk Profiler tolerance axis (Design §3.3): score → γ band via Kimball-Sahm-Shapiro logic; band propagated through the optimizer (run at γ_low/mid/high) → an allocation/volatility *range* displayed to the user ("moderate, vol ~9–12%"). Loss-aversion probe flags panic-sell risk. Neutral phrasing/controlled order mitigate framing.
 
-**Confidence: HIGH** on instruments and γ mapping; **MEDIUM** on any specific score→γ table (must be calibrated and disclosed).
+**Confidence: HIGH** on instruments and γ mapping; **MEDIUM** on the specific score→γ table — so we **commit and disclose** a concrete calibration (§2.1) rather than asserting a black-box number.
+
+### 2.1 Committed score → γ calibration
+
+A fully-grounded, disclosed mapping (no free parameters hidden from the user):
+
+1. **Raw tolerance score.** The Grable-Lytton instrument yields a raw score in `[13, 47]`. Standardize against the published distribution (Kuzniak et al. 2015: mean ≈ **28.27**, SD ≈ **4.94**): `z = (score − 28.27) / 4.94`, then percentile `p = Φ(z)`.
+2. **Percentile → γ (log-spaced, monotonic).** Risk-aversion effects are multiplicative, so map on a log scale over a defensible individual range `[γ_min, γ_max] = [1.5, 8.0]` (log-utility γ=1 as the aggressive reference; the Kimball-Sahm-Shapiro 2008 population mean ≈ 8.2 anchors the conservative end):
+   `ln γ_tol = ln(γ_max) − p · (ln(γ_max) − ln(γ_min))`
+   so a high-tolerance percentile → low γ (more equity), low percentile → high γ (more conservative).
+3. **Measurement-error band (Grable 2017 requires reporting the SEM).** With reliability α ≈ 0.77, `SEM = 4.94 · √(1 − 0.77) ≈ 2.37` score points. Compute γ at `score − SEM`, `score`, and `score + SEM` to get **(γ_low, γ_mid, γ_high)** — the band we display and propagate through the optimizer.
+4. **Capacity cap.** The capacity score maps to an implied `γ_capacity_floor` by the same log map; the usable coefficient is the **more conservative** of the two: `γ_used = max(γ_tol, γ_capacity_floor)` (this is `min(capacity, tolerance)` expressed in γ — higher γ = less risk).
+5. **γ → target volatility (labeling device, disclosed).** `σ_target = SR_ref / γ_used`, where `SR_ref` is a **disclosed reference Sharpe constant** (≈ 0.4 for a diversified multi-asset portfolio), *not* a return forecast. Example: γ=2 → σ_target ≈ 20%; γ=8 → ≈ 5%. This is the dial the capital-allocation-line blend targets (§5).
+
+Every constant (28.27, 4.94, 0.77, [1.5, 8.0], SR_ref) is shown in the UI's assumptions panel, satisfying the SEC transparency expectation (§10) and Grable's SEM requirement. These are **defaults to be back-tested/tuned**, not claims of universal truth.
+
+**Confidence: HIGH** on the method and its citations; the specific constants are disclosed, tunable defaults.
 
 ---
 

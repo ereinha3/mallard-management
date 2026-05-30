@@ -98,7 +98,7 @@ Each component is described by **what it does**, **its input → output contract
   - *Capacity axis:* objective 0–100 from horizon, human-capital beta (income stability), emergency-fund months, savings rate, debt burden.
   - *Combine:* usable profile = `min(capacity, tolerance)`.
 - **In → Out:** `ValidatedProfile` → `RiskProfile { gamma_band, capacity_score, tolerance_score, binding_axis }`.
-- **Depends on:** a **disclosed** score→γ lookup table (Research §2 — must be calibrated and shown, not asserted).
+- **Depends on:** the **committed, disclosed** score→γ calibration (Research §2.1) — standardize the Grable-Lytton score → percentile → log-spaced γ over [1.5, 8.0], with a measurement-error band and a capacity cap.
 
 ### 3.4 Responsibility Gate (deterministic) — *the spine*
 - **Does:** Decides whether the user should invest **at all**, before any optimization. Runs ordered checks (§5) and can **halt** with a reason and the supporting math.
@@ -319,7 +319,7 @@ On stage, one persistent footer line is enough; the full posture lives here and 
 | Guided LLM intake → typed profile | Free-form conversational intake; bank linking & auto-refresh |
 | Responsibility gate (the spine) | Automatic contribution transfers & debt payments |
 | Two-axis risk profiling → γ band | TurboTax / tax-form export |
-| ERC + Ledoit-Wolf optimizer (live); BL + CVaR (pre-baked toggles) | DCC-GARCH / regime-switching covariance; nonlinear shrinkage |
+| ERC + Ledoit-Wolf optimizer (live); BL + CVaR (pre-baked toggles) | EWMA / DCC-GARCH / regime-switching covariance; nonlinear shrinkage |
 | Linear glide path | U-shaped bond-tent glide path (live) |
 | Monte Carlo success probability (block bootstrap) | Live (non-paper) brokerage trading |
 | Affordability sizing | Multi-account / household optimization |

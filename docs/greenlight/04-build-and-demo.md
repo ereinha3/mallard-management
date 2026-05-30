@@ -65,6 +65,7 @@ This document is the execution plan. It commits to the **Focused MVP** strategy 
 - Offline (anytime): fetch cached price CSVs via yfinance with retries/sleeps; run the walk-forward backtest; dump results to JSON.
 
 **Workstream B — Frontend (1–2 devs, React/shadcn)**
+- H0: **Define the Greenlight visual identity first** (color/type system, the red→green light as the brand motif) — a 30–60 min decision that prevents generic-shadcn look, the biggest UI-polish risk. Lock it before building screens.
 - H0–2: Scaffold, routing, three screens as static shells against mocked JSON.
 - H2–10: Gate-result view (the math + harm-prevented number — the centerpiece), parameter panel, allocation donut, Monte Carlo fan chart, backtest charts (static JSON).
 - H10–16: The **re-run / gate-flip** interaction (red→green) and polish; the optional rebalance/tax panel.
