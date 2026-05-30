@@ -4,7 +4,7 @@ import {
 } from 'recharts'
 import { formatCurrency } from '../lib/utils'
 
-const data = [
+const FALLBACK_DATA = [
   { year: '2024', conservative: 520000, base: 540000,     optimistic: 560000 },
   { year: '2026', conservative: 610000, base: 650000,     optimistic: 700000 },
   { year: '2028', conservative: 700000, base: 780000,     optimistic: 870000 },
@@ -56,7 +56,8 @@ const tickStyle = {
   fontSize: 11,
 }
 
-export default function ProjectionChart() {
+export default function ProjectionChart({ data: liveData }) {
+  const data = liveData ?? FALLBACK_DATA
   return (
     <div style={{ width: '100%', height: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
