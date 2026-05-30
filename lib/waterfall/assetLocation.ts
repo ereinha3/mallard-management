@@ -125,19 +125,20 @@ export interface ExecutionItem {
 
 // ── Suggested ETF tickers ──────────────────────────────────────────────────
 
+// All tickers are ETFs — no mutual funds
 const SUGGESTED_TICKER: Record<AssetClass, string> = {
-  us_equity_broad:         "VTI",
-  us_equity_growth:        "VUG",
-  us_equity_value:         "VTV",
-  international_developed: "VXUS",
-  international_emerging:  "VWO",
-  us_bonds:                "BND",
-  international_bonds:     "BNDX",
-  tips:                    "VTIP",
-  high_yield_bonds:        "VWEHX",
-  reits:                   "VNQ",
-  commodities:             "PDBC",
-  cash_equivalents:        "SGOV",
+  us_equity_broad:         "VTI",    // Vanguard Total Stock Market ETF
+  us_equity_growth:        "VUG",    // Vanguard Growth ETF
+  us_equity_value:         "VTV",    // Vanguard Value ETF
+  international_developed: "VXUS",   // Vanguard Total International Stock ETF
+  international_emerging:  "VWO",    // Vanguard Emerging Markets ETF
+  us_bonds:                "BND",    // Vanguard Total Bond Market ETF
+  international_bonds:     "BNDX",   // Vanguard Total International Bond ETF
+  tips:                    "VTIP",   // Vanguard Short-Term Inflation-Protected Securities ETF
+  high_yield_bonds:        "USHY",   // iShares Broad USD High Yield Corporate Bond ETF
+  reits:                   "VNQ",    // Vanguard Real Estate ETF
+  commodities:             "PDBC",   // Invesco Optimum Yield Diversified Commodity Strategy ETF
+  cash_equivalents:        "SGOV",   // iShares 0-3 Month Treasury Bond ETF
 };
 
 const TAX_RATIONALE: Record<AssetClass, string> = {
