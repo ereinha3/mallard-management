@@ -264,10 +264,8 @@ function buildNarrative(
   }
 
   // Full clear
-  actions.push("Max employer 401k match first — that's a 50–100% instant return");
-  actions.push("Then HSA if eligible, then IRA, then taxable brokerage");
   if (capital.toInvesting > 0) {
-    actions.push(`${fmt(capital.toInvesting)} of your capital is ready to deploy`);
+    actions.push(`${fmt(capital.toInvesting)} cleared for investing`);
   }
   if (allowed.length > 0) {
     actions.push(`Continue minimum payments on: ${allowed.map((d) => d.label).join(", ")}`);
@@ -277,8 +275,8 @@ function buildNarrative(
     headline: "🟢 Greenlight — you're ready to invest",
     explanation:
       `Emergency fund is solid (${emergency.monthsCovered} months covered). ` +
-      `${input.debts.length === 0 ? "No debt. " : "All remaining debt is below the invest-vs-paydown threshold. "}` +
-      `Your ${fmt(surplus.monthlySurplus)}/month surplus is ready to put to work.`,
+      `${input.debts.length === 0 ? "No debt. " : "All debt is below the paydown-vs-invest threshold. "}` +
+      `${fmt(surplus.monthlySurplus)}/month surplus and ${fmt(capital.toInvesting)} in capital are cleared.`,
     actionItems: actions,
   };
 }

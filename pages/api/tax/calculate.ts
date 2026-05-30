@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { TaxInputSchema, calculateTax, analyzeTaxSavings } from "../../../lib/tax";
+import { TaxInputSchema, calculateTax } from "../../../lib/tax";
 import { setCORSHeaders } from "../../../lib/api/cors";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -15,7 +15,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const summary = calculateTax(parsed.data);
-  const savings = analyzeTaxSavings(parsed.data, summary);
 
-  return res.status(200).json({ summary, savings });
+  return res.status(200).json(summary);
 }
