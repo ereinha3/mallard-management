@@ -3,18 +3,39 @@ import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import GreenlightFlow from './components/greenlight/GreenlightFlow'
 import AuthScreen from './components/AuthScreen'
+import OnboardingChat from './components/OnboardingChat'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight']
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [user, setUser] = useState(null)
+  const [onboardingDone, setOnboardingDone] = useState(false)
   const [activePage, setActivePage] = useState('dashboard')
 
-  if (!isAuthenticated) {
-    return <AuthScreen onAuth={(u) => { setUser(u); setIsAuthenticated(true) }} />
+  // Stage 1: not logged in
+  if (!user) {
+    return (
+      <AuthScreen
+        onAuth={(u) => {
+          setUser(u)
+          // Existing users skip onboarding
+          if (!u.isNewUser) setOnboardingDone(true)
+        }}
+      />
+    )
   }
 
+  // Stage 2: new user goes through Mallard AI onboarding
+  if (!onboardingDone) {
+    return (
+      <OnboardingChat
+        user={user}
+        onComplete={() => setOnboardingDone(true)}
+      />
+    )
+  }
+
+  // Stage 3: full app
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg-base)' }}>
       <Sidebar active={activePage} onNavigate={setActivePage} user={user} />
