@@ -1,6 +1,6 @@
 # Greenlight — Worked Use Case & Data-Flow
 
-**Status:** Design (pre-implementation) · **Date:** 2026-05-30
+**Status:** Design v2 (post-review) · **Date:** 2026-05-30
 
 This document traces a single persona, **Maya**, through the entire system across a multi-event timeline that exercises **every** category: the responsibility gate halting on debt + no safety net, the gate flipping to greenlight, allocation and execution, quarterly drift rebalancing, a mid-stream **preference change**, paying down debt **with capital gains**, and a year-end **wash-sale / tax-loss-harvesting** moment.
 
@@ -73,11 +73,14 @@ sequenceDiagram
 - **Risk Profiler → `RiskProfile`.** Tolerance maps to a moderate γ, but with a wide band (low confidence). Capacity is *low*: emergency fund ≈ 0.5 months, high-APR debt, mixed human-capital beta.
 - **Responsibility Gate → `GateResult`.**
   - **Check 1 (emergency fund):** $1,500 < 3 × $3,200 = $9,600. → **HALT.** Output: *"Build your safety net first — target $9,600 (3 months of expenses)."*
+  - **Harm prevented (shown):** the screen also previews the 22% card: *"Investing behind this card would cost you ~$1,980/yr in interest while you chase an uncertain ~7% return. Paying it off is a guaranteed, tax-free 22%."*
   - The gate stops here; checks 2+ are shown as "next up" but optimization never runs.
 
 ### What Maya sees
 
-A calm, non-judgmental screen: **"Not yet — and here's why."** The target dollar figure, and a preview that her 22% card would *also* block investing. No portfolio is built. This is the benevolence moment.
+A calm, non-judgmental screen: **"Not yet — and here's why."** The target dollar figure, the harm-prevented number, and a preview that her 22% card would *also* block investing. No portfolio is built. This is the benevolence moment.
+
+**Framing (say it on stage):** the halt is **deferred conversion, not refusal.** Greenlight hasn't lost Maya — it's coaching her toward the day she's ready, and the gate-flip (T1) is the conversion event. A trust-first funnel, not a non-product.
 
 ---
 
@@ -131,7 +134,9 @@ sequenceDiagram
     N-->>G: plain-language rationale + disclaimers
 ```
 
-**Representative output (`TargetWeights`, illustrative):** US equity 38% · intl equity 20% · bonds 18% · TIPS 8% · gold 8% · REITs 8% — equity-tilted for her age, ESG-screened, risk sized to her (wide-band) γ. The Sizer turns $7,500 into fractional-share buys plus a $600/mo DCA schedule. Orders go to the **Alpaca paper** account; positions read back into the live portfolio view.
+**Representative output (`TargetWeights`, illustrative):** US equity 38% · intl equity 20% · bonds 18% · TIPS 8% · gold 8% · REITs 8% — the ERC risky sleeve blended toward bonds along the capital-allocation line to hit her target volatility (her γ is a *band*, so the engine shows a vol *range*, ~9–12%), ESG-screened, age-tilted. The Sizer turns $7,500 into fractional-share buys plus a $600/mo DCA schedule. Orders go to the **in-process broker simulator** (Alpaca paper optional, same adapter); positions read back into the live portfolio view.
+
+**The Monte Carlo beat (headline moment).** With the allocation and her $600/mo contributions, the Goal-Success Engine runs a **stationary block bootstrap** of historical sleeve returns over her 37-year horizon and reports: *"~82% chance of funding your retirement goal,"* with a fan chart of outcome percentiles and a 5th-percentile "bad case." A toggle flips to a **Gaussian** simulation showing a higher (≈88%) number — and the narration calls out that *Gaussian is optimistic in the left tail (Pfau 2010), which is exactly why we don't headline it.* This is the technical-depth-plus-pathos centerpiece of the post-greenlight view (`Projection { p_success, percentile_paths, bad_case }`).
 
 ---
 
@@ -236,7 +241,9 @@ A year-end summary: harvest opportunity with the wash-sale guardrail, the after-
 
 ## Why this use case wins on stage
 
-1. **The halt is the hook.** Opening with "Not yet — here's why" (T0) is memorable and unique among robo-advisor demos.
-2. **The flip is the payoff.** Watching the gate turn green after Maya fixes her finances (T1) is a strong second beat.
-3. **Every category is exercised** in one coherent story: debt gate, allocation, execution, drift rebalance, preference change, tax-loss harvesting with the wash-sale guardrail, and paying debt with gains on an after-tax basis.
-4. **The transparent parameter panel** throughout shows judges the LLM-elicits/engine-decides boundary — the technical-rigor and trustworthiness story in one view.
+1. **The halt is the hook.** Opening with "Not yet — here's why" (T0), with the harm-prevented dollar figure, is memorable and unique among robo-advisor demos.
+2. **The flip is the payoff.** Watching the gate turn green after Maya fixes her finances (T1) is the conversion moment — the signature red→green animation.
+3. **Two technical showpieces, shown not described:** the Monte Carlo success-probability fan chart (T1) and the pre-computed out-of-sample backtest beating 60/40 with a visible Deflated Sharpe.
+4. **The transparent parameter panel** shows judges the LLM-elicits/engine-decides boundary — the rigor and trust story in one view, including the contradiction-catch.
+
+**Focus discipline (important).** This document traces *all* events end-to-end so the team understands the full system — but the **live 3-minute demo is only T0 → T1** (halt → fix → flip → allocation → Monte Carlo → backtest). T2 (drift rebalance), T3 (preference change), and T4 (tax/wash-sale) are shown **fast, as a single "…and it maintains the portfolio, rebalances tax-efficiently, and flags harvestable losses" line with one screenshot**, with depth available on judge request. Trying to exercise every category live in three minutes exercises none of them well. The full pitch + timed demo script is in **[04-build-and-demo.md](./04-build-and-demo.md)**.
