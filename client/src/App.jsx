@@ -30,7 +30,10 @@ export default function App() {
     return (
       <OnboardingChat
         user={user}
-        onComplete={() => setOnboardingDone(true)}
+        onComplete={(result) => {
+          // result is the OnboardResponse from /api/v1/onboard (or null if backend offline)
+          setOnboardingDone(true)
+        }}
       />
     )
   }
