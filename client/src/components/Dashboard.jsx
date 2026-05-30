@@ -328,7 +328,7 @@ export default function Dashboard() {
             </div>
             {[
               { label: "Max 401(k) contribution",   date: "Completed Feb 2026",  done: true  },
-              { label: "Emergency fund — 6 months", date: "Completed Dec 2025",  done: true  },
+              { label: "Emergency fund, 6 months", date: "Completed Dec 2025",  done: true  },
               { label: "Pay off student loans",     date: "Target Dec 2026",     done: false },
               { label: "Reach $1.5M net worth",     date: "Projected Q3 2027",   done: false },
               { label: "Retire",                    date: `Target Jan ${EXAMPLE_PROFILE.retirementTargetYear}`, done: false },

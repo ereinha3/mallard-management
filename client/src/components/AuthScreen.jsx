@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 
 const VALUE_PROPS = [
-  { num: '01', text: 'Tells you not to invest — when that\'s the right answer.' },
+  { num: '01', text: 'Tells you not to invest when that is the right answer.' },
   { num: '02', text: 'Shows the math, not just the verdict.' },
   { num: '03', text: 'Builds a portfolio sized to what you can actually afford.' },
-  { num: '04', text: 'Rebalances on drift, not a calendar — no needless fees.' },
+  { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
 ]
 
 function Input({ label, type = 'text', value, onChange, error, placeholder, rightEl }) {
@@ -243,26 +243,38 @@ export default function AuthScreen({ onAuth }) {
         padding: '48px 56px',
         overflow: 'hidden',
       }}>
-        {/* Geometric background pattern */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.04, pointerEvents: 'none' }}
-          viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
-          {Array.from({ length: 12 }, (_, i) => (
-            <line key={`h${i}`} x1="0" y1={i * 70} x2="400" y2={i * 70} stroke="var(--gold)" strokeWidth="0.5" />
+        {/* Diagonal gold rule */}
+        <div style={{
+          position: 'absolute', top: 0, right: 0, width: 1, height: '100%',
+          background: 'linear-gradient(to bottom, transparent, rgba(184,134,11,0.3) 40%, rgba(184,134,11,0.15) 60%, transparent)',
+          pointerEvents: 'none',
+        }} />
+
+        {/* Geometric lines */}
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.045, pointerEvents: 'none' }}
+          viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
+          {Array.from({ length: 14 }, (_, i) => (
+            <line key={`h${i}`} x1="0" y1={i * 68} x2="400" y2={i * 68} stroke="#b8860b" strokeWidth="0.5" />
           ))}
-          {Array.from({ length: 8 }, (_, i) => (
-            <line key={`v${i}`} x1={i * 60} y1="0" x2={i * 60} y2="800" stroke="var(--gold)" strokeWidth="0.5" />
+          {Array.from({ length: 7 }, (_, i) => (
+            <line key={`v${i}`} x1={i * 68} y1="0" x2={i * 68} y2="900" stroke="#b8860b" strokeWidth="0.5" />
           ))}
-          <circle cx="200" cy="400" r="180" fill="none" stroke="var(--gold)" strokeWidth="0.5" />
-          <circle cx="200" cy="400" r="120" fill="none" stroke="var(--gold)" strokeWidth="0.5" />
-          <circle cx="200" cy="400" r="60" fill="none" stroke="var(--gold)" strokeWidth="0.5" />
+          <circle cx="200" cy="450" r="200" fill="none" stroke="#b8860b" strokeWidth="0.5" />
+          <circle cx="200" cy="450" r="130" fill="none" stroke="#b8860b" strokeWidth="0.5" />
         </svg>
 
-        {/* Atmospheric gold glow */}
+        {/* Deep smoky gold glow */}
         <div style={{
-          position: 'absolute', bottom: '-80px', left: '-80px',
-          width: 360, height: 360, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(196,154,44,0.09) 0%, transparent 70%)',
-          filter: 'blur(40px)', pointerEvents: 'none',
+          position: 'absolute', bottom: '-60px', left: '-60px',
+          width: 420, height: 420, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(184,134,11,0.12) 0%, rgba(184,134,11,0.04) 50%, transparent 70%)',
+          filter: 'blur(60px)', pointerEvents: 'none',
+        }} />
+        <div style={{
+          position: 'absolute', top: '-100px', right: '-100px',
+          width: 320, height: 320, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(184,134,11,0.06) 0%, transparent 70%)',
+          filter: 'blur(50px)', pointerEvents: 'none',
         }} />
 
         {/* Logo */}
@@ -327,7 +339,7 @@ export default function AuthScreen({ onAuth }) {
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ height: 1, background: 'var(--border)', marginBottom: 20 }} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            Demonstration only — not financial advice.<br />
+            Demonstration only. Not financial advice.<br />
             Not a registered investment adviser.
           </div>
         </div>
@@ -369,7 +381,7 @@ export default function AuthScreen({ onAuth }) {
             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
               {mode === 'signin'
                 ? 'Sign in to access your financial dashboard.'
-                : 'Get started — it takes less than a minute.'}
+                : 'Get started. It takes less than a minute.'}
             </p>
           </div>
 

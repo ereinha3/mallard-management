@@ -2,18 +2,18 @@
 @import "tailwindcss";
 
 :root {
-  --bg-base: #070910;
-  --bg-surface: #0d0f1c;
-  --bg-elevated: #131728;
-  --bg-hover: #181d2e;
-  --border: #1b2035;
-  --border-bright: #252d48;
-  --text-primary: #eaecf5;
-  --text-secondary: #7e8aaa;
-  --text-muted: #404862;
-  --gold: #c49a2c;
-  --gold-light: #ddb84a;
-  --gold-bright: #f0cc68;
+  --bg-base: #080706;
+  --bg-surface: #0f0d0b;
+  --bg-elevated: #181410;
+  --bg-hover: #211c16;
+  --border: #2b2318;
+  --border-bright: #3e3020;
+  --text-primary: #f2e8d6;
+  --text-secondary: #8a7a62;
+  --text-muted: #4a3e2e;
+  --gold: #b8860b;
+  --gold-light: #d4a017;
+  --gold-bright: #f0c040;
   --emerald: #1eb87a;
   --ruby: #e64545;
   --blue: #4a72e8;
@@ -29,6 +29,18 @@ html, body, #root {
   font-family: 'Plus Jakarta Sans', sans-serif;
   -webkit-font-smoothing: antialiased;
   text-align: left;
+}
+
+/* Smoky grain overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.032;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
 }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
