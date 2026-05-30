@@ -1,12 +1,12 @@
 import {
   LayoutDashboard, TrendingUp, PiggyBank, BarChart3,
-  Settings, Bell, Shield, ChevronRight, Feather,
+  Settings, Bell, Shield, ChevronRight, Feather, Zap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard', active: true },
-  { icon: TrendingUp,      label: 'Projections',  id: 'projections' },
+  { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard' },
+  { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
   { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: BarChart3,       label: 'Portfolio',    id: 'portfolio' },
   { icon: Shield,          label: 'Risk',         id: 'risk' },
@@ -17,7 +17,9 @@ const bottomItems = [
   { icon: Settings, label: 'Settings', id: 'settings' },
 ]
 
-export default function Sidebar({ active, onNavigate }) {
+export default function Sidebar({ active, onNavigate, user }) {
+  const displayName = user?.name || 'Ben Tell'
+  const initials = displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   return (
     <aside
       className="flex flex-col h-full"
@@ -72,11 +74,11 @@ export default function Sidebar({ active, onNavigate }) {
               flexShrink: 0,
             }}
           >
-            BT
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-              Ben Tell
+              {displayName}
             </div>
             <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
               Premium Plan
@@ -102,20 +104,37 @@ export default function Sidebar({ active, onNavigate }) {
                 isActive ? 'nav-glow' : ''
               )}
               style={{
-                background: isActive ? 'var(--bg-elevated)' : 'transparent',
-                color: isActive ? 'var(--gold-light)' : 'var(--text-secondary)',
+                background: isActive
+                  ? item.highlight ? 'rgba(30,184,122,0.12)' : 'var(--bg-elevated)'
+                  : 'transparent',
+                color: isActive
+                  ? item.highlight ? 'var(--emerald)' : 'var(--gold-light)'
+                  : item.highlight ? '#1eb87a99' : 'var(--text-secondary)',
+                border: isActive && item.highlight ? '1px solid rgba(30,184,122,0.25)' : '1px solid transparent',
               }}
               onMouseEnter={e => {
-                if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'
-                if (!isActive) e.currentTarget.style.color = 'var(--text-primary)'
+                if (!isActive) {
+                  e.currentTarget.style.background = item.highlight ? 'rgba(30,184,122,0.08)' : 'var(--bg-hover)'
+                  e.currentTarget.style.color = item.highlight ? 'var(--emerald)' : 'var(--text-primary)'
+                }
               }}
               onMouseLeave={e => {
-                if (!isActive) e.currentTarget.style.background = 'transparent'
-                if (!isActive) e.currentTarget.style.color = 'var(--text-secondary)'
+                if (!isActive) {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = item.highlight ? '#1eb87a99' : 'var(--text-secondary)'
+                }
               }}
             >
               <item.icon size={16} />
               {item.label}
+              {item.highlight && !isActive && (
+                <span
+                  className="ml-auto text-xs px-1.5 py-0.5 rounded font-mono"
+                  style={{ background: 'rgba(30,184,122,0.15)', color: 'var(--emerald)', fontSize: 10 }}
+                >
+                  NEW
+                </span>
+              )}
             </button>
           )
         })}
