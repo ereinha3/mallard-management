@@ -97,7 +97,7 @@ function MallardBubble({ text, isActive }) {
         borderTopLeftRadius: 4, borderTopRightRadius: 14,
         borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
         fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'DM Sans, sans-serif',
       }}>
         {content}
         {isActive && !done && (
@@ -123,7 +123,7 @@ function UserBubble({ text }) {
         borderTopLeftRadius: 14, borderTopRightRadius: 4,
         borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
         fontSize: 14, lineHeight: 1.55, color: 'var(--text-primary)',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'DM Sans, sans-serif',
       }}>
         {text}
       </div>
@@ -188,7 +188,7 @@ function BuildingScreen() {
 
         <div style={{ textAlign: 'center' }}>
           <div style={{
-            fontFamily: 'Cormorant Garamond, serif', fontSize: 40,
+            fontFamily: 'Playfair Display, serif', fontSize: 40,
             fontWeight: 600, letterSpacing: '-0.03em',
             color: 'var(--text-primary)', lineHeight: 1, marginBottom: 10,
           }}>
@@ -323,7 +323,7 @@ export default function OnboardingChat({ user, onComplete }) {
             <Feather size={14} color="#070604" />
           </div>
           <div>
-            <div style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
+            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
               Mallard
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -377,7 +377,7 @@ export default function OnboardingChat({ user, onComplete }) {
                   borderRadius: 9,
                   color: 'var(--text-primary)',
                   fontSize: 14,
-                  fontFamily: 'Inter, sans-serif',
+                  fontFamily: 'DM Sans, sans-serif',
                   outline: 'none',
                   transition: 'border-color 0.15s, box-shadow 0.15s',
                 }}
@@ -394,7 +394,7 @@ export default function OnboardingChat({ user, onComplete }) {
                   background: inputVal.trim() ? 'linear-gradient(135deg, var(--gold), var(--gold-bright))' : 'var(--bg-elevated)',
                   color: inputVal.trim() ? '#070604' : 'var(--text-muted)',
                   fontSize: 13, fontWeight: 700,
-                  fontFamily: 'Inter, sans-serif',
+                  fontFamily: 'DM Sans, sans-serif',
                   transition: 'all 0.15s',
                   whiteSpace: 'nowrap',
                 }}

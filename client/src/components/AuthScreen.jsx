@@ -38,7 +38,7 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
             borderRadius: 7,
             color: 'var(--text-primary)',
             fontSize: 13.5,
-            fontFamily: 'Inter, sans-serif',
+            fontFamily: 'DM Sans, sans-serif',
             outline: 'none',
             transition: 'border-color 0.15s, box-shadow 0.15s',
           }}
@@ -104,7 +104,7 @@ function SubmitBtn({ loading, label }) {
         background: loading ? 'var(--bg-elevated)' : 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
         color: loading ? 'var(--text-muted)' : '#070604',
         fontSize: 13.5, fontWeight: 700,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'DM Sans, sans-serif',
         letterSpacing: '0.03em',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         marginTop: 4,
@@ -160,7 +160,7 @@ function SignInForm({ onAuth }) {
       <PwField label="Password" value={password} onChange={e => setPassword(e.target.value)}
         placeholder="••••••••" error={errors.password} autoComplete="current-password" />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -8 }}>
-        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--gold-light)', padding: 0, fontFamily: 'Inter, sans-serif' }}>
+        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--gold-light)', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>
           Forgot password?
         </button>
       </div>
@@ -289,7 +289,7 @@ export default function AuthScreen({ onAuth }) {
             <Feather size={18} color="#070604" />
           </div>
           <div>
-            <div style={{ fontFamily: 'Cormorant Garamond, serif', fontWeight: 600, fontSize: 17, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
+            <div style={{ fontFamily: 'Playfair Display, serif', fontWeight: 600, fontSize: 17, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
               Mallard
             </div>
             <div style={{ fontSize: 9.5, letterSpacing: '0.16em', color: 'var(--gold-light)', fontFamily: 'JetBrains Mono, monospace' }}>
@@ -301,7 +301,7 @@ export default function AuthScreen({ onAuth }) {
         {/* Hero copy */}
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{
-            fontFamily: 'Cormorant Garamond, serif',
+            fontFamily: 'Playfair Display, serif',
             fontSize: 50, fontWeight: 600,
             lineHeight: 1.09, letterSpacing: '-0.03em',
             color: 'var(--text-primary)',
@@ -343,7 +343,7 @@ export default function AuthScreen({ onAuth }) {
           {/* Heading */}
           <div style={{ marginBottom: 28 }}>
             <h1 style={{
-              fontFamily: 'Cormorant Garamond, serif', fontSize: 34,
+              fontFamily: 'Playfair Display, serif', fontSize: 34,
               fontWeight: 600, letterSpacing: '-0.03em',
               color: 'var(--text-primary)', margin: 0, lineHeight: 1, marginBottom: 8,
             }}>
@@ -371,7 +371,7 @@ export default function AuthScreen({ onAuth }) {
                 style={{
                   flex: 1, padding: '9px 12px', borderRadius: 6, border: 'none',
                   cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                  fontFamily: 'Inter, sans-serif', transition: 'all 0.15s',
+                  fontFamily: 'DM Sans, sans-serif', transition: 'all 0.15s',
                   background: mode === id ? 'linear-gradient(135deg, var(--gold), var(--gold-bright))' : 'transparent',
                   color: mode === id ? '#070604' : 'var(--text-muted)',
                 }}
@@ -394,7 +394,7 @@ export default function AuthScreen({ onAuth }) {
             <button
               type="button"
               onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-light)', fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', padding: 0 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-light)', fontSize: 12.5, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', padding: 0 }}
             >
               {mode === 'signin' ? 'Create one' : 'Sign in'}
             </button>

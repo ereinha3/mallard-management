@@ -44,7 +44,7 @@ export default function App() {
         {activePage === 'greenlight' && <GreenlightFlow />}
         {!PAGES_WITH_CONTENT.includes(activePage) && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
+            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
               {activePage}
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
