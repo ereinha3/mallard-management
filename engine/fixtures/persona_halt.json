@@ -1,0 +1,25 @@
+{
+  "household_income": 78000,
+  "monthly_expenses": 3200,
+  "capital_on_hand": 6000,
+  "emergency_fund": 1500,
+  "debts": [
+    {"balance": 9000, "apr": 0.22, "kind": "credit_card"},
+    {"balance": 14000, "apr": 0.045, "kind": "student"}
+  ],
+  "age": 28,
+  "horizon_years": 37,
+  "goals": ["retirement"],
+  "goal_target": 1000000,
+  "dependents": 0,
+  "filing_status": "single",
+  "risk_instrument_responses": [2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3],
+  "loss_scenario_response": "sell_some",
+  "loss_aversion_probe": 250,
+  "income_stability": "mixed",
+  "universe_pref": "etf",
+  "esg_exclusions": ["fossil_fuels", "weapons"],
+  "sector_theme_tilts": [],
+  "confidence": {"risk": 0.6},
+  "uncertainty_flags": ["risk_tolerance"]
+}

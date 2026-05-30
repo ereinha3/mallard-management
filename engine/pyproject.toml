@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "greenlight-engine"
+version = "0.1.0"
+description = "Deterministic Greenlight risk engine foundation."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.6",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scikit-learn>=1.4",
+  "riskfolio-lib>=7.2",
+  "cvxpy>=1.6",
+  "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "backtest*",
+  "broker*",
+  "data*",
+  "gate*",
+  "montecarlo*",
+  "optimizer*",
+  "profiler*",
+  "rebalance*",
+  "schemas*",
+  "sizing*",
+  "tax*",
+  "universe*",
+]
+
+[tool.setuptools.package-data]
+data = ["*.csv"]
+fixtures = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
