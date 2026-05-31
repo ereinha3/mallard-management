@@ -266,7 +266,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
   const [mode, setMode] = useState('signin')
 
   return (
-    <div className="mallard-auth-screen" style={{ minHeight: '100vh', width: '100vw', background: 'transparent', overflow: 'hidden auto' }}>
+    <div className="mallard-auth-screen" style={{ height: '100vh', minHeight: '100vh', width: '100vw', background: 'transparent', overflow: 'hidden' }}>
 
       {/* Dev-only: skip login + onboarding, load demo data */}
       {onDevSkip && (
@@ -435,16 +435,19 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
         .mallard-auth-screen .landing-reveal.d4 { --landing-stagger: 300ms; }
 
         .mallard-auth-split {
-          min-height: 100vh;
+          height: 100%;
+          min-height: 0;
           width: 100%;
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           background: transparent;
+          overflow: hidden;
         }
 
         .mallard-landing-panel {
           min-width: 0;
-          min-height: 100vh;
+          min-height: 0;
+          height: 100%;
           display: flex;
           align-items: stretch;
           justify-content: center;
@@ -452,6 +455,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
           background: var(--landing-panel-bg);
           border-right: 1px solid var(--border);
           box-shadow: 16px 0 54px rgba(24, 20, 14, 0.10);
+          overflow: hidden;
         }
 
         [data-theme="dark"] .mallard-landing-panel {
@@ -460,7 +464,8 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
 
         .mallard-landing-content {
           width: min(100%, 620px);
-          min-height: calc(100vh - clamp(104px, 10.4vw, 152px));
+          min-height: 0;
+          height: 100%;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -468,12 +473,15 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
 
         .mallard-auth-form-half {
           min-width: 0;
-          min-height: 100vh;
+          min-height: 0;
+          height: 100%;
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: center;
           padding: clamp(42px, 5vw, 72px);
           background: transparent;
+          overflow-y: auto;
+          overscroll-behavior: contain;
         }
 
         .mallard-auth-card {
@@ -489,6 +497,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
           display: flex;
           align-items: center;
           justify-content: center;
+          margin-block: auto;
         }
 
         .mallard-logo-row {
@@ -630,26 +639,40 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
         }
 
         @media (max-width: 1120px) {
+          .mallard-auth-screen {
+            height: auto !important;
+            min-height: 100vh !important;
+            overflow: hidden auto !important;
+          }
+
           .mallard-auth-split {
             grid-template-columns: 1fr;
+            height: auto;
+            min-height: 100vh;
+            overflow: visible;
           }
 
           .mallard-landing-panel {
+            height: auto;
             min-height: auto;
             padding-top: 88px;
             border-bottom: 1px solid var(--border);
             border-right: 0;
             box-shadow: 0 18px 54px rgba(0, 0, 0, 0.08);
+            overflow: visible;
           }
 
           .mallard-landing-content {
+            height: auto;
             min-height: auto;
             justify-content: flex-start;
           }
 
           .mallard-auth-form-half {
+            height: auto;
             min-height: auto;
             padding: 42px 28px 64px;
+            overflow: visible;
           }
         }
 
