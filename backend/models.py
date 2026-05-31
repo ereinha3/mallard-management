@@ -285,7 +285,14 @@ class OptimizerInput(BaseModel):
 
 # ── Canonical engine finance endpoint models ─────────────────────────────────
 
-Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits", "real_assets"]
+# Mirrors engine/schemas/models.py Sleeve (Wave-0 contract for the Sharpe-audit
+# remediation). Only `cash_like` is the CAL risk-free leg; other fixed-income
+# sleeves are capped risky diversifiers. `bonds`/`tips` kept for back-compat.
+Sleeve = Literal[
+    "us_equity", "intl_equity", "gold", "reits", "real_assets",
+    "bonds", "tips",
+    "cash_like", "core_bonds", "credit", "duration_hedge", "inflation",
+]
 
 
 class ExcludedTicker(BaseModel):

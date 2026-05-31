@@ -20,7 +20,16 @@ IncomeStability = Literal["bond_like", "mixed", "stock_like"]
 UniversePref = Literal["etf", "stock", "mix"]
 EsgExclusion = Literal["fossil_fuels", "weapons", "tobacco", "gambling", "none"]
 DebtKind = Literal["credit_card", "student", "auto", "mortgage", "personal", "other"]
-Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits", "real_assets"]
+# Sleeve taxonomy. The fixed-income split (cash_like / core_bonds / credit /
+# duration_hedge / inflation) is the Wave-0 contract for the Sharpe-audit
+# remediation: only `cash_like` is the CAL risk-free leg; the rest are capped
+# risky diversifiers (see docs/greenlight/audits/2026-05-31-sharpe-audit.md).
+# `bonds`/`tips` retained for back-compat with existing seed/data.
+Sleeve = Literal[
+    "us_equity", "intl_equity", "gold", "reits", "real_assets",
+    "bonds", "tips",
+    "cash_like", "core_bonds", "credit", "duration_hedge", "inflation",
+]
 Bucket = str
 
 
