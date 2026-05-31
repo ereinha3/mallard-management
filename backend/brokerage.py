@@ -15,7 +15,7 @@ SANDBOX_IDENTITY = {
     "given_name": "Jane",
     "family_name": "Investor",
     "date_of_birth": "1990-01-01",
-    "tax_id": "666-55-4321",
+    "tax_id": "456-78-9012",
     "tax_id_type": "USA_SSN",
     "country_of_citizenship": "USA",
     "country_of_birth": "USA",
@@ -24,7 +24,7 @@ SANDBOX_IDENTITY = {
 }
 SANDBOX_CONTACT = {
     "email_address": "sandbox-investor@example.com",
-    "phone_number": "555-0100",
+    "phone_number": "+15556667788",
     "street_address": ["20 N San Mateo Dr"],
     "city": "San Mateo",
     "state": "CA",
