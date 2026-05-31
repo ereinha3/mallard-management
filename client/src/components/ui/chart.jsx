@@ -19,15 +19,17 @@ export function ChartContainer({ className, height = 280, children }) {
   )
 }
 
+// Theme-adaptive shell: --bg-elevated flips with light/dark so the hover card
+// matches the active theme instead of being hardcoded dark.
 const tooltipShell = {
-  background: 'rgba(18, 15, 11, 0.94)',
+  background: 'var(--bg-elevated)',
   backdropFilter: 'blur(10px)',
   WebkitBackdropFilter: 'blur(10px)',
   border: '1px solid var(--border-gold)',
   borderRadius: 12,
   padding: '10px 13px',
-  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.45)',
-  minWidth: 184,
+  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+  minWidth: 208,
   pointerEvents: 'none',
 }
 
@@ -38,6 +40,8 @@ const tooltipShell = {
  * @param series  [{ key, label, color }] — rows to display, in order
  * @param labelPrefix  prefix for the axis label (e.g. "Year ")
  * @param formatValue  (number) => string
+ * @param formatSecondary  (value, row) => { text, positive } | null — optional
+ *        secondary metric per row (e.g. % ROI), sign-colored green/red.
  */
 export function ChartTooltipContent({
   active,
@@ -46,6 +50,7 @@ export function ChartTooltipContent({
   series = [],
   labelPrefix = '',
   formatValue = (value) => value,
+  formatSecondary,
 }) {
   if (!active || !payload || payload.length === 0) return null
   const row = payload[0]?.payload ?? {}
@@ -71,6 +76,7 @@ export function ChartTooltipContent({
         {series.map((entry) => {
           const value = Number(row[entry.key])
           if (!Number.isFinite(value)) return null
+          const secondary = formatSecondary ? formatSecondary(value, row) : null
           return (
             <div
               key={entry.key}
@@ -86,7 +92,7 @@ export function ChartTooltipContent({
                   boxShadow: `0 0 8px ${entry.color}`,
                 }}
               />
-              <span style={{ color: 'rgba(237, 228, 212, 0.62)', flex: 1 }}>{entry.label}</span>
+              <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{entry.label}</span>
               <span
                 style={{
                   fontFamily: "'DM Mono', monospace",
@@ -96,6 +102,19 @@ export function ChartTooltipContent({
               >
                 {formatValue(value)}
               </span>
+              {secondary && (
+                <span
+                  style={{
+                    fontFamily: "'DM Mono', monospace",
+                    fontSize: 10.5,
+                    minWidth: 52,
+                    textAlign: 'right',
+                    color: secondary.positive ? 'var(--green-light)' : 'var(--ruby)',
+                  }}
+                >
+                  {secondary.text}
+                </span>
+              )}
             </div>
           )
         })}

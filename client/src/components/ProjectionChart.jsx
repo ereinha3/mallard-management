@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatPercent } from '../lib/utils'
 import { ChartContainer, ChartTooltipContent } from './ui/chart'
 
 // Percentile series shown in the hover tooltip (ranged bands stay out of it).
@@ -149,9 +149,26 @@ export default function ProjectionChart({ projection: providedProjection, onboar
   }, [providedProjection, onboardResult, portfolio])
 
   const projection = providedProjection ?? fetchedProjection
-  const data = useMemo(() => (projection ? rowsFromProjection(projection) : []), [projection])
+  const inputs = useMemo(() => getProjectionInputs(onboardResult), [onboardResult])
+  const data = useMemo(() => {
+    const rows = projection ? rowsFromProjection(projection) : []
+    if (!inputs) return rows
+    // Cumulative dollars invested by each year — the basis for % ROI per band.
+    return rows.map((row) => ({
+      ...row,
+      invested: inputs.capital_on_hand + inputs.monthly_contribution * 12 * row.year,
+    }))
+  }, [projection, inputs])
   const referenceYear = projection?.horizon_years ?? retirementYear
   const scale = useMemo(() => projectionScale(data), [data])
+
+  // % ROI of a percentile value vs. dollars invested to that year (sign-colored).
+  const roiForValue = (value, row) => {
+    const invested = Number(row?.invested)
+    if (!Number.isFinite(invested) || invested <= 0) return null
+    const roi = (value / invested - 1) * 100
+    return { text: formatPercent(roi, true), positive: roi >= 0 }
+  }
 
   if (!portfolio?.weights && !projection) {
     return (
@@ -266,6 +283,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
                 series={TOOLTIP_SERIES}
                 labelPrefix="Year "
                 formatValue={(value) => formatCurrency(value, true)}
+                formatSecondary={roiForValue}
               />
             }
           />
