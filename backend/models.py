@@ -1,0 +1,277 @@
+from __future__ import annotations
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, List, Optional, Dict, Literal, Tuple
+
+
+# ── Chat / elicitation ────────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage] = Field(min_length=1)
+
+
+class AdvisorChatRequest(BaseModel):
+    messages: List[ChatMessage] = Field(min_length=1)
+    context: Optional[Any] = Field(
+        default=None,
+        description="OnboardResponse JSON from /api/v1/onboard — gives the advisor the user's numbers",
+    )
+
+
+# ── Financial profile ─────────────────────────────────────────────────────────
+
+class DebtItem(BaseModel):
+    balance: float = Field(gt=0, description="Outstanding balance in dollars")
+    apr: float = Field(ge=0, le=1.0, description="Annual rate as decimal — 0.22 = 22%")
+    kind: Literal["credit_card", "student", "mortgage", "auto", "personal", "other"]
+
+
+class UserProfileInput(BaseModel):
+    # ── Financials ────────────────────────────────────────────────────────────
+    household_income: float = Field(gt=0, description="Annual household income in dollars")
+    monthly_expenses: float = Field(gt=0, description="Total monthly essential expenses")
+    capital_on_hand: float = Field(ge=0, description="Liquid capital available to invest")
+    emergency_fund: float = Field(ge=0, description="Current emergency fund balance")
+    debts: List[DebtItem] = Field(default_factory=list)
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
+    age: int = Field(ge=18, le=100)
+    horizon_years: int = Field(ge=1, le=60, description="Years to retirement or primary goal")
+    goals: List[str] = Field(default_factory=list)
+    goal_target: float = Field(default=0.0, ge=0, description="Target terminal wealth; 0 if not specified")
+    dependents: int = Field(ge=0, default=0)
+    filing_status: Literal[
+        "single",
+        "married_joint",
+        "married_separate",
+        "head_of_household",
+    ]
+
+    # ── Risk tolerance signals (Grable-Lytton instrument) ────────────────────
+    risk_instrument_responses: List[int] = Field(
+        min_length=13,
+        max_length=13,
+        description="13 GL items each scored 1–4 (higher = more risk tolerant)",
+    )
+    loss_scenario_response: Literal["sell_all", "sell_some", "hold", "buy_more"]
+    loss_aversion_probe: Optional[float] = Field(
+        default=None,
+        description="Minimum $ win to accept a 50/50 bet against a $100 loss",
+    )
+
+    # ── Capacity inputs ───────────────────────────────────────────────────────
+    income_stability: Literal["bond_like", "mixed", "stock_like"]
+
+    # ── Preferences ───────────────────────────────────────────────────────────
+    universe_pref: Literal["etf", "stock", "mix"] = "etf"
+    esg_exclusions: List[Literal["fossil_fuels", "weapons", "tobacco", "gambling", "none"]] = Field(
+        default_factory=list
+    )
+    sector_theme_tilts: List[str] = Field(default_factory=list)
+
+    # ── LLM confidence metadata ───────────────────────────────────────────────
+    confidence: Dict[str, float] = Field(default_factory=dict)
+    uncertainty_flags: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_instrument_scores(self) -> "UserProfileInput":
+        for i, v in enumerate(self.risk_instrument_responses):
+            if v not in (1, 2, 3, 4):
+                raise ValueError(f"risk_instrument_responses[{i}] must be 1–4, got {v}")
+        return self
+
+
+class ValidatedProfile(UserProfileInput):
+    """UserProfileInput plus derived fields added by the validation gate."""
+    monthly_surplus: float
+    emergency_fund_months: float
+    required_emergency_fund: float     # = monthly_expenses × EF_MONTHS
+
+
+class ClarificationRequest(BaseModel):
+    field: str
+    issue: str
+    suggested_question: str
+
+
+# ── Risk profile ──────────────────────────────────────────────────────────────
+
+class GammaBand(BaseModel):
+    """
+    Posture-keyed band.  aggressive <= mid <= conservative (all in [1.5, 8.0]).
+    Lower gamma = more aggressive (higher target vol).
+    Keyed by posture so target_vol.aggressive = SR_REF / gamma.aggressive (highest vol),
+    which keeps the mapping intuitive and avoids silent inversion bugs.
+    """
+    aggressive: float
+    mid: float
+    conservative: float
+
+
+class TargetVolBand(BaseModel):
+    aggressive: float    # highest vol
+    mid: float
+    conservative: float  # lowest vol
+
+
+class RiskProfile(BaseModel):
+    gamma_band: GammaBand
+    tolerance_gamma: GammaBand
+    capacity_gamma: float               # single implied floor from capacity score
+    capacity_score: float = Field(ge=0, le=100)
+    tolerance_score: float = Field(ge=0, le=100)
+    binding_axis: Literal["capacity", "tolerance"]
+    target_vol_band: TargetVolBand
+    loss_aversion_flag: bool = False
+
+
+# ── Gate math objects ─────────────────────────────────────────────────────────
+
+class EmergencyFundMath(BaseModel):
+    current_balance: float
+    monthly_expenses: float
+    months_covered: float
+    required_months: float
+    target_balance: float
+    shortfall: float
+
+
+class DebtGateMath(BaseModel):
+    debt_balance: float
+    apr: float
+    debt_kind: str
+    guaranteed_return: float                    # = debt.apr (risk-free, tax-free)
+    expected_after_tax_market_return: float     # = 0.07 × (1 − 0.15) = 0.0595 (fixed constant)
+    interest_accruing_annual: float             # = balance × apr  — the punchy headline number
+    net_advantage_annual: float                 # = balance × (apr − after_tax_return)  — true harm prevented
+    verdict: str
+
+
+class GateMath(BaseModel):
+    check: Literal["emergency_fund", "high_interest_debt"]
+    emergency_fund: Optional[EmergencyFundMath] = None
+    debt: Optional[DebtGateMath] = None
+
+
+class GateResult(BaseModel):
+    status: Literal["greenlight", "halt"]
+    failed_check: Optional[Literal["emergency_fund", "high_interest_debt", "none"]] = None
+    reason: Optional[str] = None
+    math: Optional[GateMath] = None
+    recommended_action: str = ""
+    notes: List[str] = Field(default_factory=list)
+    preview_next_checks: List[str] = Field(default_factory=list)
+
+
+# ── Optimizer boundary ────────────────────────────────────────────────────────
+
+class OptimizerInput(BaseModel):
+    risk_profile: RiskProfile
+    universe_pref: str
+    esg_exclusions: List[str]
+    sector_theme_tilts: List[str]
+    capital_on_hand: float
+    monthly_surplus: float
+    age: int
+    horizon_years: int
+    goal_target: float
+    human_capital_beta: Literal["bond_like", "mixed", "stock_like"]
+    filing_status: str
+    gate_notes: List[str] = Field(default_factory=list)
+
+
+# ── Financial analysis ────────────────────────────────────────────────────────
+
+class FinancialSnapshot(BaseModel):
+    monthly_income: float
+    monthly_expenses: float
+    monthly_surplus: float
+    savings_rate_pct: float
+    annual_surplus: float
+    total_debt: float
+    total_high_apr_debt: float
+    total_low_apr_debt: float
+    debt_to_income_ratio: float
+    net_worth_estimate: float
+    emergency_fund_months: float
+    emergency_fund_target_months: float
+    emergency_fund_pct_complete: float
+    emergency_fund_shortfall: float
+
+
+class DebtSnapshot(BaseModel):
+    balance: float
+    apr: float
+    kind: str
+    monthly_interest_cost: float
+    months_to_payoff: Optional[int]
+    total_interest_cost: Optional[float]
+    priority_rank: int
+    gate_status: Literal["halt", "caution", "allow"]
+
+
+class DebtAnalysis(BaseModel):
+    debts: List[DebtSnapshot]
+    total_balance: float
+    total_monthly_interest: float
+    avalanche_order: List[str]
+
+
+class EmergencyFundAnalysis(BaseModel):
+    current_balance: float
+    current_months: float
+    target_months: float
+    target_balance: float
+    shortfall: float
+    pct_complete: float
+    months_to_target: Optional[int]
+
+
+class GreenLightStep(BaseModel):
+    step: int
+    action: str
+    target_amount: float
+    months_estimated: Optional[int]
+    note: str
+
+
+class PathToGreenlight(BaseModel):
+    already_green: bool
+    steps: List[GreenLightStep] = Field(default_factory=list)
+    total_months_estimated: Optional[int]
+
+
+class RiskSummary(BaseModel):
+    gamma_mid: float
+    label: str
+    capacity_score: float
+    tolerance_score: float
+    binding_axis: Literal["capacity", "tolerance"]
+    target_volatility_pct: float
+    estimated_max_loss_1yr_pct: float
+    loss_aversion_flag: bool
+    contradiction_note: Optional[str] = None
+
+
+class FinancialAnalysis(BaseModel):
+    snapshot: FinancialSnapshot
+    debt: DebtAnalysis
+    emergency_fund: EmergencyFundAnalysis
+    risk: RiskSummary
+    path_to_greenlight: PathToGreenlight
+
+
+# ── API response ──────────────────────────────────────────────────────────────
+
+class OnboardResponse(BaseModel):
+    status: Literal["greenlight", "halt", "needs_clarification"]
+    validated_profile: Optional[ValidatedProfile] = None
+    risk_profile: Optional[RiskProfile] = None
+    gate_result: Optional[GateResult] = None
+    financial_analysis: Optional[FinancialAnalysis] = None
+    optimizer_input: Optional[OptimizerInput] = None
+    clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
