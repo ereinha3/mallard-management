@@ -357,25 +357,24 @@ def _stream_sync(messages: list[ChatMessage]) -> Generator[dict, None, None]:
 
     function_call_args = None
 
-    with client.models.generate_content_stream(
+    for chunk in client.models.generate_content_stream(
         model=GEMINI_MODEL,
         contents=contents,
         config=config,
-    ) as stream:
-        for chunk in stream:
-            # Stream text tokens
-            if chunk.text:
-                yield {"type": "token", "content": chunk.text}
+    ):
+        # Stream text tokens
+        if chunk.text:
+            yield {"type": "token", "content": chunk.text}
 
-            # Detect function call (may arrive in any chunk, usually the last)
-            if chunk.candidates:
-                for candidate in chunk.candidates:
-                    if not (candidate.content and candidate.content.parts):
-                        continue
-                    for part in candidate.content.parts:
-                        fc = getattr(part, "function_call", None)
-                        if fc and getattr(fc, "name", None) == "submit_profile":
-                            function_call_args = _to_python(fc.args)
+        # Detect function call (may arrive in any chunk, usually the last)
+        if chunk.candidates:
+            for candidate in chunk.candidates:
+                if not (candidate.content and candidate.content.parts):
+                    continue
+                for part in candidate.content.parts:
+                    fc = getattr(part, "function_call", None)
+                    if fc and getattr(fc, "name", None) == "submit_profile":
+                        function_call_args = _to_python(fc.args)
 
     if function_call_args is not None:
         yield {"type": "profile_ready", "profile": function_call_args}

@@ -195,6 +195,7 @@ export default function OnboardingChat({ user, onComplete }) {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const abortRef = useRef(false)
+  const initializedRef = useRef(false)
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -206,8 +207,10 @@ export default function OnboardingChat({ user, onComplete }) {
     if (!isStreaming) inputRef.current?.focus()
   }, [isStreaming])
 
-  // Kick off the first AI message on mount
+  // Kick off the first AI message on mount (guard against StrictMode double-fire)
   useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
     const seed = [{ role: 'user', content: `Hi, my name is ${user?.name || 'there'}.` }]
     setMessages(seed)
     callBackend(seed)
