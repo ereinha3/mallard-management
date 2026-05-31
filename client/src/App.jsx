@@ -11,12 +11,13 @@ import PortfolioView from './components/greenlight/PortfolioView'
 import RiskView from './components/RiskView'
 import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
+import ProfileView from './components/ProfileView'
 import LearnView from './components/learn/LearnView'
 import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
 const AUTH_LOCAL_STORAGE_KEYS = []
 
 export default function App() {
@@ -122,6 +123,7 @@ export default function App() {
           {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
           {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
           {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
+          {activePage === 'profile' && <ProfileView onboardResult={onboardResult} />}
           {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
           {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} onApplied={setOnboardResult} />}
           {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
