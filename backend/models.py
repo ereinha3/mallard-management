@@ -291,6 +291,7 @@ Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits"]
 class ExcludedTicker(BaseModel):
     ticker: str
     reason: str
+    replacement: Optional[str] = None
 
 
 class Universe(BaseModel):
@@ -307,6 +308,15 @@ class TargetWeights(BaseModel):
     by_sleeve: Dict[Sleeve, float]
     blend_alpha: float = Field(ge=0, le=1)
     method: Literal["erc", "black_litterman", "cvar"]
+
+
+class PortfolioETF(BaseModel):
+    ticker: str
+    name: str
+    sleeve: Sleeve
+    weight: float = Field(ge=0)
+    replacement_for: Optional[str] = None
+    exclusion_reason: Optional[str] = None
 
 
 class FundingDepositRequest(BaseModel):
@@ -408,6 +418,7 @@ class PortfolioResponse(BaseModel):
     universe: Universe
     weights: TargetWeights
     metrics: RiskMetrics
+    etfs: List[PortfolioETF] = Field(default_factory=list)
 
 
 class BacktestRequest(BaseModel):

@@ -13,7 +13,8 @@ from data.db import Instrument, InstrumentMeta, MacroSeries, Price, create_all, 
 
 DATA_DIR = Path(__file__).resolve().parent
 PRICES_PATH = DATA_DIR / "prices.csv"
-UNIVERSE_PATH = DATA_DIR / "universe.csv"
+CLASSIFICATION_PATH = DATA_DIR / "classification.csv"
+UNIVERSE_PATH = CLASSIFICATION_PATH
 ESG_COLUMNS = ("fossil_fuels", "weapons", "tobacco", "gambling")
 
 SLEEVE_METADATA = {
@@ -67,18 +68,59 @@ def _instrument_defaults(ticker: str, sleeve: str) -> dict[str, Any]:
     }
 
 
+def _sleeve(record: dict[str, Any]) -> str:
+    explicit = _clean(record.get("sleeve"))
+    if explicit:
+        return str(explicit)
+    asset_class = str(_clean(record.get("asset_class")) or "").lower()
+    region = str(_clean(record.get("region")) or "").lower()
+    bucket = str(_clean(record.get("bucket")) or "").lower()
+    if asset_class == "equity":
+        return "intl_equity" if region in {"developed_intl", "em", "international"} else "us_equity"
+    if asset_class == "bond":
+        return "tips" if "tips" in bucket or "inflation" in bucket else "bonds"
+    if asset_class == "commodity":
+        return "gold"
+    if asset_class == "real_estate":
+        return "reits"
+    return str(_clean(record.get("asset_class")) or "us_equity")
+
+
+def _role(sleeve: str, record: dict[str, Any]) -> str:
+    explicit = _clean(record.get("role"))
+    if explicit:
+        return str(explicit)
+    return "safe" if sleeve in {"bonds", "tips"} else "risky"
+
+
+def _market_weight(value: Any) -> float | None:
+    cleaned = _clean(value)
+    return None if cleaned is None else float(cleaned)
+
+
 def _instrument_rows(universe_path: Path) -> list[dict[str, Any]]:
     universe = pd.read_csv(universe_path).fillna("")
     rows: dict[str, dict[str, Any]] = {}
 
     for record in universe.to_dict("records"):
-        ticker = str(record["ticker"])
-        sleeve = str(record["sleeve"])
+        ticker = str(record["ticker"]).strip()
+        if not ticker:
+            continue
+        sleeve = _sleeve(record)
         row = _instrument_defaults(ticker, sleeve)
         row.update(
             {
-                "role": str(record["role"]),
-                "market_weight": float(record["market_weight"]),
+                "asset_class": _clean(record.get("asset_class")) or row["asset_class"],
+                "bucket": _clean(record.get("bucket")) or row["bucket"],
+                "region": _clean(record.get("region")) or row["region"],
+                "size": _clean(record.get("size")) or row["size"],
+                "style": _clean(record.get("style")) or row["style"],
+                "underlying_index": _clean(record.get("underlying_index")) or row["underlying_index"],
+                "issuer": _clean(record.get("issuer")) or row["issuer"],
+                "quote_type": _clean(record.get("quote_type")) or row["quote_type"],
+                "sleeve": sleeve,
+                "role": _role(sleeve, record),
+                "market_weight": _market_weight(record.get("market_weight")),
                 **{column: _clean(record.get(column)) for column in ESG_COLUMNS},
             }
         )
@@ -88,15 +130,24 @@ def _instrument_rows(universe_path: Path) -> list[dict[str, Any]]:
             replacement = _clean(record.get(column))
             if not replacement or replacement == ticker:
                 continue
-            alternate = _instrument_defaults(str(replacement), sleeve)
+            replacement_ticker = str(replacement)
+            alternate = _instrument_defaults(replacement_ticker, sleeve)
             alternate.update(
                 {
+                    "asset_class": row["asset_class"],
+                    "bucket": row["bucket"],
+                    "region": row["region"],
+                    "size": row["size"],
+                    "style": row["style"],
+                    "underlying_index": row["underlying_index"],
+                    "issuer": row["issuer"],
+                    "quote_type": row["quote_type"],
                     "role": "alternate",
                     "market_weight": None,
                     **{column_name: None for column_name in ESG_COLUMNS},
                 }
             )
-            rows.setdefault(str(replacement), alternate)
+            rows.setdefault(replacement_ticker, alternate)
 
     return list(rows.values())
 
@@ -163,4 +214,3 @@ def seed_database(
 
 if __name__ == "__main__":
     seed_database()
-

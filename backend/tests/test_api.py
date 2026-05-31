@@ -212,6 +212,11 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert body["portfolio"]["weights"]["method"] == "erc"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert body["portfolio"]["metrics"]["expected_vol"] >= 0
+    etfs = {item["ticker"]: item for item in body["portfolio"]["etfs"]}
+    assert etfs["ESGV"]["name"] == "Vanguard ESG U.S. Stock ETF"
+    assert etfs["ESGV"]["sleeve"] == "us_equity"
+    assert etfs["ESGV"]["replacement_for"] == "VTI"
+    assert etfs["ESGV"]["exclusion_reason"] == "fossil_fuels"
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):

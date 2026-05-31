@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
+from data.seed import seed_database
 from data.loaders import load_prices, returns_matrix
 from optimizer.blend import build_target_weights, glide_factor, solve_blend_alpha
 from optimizer.erc import (
@@ -25,6 +26,43 @@ def test_universe_builder_applies_esg_substitutions_and_contract_weights():
     assert set(universe.safe_sleeves) == {"bonds", "tips"}
     assert abs(sum(universe.market_weights.values()) - 1.0) < 1e-6
     assert {item.ticker for item in universe.excluded} == {"VTI", "VEA"}
+
+
+def test_universe_builder_honors_sector_theme_tilts_without_changing_optimizer_math():
+    universe = build_universe(
+        SimpleNamespace(
+            universe_pref="etf",
+            esg_exclusions=["none"],
+            sector_theme_tilts=["technology"],
+        )
+    )
+
+    assert set(universe.sleeves["us_equity"]) == {"XLK", "VGT"}
+    assert "XLF" not in universe.tickers
+    assert "BND" in universe.sleeves["bonds"]
+    assert abs(sum(universe.market_weights.values()) - 1.0) < 1e-6
+
+
+def test_universe_builder_honors_universe_pref_quote_type(tmp_path, monkeypatch):
+    db_url = f"sqlite:///{tmp_path / 'universe-pref.db'}"
+    classification = tmp_path / "classification.csv"
+    classification.write_text(
+        "ticker,asset_class,bucket,region,size,style,underlying_index,issuer,quote_type,sleeve,role,market_weight\n"
+        "AAA,equity,broad,us,large,blend,AAA Index,Issuer A,ETF,us_equity,risky,1.0\n"
+        "BBB,equity,broad,us,large,blend,BBB Index,Issuer B,stock,us_equity,risky,1.0\n"
+    )
+    prices = tmp_path / "prices.csv"
+    prices.write_text("date,ticker,adj_close\n")
+    seed_database(db_url, prices_path=prices, universe_path=classification)
+    monkeypatch.setenv("GREENLIGHT_DB_URL", db_url)
+
+    etf_universe = build_universe({"universe_pref": "etf"})
+    stock_universe = build_universe({"universe_pref": "stock"})
+    mixed_universe = build_universe({"universe_pref": "mix"})
+
+    assert etf_universe.tickers == ["AAA"]
+    assert stock_universe.tickers == ["BBB"]
+    assert mixed_universe.tickers == ["AAA", "BBB"]
 
 
 def test_cov_ledoit_wolf_returns_labeled_dataframe():

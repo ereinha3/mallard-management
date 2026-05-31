@@ -18,7 +18,7 @@ from data.ingest.yfinance_source import fetch_meta as fetch_yfinance_meta
 from data.ingest.yfinance_source import fetch_prices as fetch_yfinance_prices
 from data.seed import DATA_DIR, ESG_COLUMNS
 
-DEFAULT_TICKERS_FROM = DATA_DIR / "universe.csv"
+DEFAULT_TICKERS_FROM = DATA_DIR / "classification.csv"
 DEFAULT_RISK_FREE_SERIES = "DGS3MO"
 
 
