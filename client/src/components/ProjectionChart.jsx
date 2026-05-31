@@ -1,5 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { formatCurrency } from '../lib/utils'
+import { ChartContainer, ChartTooltipContent } from './ui/chart'
+
+// Percentile series shown in the hover tooltip (ranged bands stay out of it).
+const TOOLTIP_SERIES = [
+  { key: 'p95', label: 'Optimistic · 95th', color: 'var(--emerald)' },
+  { key: 'p75', label: '75th', color: 'var(--gold-light)' },
+  { key: 'p50', label: 'Median', color: 'var(--gold-bright)' },
+  { key: 'p25', label: '25th', color: 'var(--gold)' },
+  { key: 'p5', label: 'Downside · 5th', color: 'var(--ruby)' },
+]
 
 function numberOrNull(value) {
   const num = Number(value)
@@ -36,14 +56,26 @@ function rowsFromProjection(projection) {
     paths.p95?.length ?? 0,
   )
 
-  return Array.from({ length }, (_, i) => ({
-    year: i + 1,
-    p5: paths.p5?.[i],
-    p25: paths.p25?.[i],
-    p50: paths.p50?.[i],
-    p75: paths.p75?.[i],
-    p95: paths.p95?.[i],
-  }))
+  const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : undefined)
+
+  return Array.from({ length }, (_, i) => {
+    const p5 = finite(paths.p5?.[i])
+    const p25 = finite(paths.p25?.[i])
+    const p50 = finite(paths.p50?.[i])
+    const p75 = finite(paths.p75?.[i])
+    const p95 = finite(paths.p95?.[i])
+    return {
+      year: i + 1,
+      p5,
+      p25,
+      p50,
+      p75,
+      p95,
+      // Ranged areas for Recharts (rendered as shaded confidence bands).
+      band90: p5 != null && p95 != null ? [p5, p95] : undefined,
+      band50: p25 != null && p75 != null ? [p25, p75] : undefined,
+    }
+  })
 }
 
 function projectionScale(data) {
@@ -58,33 +90,6 @@ function projectionScale(data) {
   return { min, max: max + pad }
 }
 
-function linePath(data, key, xFor, yFor) {
-  return data
-    .map((row, index) => {
-      const value = Number(row[key])
-      if (!Number.isFinite(value)) return null
-      return `${index === 0 ? 'M' : 'L'} ${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`
-    })
-    .filter(Boolean)
-    .join(' ')
-}
-
-function bandPath(data, lowerKey, upperKey, xFor, yFor) {
-  const upper = data
-    .map((row, index) => ({ x: xFor(index), y: yFor(Number(row[upperKey])) }))
-    .filter(point => Number.isFinite(point.y))
-  const lower = data
-    .map((row, index) => ({ x: xFor(index), y: yFor(Number(row[lowerKey])) }))
-    .filter(point => Number.isFinite(point.y))
-    .reverse()
-  if (upper.length === 0 || lower.length === 0) return ''
-  return [
-    `M ${upper[0].x.toFixed(2)} ${upper[0].y.toFixed(2)}`,
-    ...upper.slice(1).map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
-    ...lower.map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
-    'Z',
-  ].join(' ')
-}
 
 export default function ProjectionChart({ projection: providedProjection, onboardResult, retirementYear }) {
   const [fetchedProjection, setFetchedProjection] = useState(null)
@@ -192,19 +197,12 @@ export default function ProjectionChart({ projection: providedProjection, onboar
     )
   }
 
-  const width = 720
-  const height = projection ? 230 : 280
-  const margin = { top: 14, right: 18, bottom: 30, left: 70 }
-  const plotWidth = width - margin.left - margin.right
-  const plotHeight = height - margin.top - margin.bottom
-  const xFor = (index) => margin.left + (data.length <= 1 ? 0 : (index / (data.length - 1)) * plotWidth)
-  const yFor = (value) => margin.top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(part => scale.min + (scale.max - scale.min) * part)
-  const xTicks = [0, Math.floor((data.length - 1) / 2), data.length - 1]
-    .filter((value, index, values) => values.indexOf(value) === index)
-  const p90Band = bandPath(data, 'p5', 'p95', xFor, yFor)
-  const p50Band = bandPath(data, 'p25', 'p75', xFor, yFor)
-  const retireX = referenceYear && Number(referenceYear) <= data.length ? xFor(Number(referenceYear) - 1) : null
+  const height = projection ? 240 : 290
+  const retireYear =
+    referenceYear && Number(referenceYear) >= 1 && Number(referenceYear) <= data.length
+      ? Number(referenceYear)
+      : null
+  const axisTick = { fontSize: 11, fontFamily: 'DM Mono, monospace', fill: 'var(--text-muted)' }
 
   return (
     <div>
@@ -230,61 +228,105 @@ export default function ProjectionChart({ projection: providedProjection, onboar
           </div>
         </div>
       )}
-      <div style={{ width: '100%', height }}>
-        <svg
-          role="img"
-          aria-label="Monte Carlo portfolio projection percentile paths"
-          viewBox={`0 0 ${width} ${height}`}
-          preserveAspectRatio="none"
-          style={{ width: '100%', height: '100%', display: 'block' }}
-        >
+      <ChartContainer height={height} className="anim-fade-up">
+        <ComposedChart data={data} margin={{ top: 10, right: 14, bottom: 4, left: 4 }}>
           <defs>
             <linearGradient id="projectionBand90" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#4a72e8" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#4a72e8" stopOpacity="0.03" />
+              <stop offset="0%" stopColor="var(--emerald)" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="var(--emerald)" stopOpacity="0.02" />
             </linearGradient>
             <linearGradient id="projectionBand50" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ddb84a" stopOpacity="0.24" />
-              <stop offset="100%" stopColor="#ddb84a" stopOpacity="0.05" />
+              <stop offset="0%" stopColor="var(--gold-bright)" stopOpacity="0.26" />
+              <stop offset="100%" stopColor="var(--gold-bright)" stopOpacity="0.04" />
             </linearGradient>
           </defs>
 
-          {yTicks.map((tick) => {
-            const y = yFor(tick)
-            return (
-              <g key={`y-${tick}`}>
-                <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} stroke="var(--border)" strokeDasharray="3 4" />
-                <text x={margin.left - 10} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11" fontFamily="DM Mono, monospace">
-                  {formatCurrency(tick, true)}
-                </text>
-              </g>
-            )
-          })}
+          <CartesianGrid stroke="var(--border)" strokeDasharray="2 6" vertical={false} />
+          <XAxis
+            dataKey="year"
+            tickFormatter={(year) => `Yr ${year}`}
+            tick={axisTick}
+            tickLine={false}
+            axisLine={{ stroke: 'var(--border)' }}
+            minTickGap={44}
+            dy={6}
+          />
+          <YAxis
+            domain={[scale.min, scale.max]}
+            tickFormatter={(value) => formatCurrency(value, true)}
+            tick={axisTick}
+            tickLine={false}
+            axisLine={false}
+            width={62}
+          />
+          <Tooltip
+            cursor={{ stroke: 'var(--border-bright)', strokeWidth: 1, strokeDasharray: '4 4' }}
+            content={
+              <ChartTooltipContent
+                series={TOOLTIP_SERIES}
+                labelPrefix="Year "
+                formatValue={(value) => formatCurrency(value, true)}
+              />
+            }
+          />
 
-          {xTicks.map((index) => (
-            <text key={`x-${index}`} x={xFor(index)} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11" fontFamily="DM Mono, monospace">
-              Yr {data[index]?.year}
-            </text>
-          ))}
+          {/* 5th–95th and 25th–75th confidence bands */}
+          <Area
+            dataKey="band90"
+            stroke="none"
+            fill="url(#projectionBand90)"
+            connectNulls
+            isAnimationActive
+            animationDuration={650}
+          />
+          <Area
+            dataKey="band50"
+            stroke="none"
+            fill="url(#projectionBand50)"
+            connectNulls
+            isAnimationActive
+            animationDuration={650}
+          />
 
-          {retireX != null && (
-            <g>
-              <line x1={retireX} y1={margin.top} x2={retireX} y2={height - margin.bottom} stroke="rgba(196,154,44,0.55)" strokeDasharray="4 4" />
-              <text x={retireX - 6} y={margin.top + 12} textAnchor="end" fill="var(--gold-light)" fontSize="10" fontFamily="DM Mono, monospace">
-                Retire
-              </text>
-            </g>
+          {/* Downside (5th) and the median path */}
+          <Line
+            dataKey="p5"
+            stroke="var(--ruby)"
+            strokeWidth={1.4}
+            strokeDasharray="5 4"
+            dot={false}
+            opacity={0.8}
+            connectNulls
+            isAnimationActive
+            animationDuration={650}
+          />
+          <Line
+            dataKey="p50"
+            stroke="var(--gold-bright)"
+            strokeWidth={2.6}
+            dot={false}
+            activeDot={{ r: 4, fill: 'var(--gold-bright)', stroke: 'var(--bg-surface)', strokeWidth: 2 }}
+            connectNulls
+            isAnimationActive
+            animationDuration={650}
+          />
+
+          {retireYear != null && (
+            <ReferenceLine
+              x={retireYear}
+              stroke="rgba(201, 151, 26, 0.5)"
+              strokeDasharray="4 4"
+              label={{
+                value: 'Retire',
+                position: 'insideTopRight',
+                fill: 'var(--gold-light)',
+                fontSize: 10,
+                fontFamily: 'DM Mono, monospace',
+              }}
+            />
           )}
-
-          {p90Band && <path d={p90Band} fill="url(#projectionBand90)" />}
-          {p50Band && <path d={p50Band} fill="url(#projectionBand50)" />}
-          <path d={linePath(data, 'p95', xFor, yFor)} fill="none" stroke="#1eb87a" strokeWidth="1.4" />
-          <path d={linePath(data, 'p75', xFor, yFor)} fill="none" stroke="#c49a2c" strokeWidth="1.2" opacity="0.7" />
-          <path d={linePath(data, 'p25', xFor, yFor)} fill="none" stroke="#4a72e8" strokeWidth="1.2" opacity="0.7" />
-          <path d={linePath(data, 'p50', xFor, yFor)} fill="none" stroke="#ddb84a" strokeWidth="2.8" />
-          <path d={linePath(data, 'p5', xFor, yFor)} fill="none" stroke="rgba(230,69,69,0.85)" strokeWidth="1.4" strokeDasharray="5 4" />
-        </svg>
-      </div>
+        </ComposedChart>
+      </ChartContainer>
     </div>
   )
 }
