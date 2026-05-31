@@ -1,0 +1,25 @@
+# Cloudflare Tunnel ingress for the Mallard Management hackathon demo.
+#
+# One public hostname, path-routed so frontend and API are same-origin:
+#   https://mallardmanagement.tech/api/*  -> FastAPI backend (uvicorn :8000)
+#   https://mallardmanagement.tech/*      -> built client served by vite preview (:4173)
+#
+# cloudflared forwards the ORIGINAL path unchanged, and the backend already
+# mounts its routes under /api/v1, so /api/v1/auth/login resolves correctly.
+# `tunnel:` / `credentials-file:` are filled by deploy/cloudflared/setup.sh.
+
+tunnel: mallard
+credentials-file: /home/ethan/documents/personal/github/mallard-management/deploy/cloudflared/mallard-creds.json
+
+ingress:
+  - hostname: mallardmanagement.tech
+    path: ^/api/
+    service: http://localhost:8000
+  - hostname: www.mallardmanagement.tech
+    path: ^/api/
+    service: http://localhost:8000
+  - hostname: mallardmanagement.tech
+    service: http://localhost:4173
+  - hostname: www.mallardmanagement.tech
+    service: http://localhost:4173
+  - service: http_status:404
