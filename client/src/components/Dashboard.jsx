@@ -65,27 +65,21 @@ function addAssetRow(rows, covered, row, aliases = []) {
 }
 
 function getAssetRows(profile) {
+  const rows = []
+  const covered = new Set()
   const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
-  const hasHomeInAssets = Object.keys(assetsObj).some(key => key.toLowerCase().includes('home'))
-  const rows = [
-    { label: 'Liquid Cash', value: numberOrNull(profile.capital_on_hand), type: 'cash' },
-    { label: 'Emergency Fund', value: numberOrNull(profile.emergency_fund), type: 'emergency' },
-  ]
 
-  if (!hasHomeInAssets) {
-    rows.push({ label: 'House', value: numberOrNull(profile.home_value), type: 'home' })
-  }
-  rows.push({ label: 'Non-Liquid Savings', value: numberOrNull(profile.non_liquid_savings), type: 'other' })
-  rows.push({ label: '401(k)', value: numberOrNull(profile.balance_401k), type: 'retirement' })
-  rows.push({ label: 'IRA', value: numberOrNull(profile.ira_balance), type: 'retirement' })
-  rows.push({ label: 'HSA', value: numberOrNull(profile.hsa_balance), type: 'other' })
+  addAssetRow(rows, covered, { key: 'capital_on_hand', label: 'Liquid Cash', value: profile.capital_on_hand, type: 'cash' }, ['liquid_cash', 'cash'])
+  addAssetRow(rows, covered, { key: 'emergency_fund', label: 'Emergency Fund', value: profile.emergency_fund, type: 'emergency' })
+  addAssetRow(rows, covered, { key: 'balance_401k', label: '401(k)', value: profile.balance_401k, type: 'retirement' }, ['401k', 'retirement_401k'])
+  addAssetRow(rows, covered, { key: 'ira_balance', label: 'IRA', value: profile.ira_balance, type: 'retirement' }, ['ira'])
+  addAssetRow(rows, covered, { key: 'hsa_balance', label: 'HSA', value: profile.hsa_balance, type: 'other' }, ['hsa'])
 
   Object.entries(assetsObj).forEach(([key, value]) => {
-    const amount = numberOrNull(value)
-    if (amount == null || amount <= 0) return
-    rows.push({
+    addAssetRow(rows, covered, {
+      key,
       label: key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
-      value: amount,
+      value,
       type: key.includes('home') ? 'home'
         : key.includes('vehicle') || key.includes('auto') ? 'vehicle'
         : key.includes('brokerage') ? 'brokerage'
