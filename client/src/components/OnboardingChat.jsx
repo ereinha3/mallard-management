@@ -293,10 +293,15 @@ export default function OnboardingChat({ user, onComplete }) {
       liquidCapital: data.liquidCapital,
       emergencyFund: data.emergencyFund,
       age: data.age,
+      employerCompany: data.employerCompany,
+      jobTitle: data.jobTitle,
+      companyTenure: data.companyTenure,
+      companySize: data.companySize,
+      employmentType: data.employmentType,
     }
     setStep('chat')
 
-    const seedContent = `The user has already provided: income=$${capturedFields.annualIncome}, monthly expenses=$${capturedFields.monthlyExpenses}, liquid capital=$${capturedFields.liquidCapital}, emergency fund=$${capturedFields.emergencyFund}, age=${capturedFields.age}. Please skip asking about these and focus only on understanding their risk tolerance and investing goals in 2-3 questions.`
+    const seedContent = `The user has already provided: income=$${capturedFields.annualIncome}, monthly expenses=$${capturedFields.monthlyExpenses}, liquid capital=$${capturedFields.liquidCapital}, emergency fund=$${capturedFields.emergencyFund}, age=${capturedFields.age}. User works at ${capturedFields.employerCompany} as ${capturedFields.jobTitle}, has been there ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, employment type is ${capturedFields.employmentType}. Please skip asking about these and focus only on understanding their risk tolerance and investing goals in 2-3 questions.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)
