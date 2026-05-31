@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from data import repository
 from schemas.models import EsgExclusion, ExcludedTicker, Sleeve, Universe
 
 DATA_DIR = Path(__file__).resolve().parent
@@ -19,39 +20,38 @@ ESG_COLUMNS = ("fossil_fuels", "weapons", "tobacco", "gambling")
 
 
 def load_prices() -> pd.DataFrame:
-    """Load cached prices in the docs/greenlight/05 §8 long CSV shape."""
+    """Load cached prices in the docs/greenlight/05 §8 long shape."""
 
-    return pd.read_csv(PRICES_PATH, parse_dates=["date"]).sort_values(["date", "ticker"])
+    prices = repository.prices_long()
+    columns = ["date", "ticker", "adj_close"]
+    if "volume" in prices.columns and prices["volume"].notna().any():
+        columns.append("volume")
+    return prices[columns].sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
 def latest_prices(tickers: Iterable[str] | None = None) -> dict[str, float]:
     """Return the latest committed cached price for each requested ticker."""
 
-    requested = list(tickers or [])
-    prices = load_prices()
-    if requested:
-        prices = prices[prices["ticker"].isin(requested)]
-
-    latest = prices.sort_values("date").groupby("ticker", as_index=False).tail(1)
-    result = {str(row["ticker"]): float(row["adj_close"]) for row in latest.to_dict("records")}
-    missing = sorted(set(requested) - set(result))
-    if missing:
-        raise KeyError(f"No cached price available for ticker(s): {', '.join(missing)}")
-    return result
+    return repository.latest_prices(tickers)
 
 
 def load_universe(esg_exclusions: Iterable[EsgExclusion] | None = None) -> Universe:
     """Build a Universe from docs/greenlight/05 §5, applying ESG substitutions."""
 
     exclusions = [ex for ex in (esg_exclusions or []) if ex != "none"]
-    rows = pd.read_csv(UNIVERSE_PATH).fillna("")
+    rows = repository.instruments().fillna("")
+    if rows.empty:
+        raise ValueError("instrument universe is empty")
+    primary = rows[rows["role"].isin(["risky", "safe"])]
+    if primary.empty:
+        primary = rows
     sleeves: dict[Sleeve, list[str]] = {}
     market_weights: dict[Sleeve, float] = {}
     excluded: list[ExcludedTicker] = []
 
-    for row in rows.to_dict("records"):
-        sleeve = row["sleeve"]
-        ticker = row["ticker"]
+    for row in primary.to_dict("records"):
+        sleeve = str(row.get("sleeve") or repository.SLEEVE_BY_ASSET_CLASS.get(str(row.get("asset_class")), row.get("asset_class")))
+        ticker = str(row["ticker"])
         for exclusion in exclusions:
             replacement = str(row.get(exclusion, "")).strip()
             if replacement and replacement != ticker:
@@ -59,9 +59,19 @@ def load_universe(esg_exclusions: Iterable[EsgExclusion] | None = None) -> Unive
                 ticker = replacement
                 break
         sleeves.setdefault(sleeve, []).append(ticker)
-        market_weights[sleeve] = float(row["market_weight"])
+        weight = row.get("market_weight", "")
+        if weight == "":
+            market_weights.setdefault(sleeve, 1.0)
+        else:
+            market_weights[sleeve] = float(weight)
 
     tickers = sorted({ticker for tickers_for_sleeve in sleeves.values() for ticker in tickers_for_sleeve})
+    total_weight = sum(market_weights.values())
+    if total_weight <= 0:
+        equal_weight = 1.0 / len(market_weights)
+        market_weights = {sleeve: equal_weight for sleeve in market_weights}
+    elif abs(total_weight - 1.0) > 1e-12:
+        market_weights = {sleeve: weight / total_weight for sleeve, weight in market_weights.items()}
     return Universe(
         tickers=tickers,
         sleeves=sleeves,

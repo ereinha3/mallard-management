@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from data.repository import instruments
 from schemas.models import Positions, TaxReport
 
 REPLACEMENTS = {
@@ -17,6 +18,27 @@ REPLACEMENTS = {
 
 
 def _suggested_replacement(ticker: str) -> str:
+    try:
+        rows = instruments().fillna("")
+    except Exception:
+        rows = None
+    if rows is not None and not rows.empty and ticker in set(rows["ticker"]):
+        source = rows[rows["ticker"] == ticker].iloc[0]
+        candidates = rows[rows["ticker"] != ticker]
+        bucket = str(source.get("bucket", ""))
+        if bucket:
+            candidates = candidates[candidates["bucket"] == bucket]
+        sleeve = str(source.get("sleeve", ""))
+        if candidates.empty and sleeve:
+            candidates = rows[(rows["ticker"] != ticker) & (rows["sleeve"] == sleeve)]
+        underlying_index = str(source.get("underlying_index", ""))
+        if underlying_index and "underlying_index" in candidates:
+            distinct = candidates[candidates["underlying_index"] != underlying_index]
+            if not distinct.empty:
+                candidates = distinct
+        if not candidates.empty:
+            return str(candidates.sort_values("ticker").iloc[0]["ticker"])
+
     replacement = REPLACEMENTS.get(ticker, f"{ticker}_ALT")
     if replacement == ticker:
         return f"{ticker}_ALT"
