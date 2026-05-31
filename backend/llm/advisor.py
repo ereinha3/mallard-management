@@ -26,7 +26,7 @@ except ImportError:
 from models import ChatMessage
 from llm import explain_tools
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 _MAX_TOOL_TURNS = 5
 
 _ADVISOR_SYSTEM_PROMPT = """

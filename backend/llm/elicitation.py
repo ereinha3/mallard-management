@@ -27,7 +27,7 @@ from models import ChatMessage
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from tax.models import FederalTaxInfo, LocalTaxInfo, StateTaxInfo, TaxRateBundle
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 
 class TaxLookupError(Exception):
