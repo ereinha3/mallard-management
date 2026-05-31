@@ -305,6 +305,14 @@ def _build_submit_profile_tool() -> Any:
                         "monthly_expenses": types.Schema(type="NUMBER", description="Total monthly essential expenses"),
                         "capital_on_hand": types.Schema(type="NUMBER", description="Liquid capital available to invest"),
                         "emergency_fund": types.Schema(type="NUMBER", description="Current emergency fund balance"),
+                        "home_value": types.Schema(
+                            type="NUMBER",
+                            description="Optional estimated current home value; default 0",
+                        ),
+                        "non_liquid_savings": types.Schema(
+                            type="NUMBER",
+                            description="Optional non-liquid savings such as stocks, ETFs, or brokerage accounts; default 0",
+                        ),
                         "debts": types.Schema(
                             type="ARRAY",
                             items=_debt_schema(),
