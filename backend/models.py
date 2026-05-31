@@ -2,7 +2,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
 from datetime import date, datetime
-from tax.models import TaxBreakdown
+from tax.models import BucketPlan, TaxBreakdown
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -136,6 +136,10 @@ class UserProfileInput(BaseModel):
     pretax_401k: Optional[float] = Field(default=0.0, ge=0)
     pretax_ira: Optional[float] = Field(default=0.0, ge=0)
     pretax_hsa: Optional[float] = Field(default=0.0, ge=0)
+    employer_match_rate: float = Field(default=0.5, ge=0, le=1.0)
+    employer_match_cap_pct: float = Field(default=0.05, ge=0, le=1.0)
+    has_hsa_eligible_plan: bool = False
+    hsa_coverage: Optional[Literal["self_only", "family"]] = None
     # ── LLM confidence metadata ───────────────────────────────────────────────
     confidence: Dict[str, float] = Field(default_factory=dict)
     uncertainty_flags: List[str] = Field(default_factory=list)
@@ -715,3 +719,4 @@ class OnboardResponse(BaseModel):
     portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
     tax_breakdown: Optional[TaxBreakdown] = None
+    bucket_plan: Optional[BucketPlan] = None

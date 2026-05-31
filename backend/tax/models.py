@@ -66,3 +66,20 @@ class TaxBreakdown(BaseModel):
     effective_tax_rate: float
     net_income: float
     tax_rate_bundle: TaxRateBundle
+
+
+class BucketAllocation(BaseModel):
+    name: str
+    annual_contribution: float
+    tax_savings: float
+    is_maxed: bool
+    notes: str = ""
+
+
+class BucketPlan(BaseModel):
+    buckets: List[BucketAllocation]
+    total_pretax_contributions: float
+    total_tax_savings: float
+    effective_tax_rate_before: float
+    effective_tax_rate_after: float
+    remaining_annual_surplus_for_taxable: float

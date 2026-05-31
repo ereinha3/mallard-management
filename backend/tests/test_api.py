@@ -212,6 +212,8 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert body["portfolio"]["weights"]["method"] == "erc"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert body["portfolio"]["metrics"]["expected_vol"] >= 0
+    assert body["bucket_plan"]["buckets"][0]["name"] == "401k employer match"
+    assert body["bucket_plan"]["remaining_annual_surplus_for_taxable"] >= 0
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):

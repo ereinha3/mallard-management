@@ -78,6 +78,7 @@ from schemas.models import (  # noqa: E402
 )
 from sizing.sizer import size_orders  # noqa: E402
 from tax.report import tax_report  # noqa: E402
+from tax.bucket_optimizer import BucketOptimizer  # noqa: E402
 from tax.calculator import TaxCalculator  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
@@ -127,7 +128,17 @@ def _normalize_goal(goal: str) -> str:
 
 
 def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUserProfile:
-    tax_fields = {"state", "zip_code", "pretax_401k", "pretax_ira", "pretax_hsa"}
+    tax_fields = {
+        "state",
+        "zip_code",
+        "pretax_401k",
+        "pretax_ira",
+        "pretax_hsa",
+        "employer_match_rate",
+        "employer_match_cap_pct",
+        "has_hsa_eligible_plan",
+        "hsa_coverage",
+    }
     payload = profile_input.model_dump(exclude=tax_fields)
     payload["goals"] = [_normalize_goal(goal) for goal in payload.get("goals") or ["general_wealth"]]
     payload["loss_aversion_probe"] = payload["loss_aversion_probe"] or 100.0
@@ -177,6 +188,10 @@ def _to_api_validated(
     payload["pretax_401k"] = source.pretax_401k
     payload["pretax_ira"] = source.pretax_ira
     payload["pretax_hsa"] = source.pretax_hsa
+    payload["employer_match_rate"] = source.employer_match_rate
+    payload["employer_match_cap_pct"] = source.employer_match_cap_pct
+    payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
+    payload["hsa_coverage"] = source.hsa_coverage
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -199,6 +214,10 @@ def _to_api_validated_from_profile(
     payload["pretax_401k"] = source.pretax_401k
     payload["pretax_ira"] = source.pretax_ira
     payload["pretax_hsa"] = source.pretax_hsa
+    payload["employer_match_rate"] = source.employer_match_rate
+    payload["employer_match_cap_pct"] = source.employer_match_cap_pct
+    payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
+    payload["hsa_coverage"] = source.hsa_coverage
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -1329,6 +1348,23 @@ async def onboard(
                 pretax_401k=profile_input.pretax_401k or 0.0,
                 pretax_ira=profile_input.pretax_ira or 0.0,
                 pretax_hsa=profile_input.pretax_hsa or 0.0,
+            )
+        except Exception:
+            pass
+
+    if response.validated_profile is not None:
+        try:
+            optimizer = BucketOptimizer()
+            response.bucket_plan = optimizer.optimize(
+                gross_income=response.validated_profile.household_income,
+                filing_status=response.validated_profile.filing_status,
+                age=response.validated_profile.age,
+                monthly_surplus=response.validated_profile.monthly_surplus,
+                employer_match_rate=response.validated_profile.employer_match_rate,
+                employer_match_cap_pct=response.validated_profile.employer_match_cap_pct,
+                has_hsa=response.validated_profile.has_hsa_eligible_plan,
+                hsa_coverage=response.validated_profile.hsa_coverage,
+                tax_brackets=response.tax_breakdown.tax_rate_bundle if response.tax_breakdown else None,
             )
         except Exception:
             pass

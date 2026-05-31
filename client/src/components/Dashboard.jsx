@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   TrendingUp, DollarSign, Target,
   Calendar, ArrowUpRight, ArrowDownRight,
-  Home, Car, Briefcase, PiggyBank, CreditCard, Building,
+  Home, Car, Briefcase, PiggyBank, CreditCard, Building, Landmark,
 } from 'lucide-react'
 import { formatCurrency, formatPercent } from '../lib/utils'
 import RetirementScore from './RetirementScore'
@@ -34,6 +34,17 @@ function numberOrNull(value) {
 
 function formatMaybeCurrency(value, compact = false) {
   return value == null ? 'Not available' : formatCurrency(value, compact)
+}
+
+function bucketStatus(bucket) {
+  const contribution = numberOrNull(bucket?.annual_contribution) ?? 0
+  if (contribution <= 0) {
+    return { color: 'var(--text-muted)', background: 'rgba(107,114,128,0.10)', border: 'rgba(107,114,128,0.22)' }
+  }
+  if (bucket?.is_maxed) {
+    return { color: 'var(--emerald)', background: 'rgba(30,184,122,0.10)', border: 'rgba(30,184,122,0.28)' }
+  }
+  return { color: 'var(--gold-light)', background: 'rgba(221,184,74,0.10)', border: 'rgba(221,184,74,0.28)' }
 }
 
 function getProfile(onboardResult) {
@@ -189,6 +200,7 @@ export default function Dashboard({ onboardResult }) {
   const profile = getProfile(onboardResult)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const taxBreakdown = onboardResult?.tax_breakdown ?? null
+  const bucketPlan = onboardResult?.bucket_plan ?? null
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
 
@@ -271,6 +283,9 @@ export default function Dashboard({ onboardResult }) {
     },
     { label: 'Net Take-Home', value: numberOrNull(taxBreakdown.net_income), highlight: true },
   ] : []
+  const bucketRows = bucketPlan?.buckets ?? []
+  const bucketTaxSavings = numberOrNull(bucketPlan?.total_tax_savings)
+  const bucketNetTakeHome = numberOrNull(bucketPlan?.net_income_after_optimization)
 
   return (
     <div role="main" className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -534,6 +549,78 @@ export default function Dashboard({ onboardResult }) {
               </p>
             )}
           </div>
+        </div>
+
+        <div className="card-premium p-5 anim-fade-up d600">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <Landmark size={14} style={{ color: 'var(--emerald)' }} />
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Tax Bucket Plan
+                </div>
+                <div className="font-display font-semibold text-lg"
+                  style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                  Contribution Priority
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {bucketRows.length > 0 ? (
+            <>
+              <div className="space-y-2">
+                {bucketRows.map((bucket) => {
+                  const status = bucketStatus(bucket)
+                  const contribution = numberOrNull(bucket.annual_contribution) ?? 0
+                  const savings = numberOrNull(bucket.tax_savings) ?? 0
+                  return (
+                    <div key={bucket.name} className="grid items-center gap-3 rounded-lg px-3 py-3"
+                      style={{
+                        gridTemplateColumns: 'minmax(0, 1fr) minmax(150px, auto) minmax(120px, auto)',
+                        background: status.background,
+                        border: `1px solid ${status.border}`,
+                      }}>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: status.color }}>
+                          {bucket.name}
+                        </div>
+                        {bucket.notes && (
+                          <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
+                            {bucket.notes}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>Recommended Annual</div>
+                        <div className="font-mono text-sm font-medium" style={{ color: contribution > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                          {formatCurrency(contribution)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>Tax Savings</div>
+                        <div className="font-mono text-sm font-medium" style={{ color: savings > 0 ? 'var(--emerald)' : 'var(--text-muted)' }}>
+                          {formatCurrency(savings)}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-4 pt-3 flex items-center justify-between gap-4 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Total tax savings: <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>{formatCurrency(bucketTaxSavings ?? 0)}</span>
+                </span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Net take-home after optimization: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(bucketNetTakeHome ?? 0)}</span>
+                </span>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Complete onboarding to see your optimized tax bucket plan.
+            </p>
+          )}
         </div>
       </div>
     </div>
