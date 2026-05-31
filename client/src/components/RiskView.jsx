@@ -66,6 +66,9 @@ export default function RiskView({ onboardResult }) {
             <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
               Capacity vs Tolerance
             </div>
+            <p className="text-xs leading-relaxed mb-4" style={{ color: 'var(--text-muted)' }}>
+              Capacity is how much investment risk your finances can absorb; tolerance is your willingness to take risk.
+            </p>
             {[
               { label: 'Capacity', value: capacity, color: 'var(--blue)' },
               { label: 'Tolerance', value: tolerance, color: 'var(--gold-light)' },

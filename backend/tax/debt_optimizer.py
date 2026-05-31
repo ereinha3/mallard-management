@@ -28,6 +28,7 @@ class DebtPayoffOptimizer:
         debts: list[Any],
         monthly_surplus: float,
         method: Literal["avalanche", "snowball"] = "avalanche",
+        upfront_cash: float = 0.0,
         include_mortgage: bool = False,
         mortgage_apr_threshold: float = DEFAULT_MORTGAGE_APR_THRESHOLD,
     ) -> api_models.DebtPayoffPlan:
@@ -54,6 +55,7 @@ class DebtPayoffOptimizer:
         ]
         minimums_total = sum(debt.minimum_payment for debt in states)
         monthly_free_cash = minimums_total + max(0.0, float(monthly_surplus))
+        upfront_cash_applied = self._apply_upfront_cash(states, max(0.0, float(upfront_cash)), method)
         schedule: list[api_models.DebtPayoffMonth] = []
 
         for month in range(1, 361):
@@ -115,6 +117,8 @@ class DebtPayoffOptimizer:
             payoff_scope="consumer_debt",
             months_to_freedom=months_to_freedom,
             total_interest_paid=round(sum(debt.total_interest_paid for debt in states), 2),
+            upfront_cash_applied=round(upfront_cash_applied, 2),
+            monthly_payment_budget=round(monthly_free_cash, 2),
             monthly_schedule=schedule,
             per_debt=[
                 api_models.DebtPayoffDetail(
@@ -152,6 +156,27 @@ class DebtPayoffOptimizer:
         if explicit is not None and float(explicit) > 0:
             return min(float(explicit), balance)
         return min(max(balance * 0.02, 25.0), balance)
+
+    def _apply_upfront_cash(
+        self,
+        debts: list[_DebtState],
+        upfront_cash: float,
+        method: Literal["avalanche", "snowball"],
+    ) -> float:
+        applied = 0.0
+        while upfront_cash > 0.005:
+            active = [debt for debt in debts if debt.balance > 0.005]
+            if not active:
+                break
+            target = self._target(active, method)
+            payment = min(upfront_cash, target.balance)
+            target.balance -= payment
+            upfront_cash -= payment
+            applied += payment
+            if target.balance <= 0.005 and target.payoff_month is None:
+                target.balance = 0.0
+                target.payoff_month = 0
+        return applied
 
     def _is_eligible_for_aggressive_payoff(
         self,

@@ -26,7 +26,7 @@ data/market-data/
 client-integration/
 **/.cursor*
 **/.playwright*
-**/*.db
+**/*.db*
 
 # added by stack init
 .env

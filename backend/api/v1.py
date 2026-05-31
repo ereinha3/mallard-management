@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -27,6 +28,7 @@ if str(_ENGINE_DIR) not in sys.path:
     sys.path.append(str(_ENGINE_DIR))
 
 import models as api_models  # noqa: E402
+import persistence  # noqa: E402
 from config import (  # noqa: E402
     EF_MONTHS,
     EXPECTED_AFTER_TAX_MARKET_RETURN,
@@ -245,6 +247,14 @@ def _validation_clarifications(exc: ValidationError) -> list[api_models.Clarific
     return clarifications
 
 
+def _preserve_debt_payment_fields(payload: dict[str, Any], source: api_models.UserProfileInput) -> None:
+    for payload_debt, source_debt in zip(payload.get("debts", []), source.debts):
+        if source_debt.minimum_payment is not None:
+            payload_debt["minimum_payment"] = source_debt.minimum_payment
+        if source_debt.min_payment is not None:
+            payload_debt["min_payment"] = source_debt.min_payment
+
+
 def _engine_clarifications(payload: dict[str, Any]) -> list[api_models.ClarificationRequest]:
     requests = payload.get("clarification_requests", [])
     return [
@@ -275,6 +285,7 @@ def _to_api_validated(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    _preserve_debt_payment_fields(payload, source)
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -303,6 +314,7 @@ def _to_api_validated_from_profile(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    _preserve_debt_payment_fields(payload, source)
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -476,6 +488,11 @@ def _estimated_minimum_payment(debt: Any) -> float:
     return min(max(float(debt.balance) * 0.02, 25.0), float(debt.balance))
 
 
+def _upfront_cash_available_for_debt(profile: api_models.ValidatedProfile) -> float:
+    emergency_excess = max(0.0, profile.emergency_fund - profile.required_emergency_fund)
+    return round(max(0.0, profile.capital_on_hand) + emergency_excess, 2)
+
+
 def _debt_gate_status(apr: float) -> str:
     if apr > HIGH_APR:
         return "halt"
@@ -542,16 +559,19 @@ def _compute_financial_analysis(
     debt_payoff_plan = None
     if profile.debts:
         optimizer = DebtPayoffOptimizer()
+        upfront_cash = _upfront_cash_available_for_debt(profile)
         debt_payoff_plan = optimizer.optimize(
             profile.debts,
             profile.monthly_surplus,
             "avalanche",
+            upfront_cash=upfront_cash,
             mortgage_apr_threshold=HIGH_APR,
         )
         snowball_plan = optimizer.optimize(
             profile.debts,
             profile.monthly_surplus,
             "snowball",
+            upfront_cash=upfront_cash,
             mortgage_apr_threshold=HIGH_APR,
         )
         if (
@@ -1373,6 +1393,18 @@ def _stored_profile_or_404(db: Session, email: str) -> Profile:
     return profile
 
 
+def _needs_debt_payoff_backfill(result: Mapping[str, Any], profile_input: Mapping[str, Any]) -> bool:
+    financial_analysis = result.get("financial_analysis")
+    if not isinstance(financial_analysis, Mapping):
+        return False
+    if result.get("debt_payoff_plan") is not None:
+        return False
+    if financial_analysis.get("debt_payoff_plan") is not None:
+        return False
+    debts = profile_input.get("debts")
+    return isinstance(debts, list) and bool(debts)
+
+
 def _request_email(query_email: str | None, body_email: str | None) -> str:
     email = query_email or body_email
     if not email:
@@ -1755,9 +1787,31 @@ async def positions(user_email: str, db: Session = Depends(get_db)) -> api_model
 
 @router.get("/profile/{email}", response_model=api_models.OnboardResponse)
 async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.OnboardResponse:
-    result = get_profile_result(db, email)
+    profile = db.query(Profile).filter(Profile.user_email == email).first()
+    result = profile.get_result() if profile else None
     if not result:
         return api_models.OnboardResponse(status="no_profile")
+
+    profile_input = profile.get_input() if profile else {}
+    if _needs_debt_payoff_backfill(result, profile_input):
+        try:
+            profile_model = api_models.UserProfileInput.model_validate(profile_input)
+            refreshed = _run_pipeline(profile_model)
+            refreshed_plan = refreshed.debt_payoff_plan
+            if refreshed_plan is not None:
+                plan_payload = refreshed_plan.model_dump(mode="json")
+                result.setdefault("financial_analysis", {})
+                result["financial_analysis"]["debt_payoff_plan"] = plan_payload
+                result["debt_payoff_plan"] = plan_payload
+                upsert_profile(
+                    db,
+                    email,
+                    json.dumps(profile_input),
+                    json.dumps(result),
+                )
+                db.commit()
+        except Exception:
+            pass
 
     return api_models.OnboardResponse(**result)
 
@@ -1856,6 +1910,9 @@ async def onboard(
     When ``session_id`` is supplied, the elicitation session that produced this
     profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
+    if user_email and not get_user(db, user_email):
+        raise HTTPException(status_code=404, detail="User not found; profile was not saved")
+
     # Compute Gilbert's gross-to-net tax breakdown FIRST (best-effort, LLM-backed,
     # so guarded + timed out), then feed its marginal federal bracket into the
     # gate / TLH math instead of the manual `bracket` field. If it is absent or
@@ -1904,7 +1961,7 @@ async def onboard(
         except Exception:
             pass
 
-    if user_email and get_user(db, user_email):
+    if user_email:
         upsert_profile(
             db,
             user_email,
@@ -2016,12 +2073,65 @@ async def portfolio_analyze_weights(
     )
 
 
+def _price_dataset_version() -> str:
+    """Coarse version token for the price data: greenlight.db mtime (int seconds).
+
+    Changes whenever the data ingest rewrites the DB, so a refresh invalidates
+    every cached projection automatically. Returns '0' if the path is unknown.
+    """
+    from engine.data import db as engine_db
+    url = getattr(engine_db, "DEFAULT_DB_URL", "")
+    url = os.environ.get("GREENLIGHT_DB_URL", url)
+    if url.startswith("sqlite:///"):
+        path = url[len("sqlite:///"):]
+        try:
+            return str(int(os.path.getmtime(path)))
+        except OSError:
+            return "0"
+    return "0"
+
+
+def _projection_cache_key(request: "api_models.ProjectionRequest", price_version: str) -> str:
+    """Stable hash of the inputs that fully determine the projection output."""
+    payload = {
+        "weights": {k: round(float(v), 8) for k, v in sorted(request.weights.by_ticker.items())},
+        "horizon_years": int(request.horizon_years),
+        "capital_on_hand": round(float(request.capital_on_hand), 2),
+        "monthly_contribution": round(float(request.monthly_contribution), 2),
+        "goal_target": round(float(request.goal_target), 2),
+        "generator": request.generator,
+        "n_paths": int(request.n_paths),
+        "price_version": price_version,
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 @router.post("/projection", response_model=api_models.Projection, summary="Run Monte Carlo projection")
 async def projection(request: api_models.ProjectionRequest) -> api_models.Projection:
-    """Project goal success from target weights and cached engine return data."""
+    """Project goal success from target weights and cached engine return data.
+
+    Read-through cached: identical inputs (no explicit seed) return the stored
+    result instantly with a deterministic seed, so the dashboard never recomputes
+    or jitters. Explicit-seed callers (what-if) always compute fresh.
+    """
+    cache_key = None
+    if request.seed is None:
+        price_version = _price_dataset_version()
+        cache_key = _projection_cache_key(request, price_version)
+        db = persistence.get_session()
+        try:
+            cached = persistence.get_cached_projection(db, cache_key)
+        finally:
+            db.close()
+        if cached is not None:
+            return api_models.Projection.model_validate(cached)
+        seed = int(cache_key[:8], 16) % (2**31)
+    else:
+        seed = request.seed
+
     try:
         weights = EngineTargetWeights.model_validate(request.weights.model_dump())
-        seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         projection_result = project(
             weights=weights.by_ticker,
             returns=_ticker_monthly_returns(weights.by_ticker),
@@ -2035,7 +2145,16 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_models.Projection.model_validate({**projection_result.model_dump(), "seed": seed})
+
+    result = {**projection_result.model_dump(), "seed": seed}
+    if cache_key is not None:
+        db = persistence.get_session()
+        try:
+            persistence.put_cached_projection(db, cache_key, json.dumps(result))
+            db.commit()
+        finally:
+            db.close()
+    return api_models.Projection.model_validate(result)
 
 
 @router.post("/rebalance", response_model=api_models.RebalanceDecision, summary="Decide rebalance action")

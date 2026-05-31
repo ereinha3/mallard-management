@@ -312,7 +312,11 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
     if (!profile) return
     ;(async () => {
       setBuilding(true)
+      setError(null)
       try {
+        if (!user?.email) {
+          throw new Error('Cannot save this profile because no signed-in user email is available.')
+        }
         const result = await postOnboard(
           { ...profile, ...getTaxProfilePayload(taxProfile), ...formExtrasRef.current },
           user?.email,
@@ -323,10 +327,11 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
         await new Promise(r => setTimeout(r, 1800))
         onComplete(result)
       } catch (e) {
-        // If onboard fails, still proceed (show dashboard without gate data)
         console.error('Onboard error:', e)
-        await new Promise(r => setTimeout(r, 1800))
-        onComplete(null)
+        setBuilding(false)
+        setProfile(null)
+        setOnboardResult(null)
+        setError(e?.message ?? 'Your profile could not be saved. Please try again.')
       }
     })()
   }, [profile, taxProfile, user?.email]) // eslint-disable-line
@@ -524,7 +529,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
             }}>
               <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 3 }}>Backend unreachable</div>
+                <div style={{ fontWeight: 600, marginBottom: 3 }}>Profile not saved</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{error}</div>
               </div>
             </div>

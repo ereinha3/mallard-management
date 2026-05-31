@@ -102,3 +102,20 @@ def test_high_apr_mortgage_is_included_for_payoff():
 
     assert plan.monthly_schedule[0].targeted_debt_kind == "mortgage"
     assert "mortgage" in [item.kind for item in plan.per_debt]
+
+
+def test_upfront_cash_is_applied_before_monthly_schedule():
+    plan = DebtPayoffOptimizer().optimize(
+        [
+            debt("credit_card", 3000, 0.24),
+            debt("student", 5000, 0.05),
+        ],
+        monthly_surplus=500,
+        upfront_cash=3000,
+        method="avalanche",
+    )
+
+    assert plan.upfront_cash_applied == 3000
+    assert plan.per_debt[0].kind == "credit_card"
+    assert plan.per_debt[0].payoff_month == 0
+    assert plan.monthly_schedule[0].targeted_debt_kind == "student"

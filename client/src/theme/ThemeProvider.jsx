@@ -7,15 +7,40 @@ const VALID_THEMES = new Set(['light', 'dark'])
 
 const ThemeContext = createContext(null)
 
+function readStoredTheme() {
+  try {
+    const storedTheme = window.localStorage.getItem(STORAGE_KEY)
+    return VALID_THEMES.has(storedTheme) ? storedTheme : DEFAULT_THEME
+  } catch {
+    return DEFAULT_THEME
+  }
+}
+
+function applyTheme(theme) {
+  try {
+    document.documentElement.setAttribute('data-theme', theme)
+  } catch {
+    // document unavailable - non-fatal in non-browser render paths.
+  }
+}
+
 export function ThemeProvider({ children }) {
-  const [theme, setThemeState] = useState(DEFAULT_THEME)
+  const [theme, setThemeState] = useState(() => {
+    const initialTheme = readStoredTheme()
+    applyTheme(initialTheme)
+    return initialTheme
+  })
 
   useLayoutEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    applyTheme(theme)
   }, [theme])
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, theme)
+    try {
+      window.localStorage.setItem(STORAGE_KEY, theme)
+    } catch {
+      // localStorage unavailable (private mode / SSR) - theme still applies in memory.
+    }
   }, [theme])
 
   function setTheme(nextTheme) {

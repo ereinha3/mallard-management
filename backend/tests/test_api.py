@@ -23,6 +23,7 @@ if str(ENGINE_DIR) not in sys.path:
 
 from api import v1 as api_v1  # noqa: E402
 from data.seed import seed_database  # noqa: E402
+from persistence import Profile, SessionLocal  # noqa: E402
 from schemas import constants  # noqa: E402
 
 
@@ -253,6 +254,18 @@ def test_unknown_profile_returns_no_profile(test_app: FastAPI):
     assert response.json()["status"] == "no_profile"
 
 
+def test_onboard_with_unknown_user_email_does_not_silently_skip_save(test_app: FastAPI):
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/onboard?user_email=missing-user@example.com",
+        json=_persona("persona_greenlight.json"),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User not found; profile was not saved"
+
+
 def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     client = _client(test_app)
     email = "profile-persist@example.com"
@@ -295,6 +308,35 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert record["onboard_result"]["validated_profile"]["home_value"] == 365000
     assert record["onboard_result"]["validated_profile"]["non_liquid_savings"] == 42000
     assert record["onboard_result"]["portfolio"]["weights"]["method"] == "strategic"
+
+
+def test_profile_get_backfills_missing_debt_payoff_plan(test_app: FastAPI):
+    client = _client(test_app)
+    email = "profile-debt-backfill@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+
+    with SessionLocal() as db:
+        profile = db.query(Profile).filter(Profile.user_email == email).one()
+        result = profile.get_result()
+        result.pop("debt_payoff_plan", None)
+        result["financial_analysis"].pop("debt_payoff_plan", None)
+        profile.onboard_result = json.dumps(result)
+        db.commit()
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+
+    assert profile_response.status_code == 200
+    body = profile_response.json()
+    plan = body["financial_analysis"]["debt_payoff_plan"]
+    assert body["debt_payoff_plan"] == plan
+    assert plan["months_to_freedom"] is not None
+    assert plan["upfront_cash_applied"] is not None
 
 
 def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
@@ -645,12 +687,9 @@ def test_projection_without_seed_echoes_replayable_seed(test_app: FastAPI):
     assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(replay_projection)
 
 
-def test_projection_without_seed_generates_fresh_replayable_seeds(
+def test_projection_without_seed_is_deterministic_cached_and_replayable(
     test_app: FastAPI,
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    generated_seeds = iter([101, 202])
-    monkeypatch.setattr(api_v1.secrets, "randbelow", lambda upper: next(generated_seeds))
     client = _client(test_app)
     portfolio_response = client.post(
         "/api/v1/portfolio",
@@ -666,18 +705,23 @@ def test_projection_without_seed_generates_fresh_replayable_seeds(
     assert second_response.status_code == 200
     first_projection = first_response.json()
     second_projection = second_response.json()
-    assert first_projection["seed"] == 101
-    assert second_projection["seed"] == 202
 
-    for projection in (first_projection, second_projection):
-        replay_response = client.post(
-            "/api/v1/projection",
-            json=_projection_payload(weights, seed=projection["seed"]),
-        )
-        assert replay_response.status_code == 200
-        assert _projection_reproducible_fields(projection) == _projection_reproducible_fields(
-            replay_response.json()
-        )
+    # New contract: identical inputs with no explicit seed are deterministic and
+    # served from the read-through cache — same seed, identical results, no jitter.
+    assert first_projection["seed"] == second_projection["seed"]
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(
+        second_projection
+    )
+
+    # The returned seed remains replayable via an explicit-seed call.
+    replay_response = client.post(
+        "/api/v1/projection",
+        json=_projection_payload(weights, seed=first_projection["seed"]),
+    )
+    assert replay_response.status_code == 200
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(
+        replay_response.json()
+    )
 
 
 def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: FastAPI):

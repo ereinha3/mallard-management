@@ -26,9 +26,18 @@ function hasPortfolio(result) {
   return Boolean(result?.portfolio)
 }
 
+function gateStatus(result) {
+  return result?.gate_result?.status ?? result?.status ?? null
+}
+
+function isClearedStatus(status) {
+  return status === 'greenlight' || status === 'green'
+}
+
 function stepFromResult(result) {
-  const status = result?.gate_result?.status ?? result?.status
-  if (hasPortfolio(result) || status === 'greenlight') return STEPS.PORTFOLIO
+  const status = gateStatus(result)
+  if (isClearedStatus(status)) return STEPS.GATE_GREEN
+  if (hasPortfolio(result)) return STEPS.PORTFOLIO
   if (status) return STEPS.GATE_HALT
   return STEPS.INTAKE
 }
@@ -168,7 +177,7 @@ export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
         )}
         {step === STEPS.GATE_HALT && (
           <GateScreen
-            status={gateResult?.gate_result?.status}
+            status={gateStatus(gateResult)}
             gateResult={gateResult}
             onFix={() => setStep(STEPS.INTAKE_FIX)}
           />
@@ -178,7 +187,7 @@ export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
         )}
         {step === STEPS.GATE_GREEN && (
           <GateScreen
-            status={gateResult?.gate_result?.status}
+            status={gateStatus(gateResult)}
             gateResult={gateResult}
             onContinue={() => setStep(STEPS.PORTFOLIO)}
           />

@@ -327,12 +327,17 @@ function getViewportSize() {
   }
 }
 
+function prefersReducedMotion() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export default function TopoBackground({ phase = 'idle' }) {
   const { theme } = useTheme()
   const [viewport, setViewport] = useState({ width: 1200, height: 800 })
-  const [drawProgress, setDrawProgress] = useState(phase === 'enter' ? 0 : 1)
+  const [reducedMotion, setReducedMotion] = useState(() => prefersReducedMotion())
+  const [drawProgress, setDrawProgress] = useState(() => (reducedMotion || phase !== 'enter' ? 1 : 0))
   const [morphPhase, setMorphPhase] = useState(0)
-  const [reducedMotion, setReducedMotion] = useState(false)
   const contours = useMemo(() => buildContourPaths(viewport.width, viewport.height, morphPhase), [morphPhase, viewport])
   const isLightTheme = theme === 'light'
   const backgroundColor = isLightTheme ? LIGHT_BACKGROUND : DARK_BACKGROUND
@@ -360,20 +365,17 @@ export default function TopoBackground({ phase = 'idle' }) {
   }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-    let animationFrame = 0
 
     function handleMotionChange(event) {
       setReducedMotion(event.matches)
     }
 
-    animationFrame = window.requestAnimationFrame(() => {
-      setReducedMotion(motionQuery.matches)
-    })
     motionQuery.addEventListener('change', handleMotionChange)
 
     return () => {
-      window.cancelAnimationFrame(animationFrame)
       motionQuery.removeEventListener('change', handleMotionChange)
     }
   }, [])

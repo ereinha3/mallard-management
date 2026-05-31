@@ -156,6 +156,17 @@ export default function ProjectionChart({ projection: providedProjection, onboar
   const referenceYear = projection?.horizon_years ?? retirementYear
   const scale = useMemo(() => projectionScale(data), [data])
   const successPercent = numberOrNull(projection?.p_success)
+  const successGoalTarget = numberOrNull(projection?.goal_target ?? inputs?.goal_target)
+  const successHorizonYears = numberOrNull(projection?.horizon_years ?? inputs?.horizon_years ?? retirementYear)
+  const successPathCount = numberOrNull(projection?.n_paths ?? projection?.num_paths)
+  const successGoalText = successGoalTarget == null ? 'your goal' : `your goal of ${formatCurrency(successGoalTarget)}`
+  const successHorizonText = successHorizonYears == null ? 'the target year' : `year ${Math.max(1, Math.round(successHorizonYears))}`
+  const successPathText = successPathCount == null ? 'simulated market paths' : `${Math.round(successPathCount).toLocaleString()} simulated market paths`
+  const successHelper = successPercent == null
+    ? `Share of ${successPathText} where your portfolio reaches ${successGoalText} by ${successHorizonText}. Monte Carlo estimate, not a guarantee.`
+    : successPercent >= 1
+      ? `Essentially all ${successPathText} reached ${successGoalText} by ${successHorizonText}. Monte Carlo estimate, not certainty.`
+      : `Share of ${successPathText} where your portfolio reaches ${successGoalText} by ${successHorizonText}. Monte Carlo estimate, not a guarantee.`
   const medianTerminal = numberOrNull(projection?.median_terminal)
   const badCaseTerminal = numberOrNull(projection?.bad_case_terminal)
 
@@ -223,9 +234,12 @@ export default function ProjectionChart({ projection: providedProjection, onboar
       {projection && (
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>
-            <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Success Probability</div>
+            <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Chance of reaching your goal</div>
             <div className="font-display font-semibold" style={{ color: 'var(--emerald)', fontSize: 24, lineHeight: 1 }}>
               {successPercent == null ? '—' : formatPercent(successPercent * 100)}
+            </div>
+            <div className="text-xs mt-2 leading-snug" style={{ color: 'var(--text-muted)' }}>
+              {successHelper}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>

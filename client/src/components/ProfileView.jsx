@@ -20,7 +20,7 @@ const MONEY_FIELDS = new Set([
   'pretax_ira',
   'pretax_hsa',
 ])
-const FRACTION_PERCENT_FIELDS = new Set(['bracket', 'employer_match_rate', 'employer_match_cap_pct'])
+const FRACTION_PERCENT_FIELDS = new Set(['employer_match_rate', 'employer_match_cap_pct'])
 const NUMBER_FIELDS = new Set([
   'age',
   'horizon_years',
@@ -74,7 +74,6 @@ const RISK_SIGNAL_FIELDS = [
 
 const TAX_FIELDS = [
   { key: 'filing_status', label: 'Filing status', type: 'select', options: ['single', 'married_joint', 'married_separate', 'head_of_household'] },
-  { key: 'bracket', label: 'Tax bracket', type: 'fraction_percent' },
   { key: 'pretax_401k', label: 'Annual 401(k) contribution', type: 'money' },
   { key: 'pretax_ira', label: 'Annual IRA contribution', type: 'money' },
   { key: 'pretax_hsa', label: 'Annual HSA contribution', type: 'money' },
@@ -167,6 +166,7 @@ function sameValue(a, b) {
 
 function buildPatch(profile, formState, fields) {
   return fields.reduce((patch, field) => {
+    if (field.key === 'bracket') return patch
     const nextValue = parseField(field.key, formState[field.key])
     const currentValue = normalizedOriginalValue(field.key, profile[field.key])
     if (!sameValue(nextValue, currentValue)) patch[field.key] = nextValue
@@ -174,22 +174,37 @@ function buildPatch(profile, formState, fields) {
   }, {})
 }
 
-function mergeProfileResult(onboardResult, patch) {
-  const profile = getProfile(onboardResult)
+function mergeProfileResult(onboardResult, patch, baseResult = onboardResult) {
+  const profile = getProfile(baseResult)
   const nextProfile = { ...profile, ...patch }
   return {
-    ...(onboardResult ?? {}),
+    ...(baseResult ?? {}),
     validated_profile: {
       ...profile,
       ...patch,
     },
     optimizer_input: {
-      ...(onboardResult?.optimizer_input ?? {}),
+      ...(baseResult?.optimizer_input ?? {}),
       ...(patch.capital_on_hand != null ? { capital_on_hand: patch.capital_on_hand } : {}),
       ...(patch.monthly_surplus != null ? { monthly_surplus: patch.monthly_surplus } : {}),
     },
     _local_profile_patch: nextProfile,
   }
+}
+
+function getComputedTaxBracket(onboardResult) {
+  const profileBracket = numberOrNull(onboardResult?.validated_profile?.bracket)
+  if (profileBracket != null) return profileBracket
+
+  const taxBreakdown = onboardResult?.tax_breakdown
+  const candidates = [
+    taxBreakdown?.marginal_tax_rate,
+    taxBreakdown?.marginal_rate,
+    taxBreakdown?.tax_rate_used,
+    taxBreakdown?.effective_tax_rate,
+  ]
+
+  return candidates.map(numberOrNull).find(value => value != null) ?? null
 }
 
 function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
@@ -472,6 +487,42 @@ function FieldSection({ icon: Icon, title, fields, formState, onChange, dataTour
   )
 }
 
+function ReadOnlyTaxBracket({ onboardResult }) {
+  const computedBracket = getComputedTaxBracket(onboardResult)
+
+  return (
+    <section className="card-premium p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Settings size={14} style={{ color: 'var(--gold-light)' }} />
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Tax Bracket
+        </div>
+      </div>
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
+        <div>
+          <span className="block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
+            Tax bracket (auto-calculated)
+          </span>
+          <div
+            className="font-semibold"
+            style={{
+              width: '100%',
+              borderRadius: 8,
+              border: '1px solid var(--border-bright)',
+              background: 'var(--bg-elevated)',
+              color: computedBracket == null ? 'var(--text-muted)' : 'var(--text-primary)',
+              padding: '10px 11px',
+              fontSize: 13,
+            }}
+          >
+            {computedBracket == null ? 'Auto-calculated' : formatPercent(computedBracket * 100)}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function ProfileView({ onboardResult, userEmail, onUpdated, embedded = false }) {
   const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
@@ -508,12 +559,13 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
     setMessage('')
 
     try {
-      const updated = resolvedUserEmail
+      const updated = resolvedUserEmail && resolvedUserEmail !== 'demo@mallard.test'
         ? await postUpdateProfile({ user_email: resolvedUserEmail, profile_patch: profilePatch })
         : mergeProfileResult(onboardResult, profilePatch)
-      onUpdated?.(updated)
-      setSaveState(resolvedUserEmail ? 'success' : 'local')
-      setMessage(resolvedUserEmail ? 'Saved and reweighted.' : 'Saved locally for this session.')
+      const patchedUpdate = mergeProfileResult(onboardResult, profilePatch, updated)
+      onUpdated?.(patchedUpdate)
+      setSaveState(resolvedUserEmail && resolvedUserEmail !== 'demo@mallard.test' ? 'success' : 'local')
+      setMessage(resolvedUserEmail && resolvedUserEmail !== 'demo@mallard.test' ? 'Saved and reweighted.' : 'Saved locally for this session.')
     } catch (error) {
       onUpdated?.(mergeProfileResult(onboardResult, profilePatch))
       setSaveState('local')
@@ -586,6 +638,8 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
           formState={formState}
           onChange={handleChange}
         />
+
+        <ReadOnlyTaxBracket onboardResult={onboardResult} />
 
         {message && (
           <div

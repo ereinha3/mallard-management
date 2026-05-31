@@ -20,7 +20,7 @@ function MallardBubble({ text, isStreaming }) {
         <Feather size={14} color="#070604" />
       </div>
       <div style={{
-        maxWidth: 600, padding: '13px 17px',
+        maxWidth: 'min(600px, 100%)', padding: '13px 17px',
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border-bright)',
         borderTopLeftRadius: 4, borderTopRightRadius: 14,
@@ -28,6 +28,7 @@ function MallardBubble({ text, isStreaming }) {
         fontSize: 14, lineHeight: 1.65, color: 'var(--text-primary)',
         fontFamily: 'DM Sans, sans-serif',
         whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
       }}>
         {text}
         {isStreaming && (
@@ -46,13 +47,14 @@ function UserBubble({ text }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
       <div style={{
-        maxWidth: 480, padding: '12px 16px',
+        maxWidth: 'min(480px, 100%)', padding: '12px 16px',
         background: 'rgba(176,128,16,0.10)',
         border: '1px solid rgba(176,128,16,0.22)',
         borderTopLeftRadius: 14, borderTopRightRadius: 4,
         borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
         fontSize: 14, lineHeight: 1.55, color: 'var(--text-primary)',
         fontFamily: 'DM Sans, sans-serif',
+        overflowWrap: 'anywhere',
       }}>
         {text}
       </div>
@@ -60,23 +62,35 @@ function UserBubble({ text }) {
   )
 }
 
-export default function AdvisorChat({ context, user }) {
+export default function AdvisorChat({ context, user, initialDraft }) {
   const [messages, setMessages] = useState([])
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
-  const [inputVal, setInputVal] = useState('')
+  const [inputVal, setInputVal] = useState(() => (
+    typeof initialDraft === 'string' && initialDraft.trim() ? initialDraft : ''
+  ))
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
+  const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const sessionIdRef = useRef(null)
+  const shouldAutoScrollRef = useRef(false)
+  const userEmail = user?.email
 
   useEffect(() => {
+    if (!shouldAutoScrollRef.current) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
   useEffect(() => {
     if (!isStreaming) inputRef.current?.focus()
   }, [isStreaming])
+
+  const isNearBottom = useCallback(() => {
+    const node = scrollRef.current
+    if (!node) return true
+    return node.scrollHeight - node.scrollTop - node.clientHeight < 96
+  }, [])
 
   const callAdvisor = useCallback((msgList) => {
     setIsStreaming(true)
@@ -85,40 +99,52 @@ export default function AdvisorChat({ context, user }) {
     let accumulated = ''
     let committed = false
 
-    streamAdvisor({
-      messages: msgList,
-      context,
-      user_email: user?.email,
-      session_id: sessionIdRef.current,
-      onSession: (sessionId) => {
-        sessionIdRef.current = sessionId
-      },
-      onToken: (chunk) => {
-        accumulated += chunk
-        setStreamingText(accumulated)
-      },
-      onError: (msg) => {
-        setIsStreaming(false)
-        setStreamingText('')
-        setError(msg)
-      },
-      onDone: () => {
-        if (committed) return
-        committed = true
-        if (accumulated) {
-          setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
-        }
-        setStreamingText('')
-        setIsStreaming(false)
-      },
-    })
-  }, [context, user?.email])
+    const handleStreamError = (err) => {
+      setIsStreaming(false)
+      setStreamingText('')
+      setError(err?.message ?? 'Advisor stream failed.')
+    }
+
+    try {
+      void streamAdvisor({
+        messages: msgList,
+        context,
+        user_email: userEmail,
+        session_id: sessionIdRef.current,
+        onSession: (sessionId) => {
+          sessionIdRef.current = sessionId
+        },
+        onToken: (chunk) => {
+          shouldAutoScrollRef.current = isNearBottom()
+          accumulated += chunk
+          setStreamingText(accumulated)
+        },
+        onError: (msg) => {
+          setIsStreaming(false)
+          setStreamingText('')
+          setError(msg)
+        },
+        onDone: () => {
+          if (committed) return
+          committed = true
+          if (accumulated) {
+            setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
+          }
+          setStreamingText('')
+          setIsStreaming(false)
+        },
+      }).catch(handleStreamError)
+    } catch (err) {
+      handleStreamError(err)
+    }
+  }, [context, isNearBottom, userEmail])
 
   function handleSend(e) {
     e.preventDefault()
     const text = inputVal.trim()
     if (!text || isStreaming) return
     const updated = [...messages, { role: 'user', content: text }]
+    shouldAutoScrollRef.current = true
     setMessages(updated)
     setInputVal('')
     callAdvisor(updated)
@@ -127,6 +153,7 @@ export default function AdvisorChat({ context, user }) {
   function handleSuggestion(text) {
     if (isStreaming) return
     const updated = [...messages, { role: 'user', content: text }]
+    shouldAutoScrollRef.current = true
     setMessages(updated)
     callAdvisor(updated)
   }
@@ -172,7 +199,13 @@ export default function AdvisorChat({ context, user }) {
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflow: 'hidden auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        style={{ flex: 1, overflow: 'hidden auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}
+      >
         {messages.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 24, textAlign: 'center' }}>
             <div>
@@ -190,6 +223,7 @@ export default function AdvisorChat({ context, user }) {
                 <button
                   key={s}
                   onClick={() => handleSuggestion(s)}
+                  className="advisor-suggestion"
                   style={{
                     padding: '8px 14px',
                     background: 'var(--bg-elevated)',
@@ -268,6 +302,7 @@ export default function AdvisorChat({ context, user }) {
             ref={inputRef}
             value={inputVal}
             onChange={e => setInputVal(e.target.value)}
+            aria-label="Ask Mallard a question"
             placeholder={isStreaming ? 'Mallard is typing...' : 'Ask anything about your finances...'}
             disabled={isStreaming}
             style={{
@@ -284,6 +319,7 @@ export default function AdvisorChat({ context, user }) {
           />
           <button
             type="submit"
+            aria-label="Send message"
             disabled={isStreaming || !inputVal.trim()}
             style={{
               width: 44, height: 44, borderRadius: 9, border: 'none', flexShrink: 0,
@@ -294,7 +330,7 @@ export default function AdvisorChat({ context, user }) {
               transition: 'all 0.15s',
             }}
           >
-            <Send size={16} />
+            <Send size={16} aria-hidden="true" />
           </button>
         </form>
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10 }}>
@@ -307,6 +343,12 @@ export default function AdvisorChat({ context, user }) {
         @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         input::placeholder { color: var(--text-muted); opacity: 1; }
+        .advisor-suggestion:focus-visible {
+          outline: none;
+          border-color: var(--gold-light) !important;
+          color: var(--gold-light) !important;
+          box-shadow: 0 0 0 3px var(--focus-ring);
+        }
       `}</style>
     </div>
   )
