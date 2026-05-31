@@ -107,7 +107,7 @@ export default function GreenlightFlow({ onboardResult }) {
             <div>
               <span
                 className="font-display font-semibold text-base"
-                style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
+                style={{ color: 'var(--text-primary)', letterSpacing: 0 }}
               >
                 Greenlight
               </span>

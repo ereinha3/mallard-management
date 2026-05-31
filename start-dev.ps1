@@ -1,38 +1,34 @@
-# start-dev.ps1 — launch all three Mallard Management dev servers
-# Run from repo root: .\start-dev.ps1
+# start-dev.ps1
+# Starts the Mallard Management / Mallard Management dev servers in separate windows.
+#
+# Usage (from repo root, in PowerShell):
+#   .\start-dev.ps1
+#
+# Prerequisites:
+#   - Node 18+ and Python 3.10+ installed
+#   - npm install already run inside client/
+#   - pip install -r backend/requirements.txt already run
+#   - backend/.env populated as needed for the Python FastAPI app
 
 $root = $PSScriptRoot
-Set-Location $root
 
-$ports = 3000, 8000, 5173
-$conflicts = @()
+# 1. Python FastAPI backend (port 8000)
+Start-Process powershell -ArgumentList "-NoExit", "-Command", @"
+  Write-Host '=== Mallard Management API (FastAPI :8000) ===' -ForegroundColor Green
+  Set-Location '$root\backend'
+  python -m uvicorn main:app --reload --port 8000
+"@
 
-# Check for existing processes on the required ports
-foreach ($port in $ports) {
-    if (Get-Command lsof -ErrorAction SilentlyContinue) {
-        $pid = lsof -ti :$port
-        if ($pid) { $conflicts += $port }
-    }
-}
+# 2. Vite React frontend (port 5173)
+Start-Process powershell -ArgumentList "-NoExit", "-Command", @"
+  Write-Host '=== Mallard Management Frontend (Vite :5173) ===' -ForegroundColor Yellow
+  Set-Location '$root\client'
+  npm run dev
+"@
 
-if ($conflicts.Count -gt 0) {
-    Write-Host "❌ Warning: Ports $($conflicts -join ', ') are already in use." -ForegroundColor Yellow
-    Write-Host "Closing existing instances to prevent 'piling up'..." -ForegroundColor Gray
-    foreach ($port in $conflicts) {
-        $pid = lsof -ti :$port
-        if ($pid) {
-            if ($IsWindows) {
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            } else {
-                kill -9 $pid
-            }
-        }
-    }
-    Start-Sleep -Seconds 1
-}
-
-Write-Host "🚀 Starting all dev servers (Next.js, FastAPI, Vite) in this window..." -ForegroundColor Cyan
-Write-Host "Tip: Press Ctrl+C once to stop ALL servers at once." -ForegroundColor Gray
 Write-Host ""
-
-npm run dev:all
+Write-Host "Servers starting in separate windows:" -ForegroundColor White
+Write-Host "  Frontend  ->  http://localhost:5173" -ForegroundColor Yellow
+Write-Host "  FastAPI   ->  http://localhost:8000/docs" -ForegroundColor Green
+Write-Host ""
+Write-Host "Wait a few seconds for both to be ready, then open http://localhost:5173"

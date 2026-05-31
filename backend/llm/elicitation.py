@@ -16,8 +16,12 @@ import os
 import threading
 from typing import Any, AsyncGenerator, Generator
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 
 from models import ChatMessage
 
@@ -48,6 +52,7 @@ Tone: Professional, warm, and direct. Ask ONE question at a time — never bundl
 multiple questions into a single message. After the user answers, ask the next one.
 Vary your phrasing — never read from a list. When answers are vague, ask for
 specifics. Never lead the user toward a particular answer.
+Questions should feel like natural conversation, not a quiz or economics exam.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHAT TO GATHER — in roughly this order
@@ -163,8 +168,11 @@ WHAT TO GATHER — in roughly this order
      4 = Definitely wait for the larger amount
 
    GL13 — Lottery/gamble choice
-     Ask: On a game show, which do you choose? A: $100 guaranteed. B: 50% chance of $250 or nothing.
-          C: 20% chance of $750 or nothing. D: 5% chance of $3,000 or nothing.
+     Ask: Imagine you unexpectedly come into some extra money — say $100 — and you have a few options
+          for what to do with it. Which sounds most like you? A: Keep the full $100, no risk.
+          B: Try something where you might walk away with $250, but there's an equal chance you end up
+          with nothing. C: Go for a shot at $750, though it's more likely you'd end up with nothing.
+          D: Take a long-shot chance at $3,000, knowing the odds are heavily against you.
      A → 1, B → 2, C → 3, D → 4
 
 5. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
@@ -176,8 +184,10 @@ WHAT TO GATHER — in roughly this order
    buy_more  = would invest more
 
 6. LOSS-AVERSION PROBE — loss_aversion_probe (optional)
-   Ask: "Suppose you have a 50/50 coin flip — heads you WIN $X, tails you LOSE $100.
-   What's the smallest X that would make you want to take that bet?"
+   Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
+   or a small investment that could go sideways. What's the smallest potential gain that would make it
+   feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
+   you need to potentially win before you'd seriously consider it?"
    Record the dollar amount. Neutral answer = $100. Loss-averse (λ ≈ 2) ≈ $200.
    Skip if the conversation is already long or the user is impatient.
 
@@ -227,7 +237,7 @@ the analysis engine now."
 
 # ── Tool definition ───────────────────────────────────────────────────────────
 
-def _debt_schema() -> types.Schema:
+def _debt_schema() -> Any:
     return types.Schema(
         type="OBJECT",
         properties={
@@ -243,78 +253,85 @@ def _debt_schema() -> types.Schema:
     )
 
 
-SUBMIT_PROFILE_TOOL = types.Tool(
-    function_declarations=[
-        types.FunctionDeclaration(
-            name="submit_profile",
-            description=(
-                "Submit the completed user financial profile once all required fields "
-                "have been gathered through conversation."
-            ),
-            parameters=types.Schema(
-                type="OBJECT",
-                properties={
-                    # Financials
-                    "household_income":  types.Schema(type="NUMBER", description="Annual household income in dollars"),
-                    "monthly_expenses":  types.Schema(type="NUMBER", description="Total monthly essential expenses"),
-                    "capital_on_hand":   types.Schema(type="NUMBER", description="Liquid capital available to invest"),
-                    "emergency_fund":    types.Schema(type="NUMBER", description="Current emergency fund balance"),
-                    "debts":             types.Schema(
-                        type="ARRAY",
-                        items=_debt_schema(),
-                        description="All debts; empty list if none",
-                    ),
-                    # Lifecycle
-                    "age":            types.Schema(type="INTEGER"),
-                    "horizon_years":  types.Schema(type="INTEGER", description="Years to retirement or primary goal"),
-                    "goals":          types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
-                    "goal_target":    types.Schema(type="NUMBER", description="Target terminal wealth in dollars; 0 if unknown"),
-                    "dependents":     types.Schema(type="INTEGER"),
-                    "filing_status":  types.Schema(
-                        type="STRING",
-                        enum=["single", "married_joint", "married_separate", "head_of_household"],
-                    ),
-                    # Risk tolerance
-                    "risk_instrument_responses": types.Schema(
-                        type="ARRAY",
-                        items=types.Schema(type="INTEGER"),
-                        description="13 Grable-Lytton scores in order GL1–GL13, each 1–4",
-                    ),
-                    "loss_scenario_response": types.Schema(
-                        type="STRING",
-                        enum=["sell_all", "sell_some", "hold", "buy_more"],
-                    ),
-                    "loss_aversion_probe": types.Schema(
-                        type="NUMBER",
-                        description="Minimum $ win to accept 50/50 bet against $100 loss; null if not asked",
-                    ),
-                    # Capacity
-                    "income_stability": types.Schema(
-                        type="STRING",
-                        enum=["bond_like", "mixed", "stock_like"],
-                    ),
-                    # Preferences
-                    "universe_pref":        types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
-                    "esg_exclusions":       types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
-                    "sector_theme_tilts":   types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
-                    # LLM metadata
-                    "confidence":        types.Schema(type="OBJECT", description="Per-field confidence 0–1"),
-                    "uncertainty_flags": types.Schema(
-                        type="ARRAY",
-                        items=types.Schema(type="STRING"),
-                        description="Fields with confidence < 0.6",
-                    ),
-                },
-                required=[
-                    "household_income", "monthly_expenses", "capital_on_hand",
-                    "emergency_fund", "debts", "age", "horizon_years",
-                    "filing_status", "risk_instrument_responses",
-                    "loss_scenario_response", "income_stability",
-                ],
-            ),
-        )
-    ]
-)
+def _build_submit_profile_tool() -> Any:
+    if types is None:
+        return None
+
+    return types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="submit_profile",
+                description=(
+                    "Submit the completed user financial profile once all required fields "
+                    "have been gathered through conversation."
+                ),
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={
+                        # Financials
+                        "household_income": types.Schema(type="NUMBER", description="Annual household income in dollars"),
+                        "monthly_expenses": types.Schema(type="NUMBER", description="Total monthly essential expenses"),
+                        "capital_on_hand": types.Schema(type="NUMBER", description="Liquid capital available to invest"),
+                        "emergency_fund": types.Schema(type="NUMBER", description="Current emergency fund balance"),
+                        "debts": types.Schema(
+                            type="ARRAY",
+                            items=_debt_schema(),
+                            description="All debts; empty list if none",
+                        ),
+                        # Lifecycle
+                        "age": types.Schema(type="INTEGER"),
+                        "horizon_years": types.Schema(type="INTEGER", description="Years to retirement or primary goal"),
+                        "goals": types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
+                        "goal_target": types.Schema(type="NUMBER", description="Target terminal wealth in dollars; 0 if unknown"),
+                        "dependents": types.Schema(type="INTEGER"),
+                        "filing_status": types.Schema(
+                            type="STRING",
+                            enum=["single", "married_joint", "married_separate", "head_of_household"],
+                        ),
+                        # Risk tolerance
+                        "risk_instrument_responses": types.Schema(
+                            type="ARRAY",
+                            items=types.Schema(type="INTEGER"),
+                            description="13 Grable-Lytton scores in order GL1-GL13, each 1-4",
+                        ),
+                        "loss_scenario_response": types.Schema(
+                            type="STRING",
+                            enum=["sell_all", "sell_some", "hold", "buy_more"],
+                        ),
+                        "loss_aversion_probe": types.Schema(
+                            type="NUMBER",
+                            description="Minimum $ win to accept 50/50 bet against $100 loss; null if not asked",
+                        ),
+                        # Capacity
+                        "income_stability": types.Schema(
+                            type="STRING",
+                            enum=["bond_like", "mixed", "stock_like"],
+                        ),
+                        # Preferences
+                        "universe_pref": types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
+                        "esg_exclusions": types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
+                        "sector_theme_tilts": types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
+                        # LLM metadata
+                        "confidence": types.Schema(type="OBJECT", description="Per-field confidence 0-1"),
+                        "uncertainty_flags": types.Schema(
+                            type="ARRAY",
+                            items=types.Schema(type="STRING"),
+                            description="Fields with confidence < 0.6",
+                        ),
+                    },
+                    required=[
+                        "household_income", "monthly_expenses", "capital_on_hand",
+                        "emergency_fund", "debts", "age", "horizon_years",
+                        "filing_status", "risk_instrument_responses",
+                        "loss_scenario_response", "income_stability",
+                    ],
+                ),
+            )
+        ]
+    )
+
+
+SUBMIT_PROFILE_TOOL = _build_submit_profile_tool()
 
 # ── Proto → Python conversion ─────────────────────────────────────────────────
 
@@ -336,6 +353,10 @@ def _stream_sync(messages: list[ChatMessage]) -> Generator[dict, None, None]:
     Synchronous generator. Yields token/profile_ready/error dicts.
     Run this in a thread; bridge to async via _stream_async below.
     """
+    if genai is None or types is None:
+        yield {"type": "error", "content": "google-genai is not installed."}
+        return
+
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         yield {"type": "error", "content": "GOOGLE_API_KEY is not set."}

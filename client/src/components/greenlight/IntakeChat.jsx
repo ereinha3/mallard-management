@@ -230,7 +230,7 @@ export default function IntakeChat({ onComplete }) {
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
             Elicitation · Live Session
           </div>
-          <div className="font-display font-semibold text-xl mt-0.5" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <div className="font-display font-semibold text-xl mt-0.5" style={{ color: 'var(--text-primary)', letterSpacing: 0 }}>
             Should you be investing right now?
           </div>
         </div>
