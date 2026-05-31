@@ -1155,7 +1155,7 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 
 def _greenlit_portfolio(
     profile_input: api_models.UserProfileInput,
-    method: str = "erc",
+    method: str = "strategic",
 ) -> api_models.PortfolioResponse:
     response = _run_pipeline(profile_input)
     if response.status != "greenlight" or response.portfolio is None:
@@ -1166,7 +1166,10 @@ def _greenlit_portfolio(
                 "onboard": response.model_dump(),
             },
         )
-    if method != "erc":
+    # "strategic" is the default allocator; "erc" is kept as a legacy sentinel for
+    # the same default (the onboard pipeline already builds the strategic portfolio).
+    # Only black_litterman/cvar route to an alternative build.
+    if method not in ("strategic", "erc"):
         if response.validated_profile is None:
             raise HTTPException(status_code=400, detail="Validated profile is required.")
         return _build_alternative_portfolio(response.validated_profile, method)
@@ -1860,7 +1863,7 @@ async def recheck(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 @router.post("/portfolio", response_model=api_models.PortfolioResponse, summary="Build target portfolio")
 async def portfolio(request: api_models.PortfolioRequest) -> api_models.PortfolioResponse:
     """Build canonical engine universe, target weights, and risk metrics for a greenlit profile."""
-    return _greenlit_portfolio(request.profile, request.method or "erc")
+    return _greenlit_portfolio(request.profile, request.method or "strategic")
 
 
 @router.post("/backtest", response_model=api_models.BacktestResponse, summary="Run cached walk-forward backtest")

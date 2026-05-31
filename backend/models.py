@@ -474,7 +474,7 @@ class RiskMetrics(BaseModel):
 
 class PortfolioRequest(BaseModel):
     profile: UserProfileInput
-    method: Optional[Literal["erc", "black_litterman", "cvar"]] = "erc"
+    method: Optional[Literal["strategic", "erc", "black_litterman", "cvar"]] = "strategic"
 
 
 class PortfolioResponse(BaseModel):
