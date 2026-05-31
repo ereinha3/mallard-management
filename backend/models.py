@@ -502,8 +502,15 @@ class BacktestEquityPoint(BaseModel):
     value: float
 
 
+class BacktestDrawdownPoint(BaseModel):
+    date: date
+    dd: float
+
+
 class BacktestMetricSet(BaseModel):
+    cagr: Optional[float] = None
     sharpe: float
+    deflated_sharpe: Optional[float] = None
     sortino: float
     max_drawdown: float
     calmar: float
@@ -512,13 +519,18 @@ class BacktestMetricSet(BaseModel):
 
 class BacktestStrategyResult(BaseModel):
     equity_curve: List[BacktestEquityPoint]
+    drawdown_curve: Optional[List[BacktestDrawdownPoint]] = None
     metrics: BacktestMetricSet
 
 
 class BacktestResponse(BaseModel):
     equity_curve: List[BacktestEquityPoint]
+    drawdown_curve: Optional[List[BacktestDrawdownPoint]] = None
     metrics: BacktestMetricSet
-    benchmarks: Dict[Literal["one_over_n", "sixty_forty", "target_date"], BacktestStrategyResult]
+    benchmarks: Dict[
+        Literal["one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy"],
+        BacktestStrategyResult,
+    ]
 
 
 class PortfolioRiskSummary(BaseModel):

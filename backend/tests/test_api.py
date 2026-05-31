@@ -498,6 +498,30 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
 
 
+def test_backtest_response_surfaces_honest_metrics_and_naive_mvo(test_app: FastAPI):
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/backtest",
+        json={"profile": _persona("persona_greenlight.json")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "drawdown_curve" in body
+    assert "cagr" in body["metrics"]
+    assert "deflated_sharpe" in body["metrics"]
+    assert "naive_mvo" in body["benchmarks"]
+
+    strategies = [body, *body["benchmarks"].values()]
+    for strategy in strategies:
+        assert "drawdown_curve" in strategy
+        assert "cagr" in strategy["metrics"]
+        assert "deflated_sharpe" in strategy["metrics"]
+        if strategy["drawdown_curve"] is not None:
+            assert {"date", "dd"} <= set(strategy["drawdown_curve"][0])
+
+
 def test_marginal_federal_rate_picks_last_dollar_bracket():
     from types import SimpleNamespace
 
