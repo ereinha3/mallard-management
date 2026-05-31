@@ -44,12 +44,14 @@ from persistence import (  # noqa: E402
     get_messages,
     get_or_create_session,
     get_or_create_investment_account,
+    get_latest_active_session,
     get_password_hash,
     get_profile_result,
     get_session,
     get_user,
     list_sessions,
     set_alpaca_account_id,
+    set_session_status,
     update_investment_account_cash,
     upsert_profile,
     verify_password,
@@ -1066,6 +1068,50 @@ def _profile_input(profile: Profile | None) -> dict[str, Any] | None:
     return profile.get_input() if profile else None
 
 
+def _stored_profile_or_404(db: Session, email: str) -> Profile:
+    profile = db.query(Profile).filter(Profile.user_email == email).first()
+    if not profile or not profile.get_result():
+        raise HTTPException(status_code=404, detail="Stored profile not found")
+    return profile
+
+
+def _request_email(query_email: str | None, body_email: str | None) -> str:
+    email = query_email or body_email
+    if not email:
+        raise HTTPException(status_code=400, detail="user_email is required")
+    return email
+
+
+def _deep_merge(base: dict[str, Any], patch: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _apply_saved_risk_summary(
+    result: dict[str, Any],
+    risk_summary: api_models.PortfolioRiskSummary | None,
+) -> None:
+    if risk_summary is None:
+        return
+
+    summary = risk_summary.model_dump(mode="json")
+    financial_analysis = result.get("financial_analysis")
+    if isinstance(financial_analysis, dict) and isinstance(financial_analysis.get("risk"), dict):
+        financial_analysis["risk"].update(summary)
+
+    risk_profile = result.get("risk_profile")
+    target_volatility_pct = summary.get("target_volatility_pct")
+    if isinstance(risk_profile, dict) and target_volatility_pct is not None:
+        target_vol_band = risk_profile.get("target_vol_band")
+        if isinstance(target_vol_band, dict):
+            target_vol_band["mid"] = float(target_volatility_pct) / 100.0
+
+
 def _prepare_chat_session(
     session_id: str | None,
     user_email: str | None,
@@ -1326,15 +1372,82 @@ async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.O
     return api_models.OnboardResponse(**result)
 
 
+@router.post("/portfolio/save", response_model=api_models.OnboardResponse)
+async def portfolio_save(
+    request: api_models.SavePortfolioRequest,
+    user_email: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
+    email = _request_email(user_email, request.user_email)
+    profile = _stored_profile_or_404(db, email)
+    result = profile.get_result()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Stored profile not found")
+
+    result["portfolio"] = request.portfolio.model_dump(mode="json")
+    _apply_saved_risk_summary(result, request.risk_summary)
+    try:
+        response = api_models.OnboardResponse.model_validate(result)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    upsert_profile(
+        db,
+        email,
+        json.dumps(profile.get_input()),
+        response.model_dump_json(),
+    )
+    db.commit()
+    return response
+
+
+@router.post("/profile/update", response_model=api_models.OnboardResponse)
+async def profile_update(
+    request: api_models.UpdateProfileRequest,
+    user_email: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
+    email = _request_email(user_email, request.user_email)
+    profile = _stored_profile_or_404(db, email)
+    merged_input = _deep_merge(profile.get_input(), request.profile_patch)
+    try:
+        profile_input = api_models.UserProfileInput.model_validate(merged_input)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Updated profile is invalid.",
+                "clarification_requests": [
+                    clarification.model_dump()
+                    for clarification in _validation_clarifications(exc)
+                ],
+            },
+        ) from exc
+
+    response = _run_pipeline(profile_input)
+    upsert_profile(
+        db,
+        email,
+        profile_input.model_dump_json(),
+        response.model_dump_json(),
+    )
+    db.commit()
+    return response
+
+
 @router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
 async def onboard(
     profile_input: api_models.UserProfileInput,
     user_email: str | None = None,
+    session_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> api_models.OnboardResponse:
     """
     Validate profile -> compute risk profile -> run responsibility gate.
     Returns a halt with math or a greenlight with a packaged OptimizerInput.
+
+    When ``session_id`` is supplied, the elicitation session that produced this
+    profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
     response = _run_pipeline(profile_input)
 
@@ -1376,6 +1489,8 @@ async def onboard(
             profile_input.model_dump_json(),
             response.model_dump_json(),
         )
+        if session_id:
+            set_session_status(db, session_id, "complete")
         db.commit()
 
     return response
@@ -1637,6 +1752,18 @@ async def user_chats(
         _session_out(db, chat_session, include_messages=False)
         for chat_session in list_sessions(db, email, kind)
     ]
+
+
+@router.get("/users/{email}/active-onboarding", response_model=api_models.ResumeOnboarding)
+async def active_onboarding(email: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Resume hook: the latest in-progress (status='active') elicitation session for
+    this user, with its full transcript and any extracted profile, or found=False."""
+    if not get_user(db, email):
+        raise HTTPException(status_code=404, detail="User not found")
+    chat_session = get_latest_active_session(db, email, "elicitation")
+    if not chat_session:
+        return {"found": False, "session": None}
+    return {"found": True, "session": _session_out(db, chat_session)}
 
 
 @router.get("/chats/{session_id}", response_model=api_models.ChatSessionOut)

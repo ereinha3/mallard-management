@@ -8,17 +8,19 @@ import TaxProfileForm from './components/TaxProfileForm'
 import OnboardingChat from './components/OnboardingChat'
 import AdvisorChat from './components/AdvisorChat'
 import AccountsTab from './components/AccountsTab'
-import PortfolioView from './components/greenlight/PortfolioView'
 import RiskView from './components/RiskView'
 import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
+import ProfileView from './components/ProfileView'
 import LearnView from './components/learn/LearnView'
+import PageTransition from './components/visual/PageTransition'
+import TopoBackground from './components/visual/TopoBackground'
 import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
-import { getProfile } from './api/greenlightClient'
+import { getProfile, getActiveOnboarding } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
-const AUTH_LOCAL_STORAGE_KEYS = []
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
+const AUTH_STORAGE_KEY = 'mallard.auth'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -26,13 +28,25 @@ export default function App() {
   const [taxProfile, setTaxProfile] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [onboardResult, setOnboardResult] = useState(null)
+  const [resumeSession, setResumeSession] = useState(null)
   const [activePage, setActivePage] = useState('dashboard')
   const [askMallardOpen, setAskMallardOpen] = useState(false)
   const [askMallardMounted, setAskMallardMounted] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
+  const [topoPhase, setTopoPhase] = useState('enter')
+
+  // Legacy builds persisted a user object here, which could bypass AuthScreen on load.
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+      // localStorage unavailable (private mode / SSR) — non-fatal.
+    }
+  }, [])
 
   useEffect(() => {
     if (askMallardOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAskMallardMounted(true)
       return undefined
     }
@@ -44,7 +58,9 @@ export default function App() {
     return () => window.clearTimeout(timeout)
   }, [askMallardOpen])
 
-  // When user logs in, try to fetch their existing profile
+  // When the user (re)appears, restore their state from the backend:
+  //  1. a completed profile -> go straight to the dashboard, OR
+  //  2. an interrupted onboarding -> resume the elicitation chat from the DB.
   useEffect(() => {
     if (user && !onboardResult) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -54,116 +70,94 @@ export default function App() {
           setOnboardResult(profile)
           setTaxProfileDone(true)
           setOnboardingDone(true)
+          return null
         }
+        // No finished profile — check for an in-progress onboarding to resume.
+        return getActiveOnboarding(user.email).then(resume => {
+          if (resume && resume.found && resume.session) {
+            setResumeSession(resume.session)
+          }
+        })
       }).finally(() => {
+        // Set last, so OnboardingChat only mounts once resumeSession is known.
         setLoadingProfile(false)
       })
     }
   }, [user, onboardResult])
 
+  useEffect(() => {
+    if (topoPhase !== 'exit') return undefined
+
+    const timeout = window.setTimeout(() => {
+      setTopoPhase('idle')
+    }, 3500)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [topoPhase])
+
   function handleLogout() {
-    AUTH_LOCAL_STORAGE_KEYS.forEach(key => window.localStorage.removeItem(key))
+    try {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+      // ignore
+    }
     setAskMallardOpen(false)
     setUser(null)
     setTaxProfile(null)
     setTaxProfileDone(false)
     setOnboardResult(null)
     setOnboardingDone(false)
+    setResumeSession(null)
     setActivePage('dashboard')
+    setTopoPhase('enter')
   }
 
-  // Stage 1: not logged in
-  if (!user) {
-    return (
-      <AuthScreen
-        onAuth={(u) => {
-          setUser(u)
-        }}
-        onDevSkip={() => {
-          // Developer shortcut: bypass login + onboarding, land in the app with demo data
-          setOnboardResult(DUMMY_ONBOARD_RESULT)
-          setTaxProfileDone(true)
-          setOnboardingDone(true)
-          setUser(DUMMY_USER)
-        }}
-      />
-    )
-  }
-
-  // Loading state while checking for profile
-  if (loadingProfile) {
-    return (
-      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', color: 'var(--text-muted)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 24, color: 'var(--text-primary)', marginBottom: 8 }}>Mallard</div>
-          <div style={{ fontSize: 13 }}>Retrieving your financial profile...</div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!taxProfileDone) {
-    const handleTaxProfileComplete = (profile) => {
-      setTaxProfile(profile)
-      setTaxProfileDone(true)
-    }
-
-    return (
-      <TaxProfileForm
-        user={user}
-        onComplete={handleTaxProfileComplete}
-        onSubmit={handleTaxProfileComplete}
-      />
-    )
-  }
-
-  // Stage 2: new user goes through Mallard AI onboarding
-  if (!onboardingDone) {
-    return (
-      <OnboardingChat
-        user={user}
-        taxProfile={taxProfile}
-        onComplete={(result) => {
-          setOnboardResult(result)
-          setOnboardingDone(true)
-        }}
-      />
-    )
-  }
-
-  // Stage 3: full app
-  return (
-    <TourProvider onNavigate={setActivePage}>
-      <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--bg-base)' }}>
-        <Sidebar
-          active={activePage}
-          onNavigate={setActivePage}
-          user={user}
+  const activeContent = (
+    <>
+      {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
+      {activePage === 'greenlight' && (
+        <GreenlightFlow
           onboardResult={onboardResult}
+          userEmail={user?.email}
+          onResult={setOnboardResult}
         />
-        <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
-          {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
-          {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
-          {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
-          {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} onApplied={setOnboardResult} />}
-          {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
-          {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
-          {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} />}
+      )}
+      {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
+      {activePage === 'profile' && (
+        <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+          <ProfileView
+            onboardResult={onboardResult}
+            userEmail={user?.email}
+            onUpdated={setOnboardResult}
+            embedded
+          />
+          <AccountsTab onboardResult={onboardResult} embedded />
+        </div>
+      )}
+      {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
+      {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
+      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} onNavigate={setActivePage} />}
 
-          {!PAGES_WITH_CONTENT.includes(activePage) && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-              <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
-                {activePage}
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
-            </div>
-          )}
-        </main>
+      {!PAGES_WITH_CONTENT.includes(activePage) && (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: 'transparent' }}>
+          <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
+            {activePage}
+          </div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
+        </div>
+      )}
+    </>
+  )
 
+  function renderAskMallard() {
+    return (
+      <>
         {!askMallardOpen && (
           <button
             type="button"
+            data-tour="ask-mallard-button"
             aria-label="Open Ask Mallard"
             onClick={() => setAskMallardOpen(true)}
             style={{
@@ -291,7 +285,89 @@ export default function App() {
             </div>
           </aside>
         </div>
+      </>
+    )
+  }
+
+  let screen
+
+  // Stage 1: not logged in
+  if (!user) {
+    screen = (
+      <AuthScreen
+        onAuth={(u) => {
+          setTopoPhase('exit')
+          setUser(u)
+        }}
+        onDevSkip={() => {
+          // Developer shortcut: bypass login + onboarding, land in the app with demo data
+          setTopoPhase('exit')
+          setOnboardResult(DUMMY_ONBOARD_RESULT)
+          setTaxProfileDone(true)
+          setOnboardingDone(true)
+          setUser(DUMMY_USER)
+        }}
+      />
+    )
+  } else if (loadingProfile) {
+    screen = (
+      <div className="mallard-loading-screen" style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'transparent', color: 'var(--text-muted)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 24, color: 'var(--text-primary)', marginBottom: 8 }}>Mallard</div>
+          <div style={{ fontSize: 13 }}>Retrieving your financial profile...</div>
+        </div>
       </div>
-    </TourProvider>
+    )
+  } else if (!taxProfileDone) {
+    screen = (
+      <TaxProfileForm
+        user={user}
+        onComplete={(profile) => {
+          setTaxProfile(profile)
+          setTaxProfileDone(true)
+        }}
+      />
+    )
+  } else if (!onboardingDone) {
+    screen = (
+      <div className="mallard-onboarding-shell" style={{ height: '100vh', width: '100vw' }}>
+        <OnboardingChat
+          user={user}
+          taxProfile={taxProfile}
+          resumeSession={resumeSession}
+          onComplete={(result) => {
+            setResumeSession(null)
+            setOnboardResult(result)
+            setOnboardingDone(true)
+          }}
+        />
+      </div>
+    )
+  } else {
+    screen = (
+      <TourProvider onNavigate={setActivePage}>
+        <div className="mallard-app-frame" style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'transparent' }}>
+          <Sidebar
+            active={activePage}
+            onNavigate={setActivePage}
+            user={user}
+            onboardResult={onboardResult}
+          />
+          <main className="mallard-main-surface" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent' }}>
+            <PageTransition key={activePage} pageKey={activePage}>
+              {activeContent}
+            </PageTransition>
+          </main>
+          {renderAskMallard()}
+        </div>
+      </TourProvider>
+    )
+  }
+
+  return (
+    <>
+      <TopoBackground phase={topoPhase} />
+      {screen}
+    </>
   )
 }

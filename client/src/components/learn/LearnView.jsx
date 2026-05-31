@@ -59,6 +59,7 @@ function moduleProgress(module, completedSet) {
 function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
   return (
     <aside
+      data-tour="learn-curriculum"
       className="w-full lg:w-[340px] shrink-0 overflow-y-auto p-4 lg:p-6"
       style={{
         background: 'var(--bg-surface)',
@@ -201,6 +202,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
   const horizonYears = onboardResult?.validated_profile?.horizon_years
   const overallPercent = Math.round((completedSet.size / lessonCount) * 100)
   const isComplete = completedSet.has(lesson.id)
+  const sources = Array.isArray(lesson.sources) ? lesson.sources : []
 
   function markComplete() {
     if (completedSet.has(lesson.id)) return
@@ -267,7 +269,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
 
         <main className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-8">
           <article className="mx-auto flex max-w-4xl flex-col gap-5">
-            <section className="card-premium p-6 lg:p-8">
+            <section data-tour="learn-lesson" className="card-premium p-6 lg:p-8">
               <div className="mb-6 flex flex-col gap-4 border-b pb-6 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: 'var(--border)' }}>
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--green, var(--emerald))' }}>
@@ -325,6 +327,33 @@ export default function LearnView({ onboardResult, onAskMallard }) {
                   {lesson.takeaway}
                 </p>
               </div>
+
+              {sources.length > 0 ? (
+                <div className="mt-6 border-t pt-5" style={{ borderColor: 'var(--border)' }}>
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                    Further reading
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {sources.map(source => (
+                      <a
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group inline-flex w-fit items-center gap-2 text-sm transition-colors duration-150"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        <span className="underline decoration-transparent underline-offset-4 transition-all duration-150 group-hover:decoration-current">
+                          {source.label}
+                        </span>
+                        <span className="font-mono text-[11px]" aria-hidden="true">
+                          ↗
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <section className="card-premium flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -352,6 +381,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
                 </button>
                 <button
                   type="button"
+                  data-tour="learn-ask"
                   onClick={askMallard}
                   className="flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold transition-all duration-150 hover:brightness-110"
                   style={{

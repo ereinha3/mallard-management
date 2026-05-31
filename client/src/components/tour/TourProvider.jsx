@@ -298,6 +298,7 @@ export function TourProvider({ children, onNavigate }) {
     }
 
     skippedStepsRef.current.delete(stepIndex)
+    target.scrollIntoView({ block: 'center', inline: 'nearest' })
     const nextSpotlightRect = getSpotlightRect(target)
     setSpotlightRect(nextSpotlightRect)
     setCoachmarkPosition(getCoachmarkPosition(nextSpotlightRect))

@@ -42,7 +42,7 @@ export default function RiskView({ onboardResult }) {
       </header>
 
       <div className="p-8 space-y-5 max-w-6xl">
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div data-tour="risk-overview" className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <Metric label="Gamma Band" value={gammaBand} icon={Shield} />
           <Metric label="Risk Aversion Gamma" value={gamma != null ? gamma.toFixed(2) : null} icon={Gauge} />
           <Metric label="Target Volatility" value={targetVol != null ? formatPercent(targetVol) : null} icon={Activity} color="var(--emerald)" />
@@ -50,7 +50,7 @@ export default function RiskView({ onboardResult }) {
         </div>
 
         <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div className="card-premium p-6">
+          <div data-tour="risk-capacity-tolerance" className="card-premium p-6">
             <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
               Capacity vs Tolerance
             </div>

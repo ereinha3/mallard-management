@@ -72,6 +72,12 @@ class UserRecord(BaseModel):
     chat_sessions: List[ChatSessionOut] = Field(default_factory=list)
 
 
+class ResumeOnboarding(BaseModel):
+    """An in-progress elicitation session a user can resume after an interrupt."""
+    found: bool
+    session: Optional[ChatSessionOut] = None
+
+
 # ── Financial profile ─────────────────────────────────────────────────────────
 
 class DebtItem(BaseModel):
@@ -463,6 +469,12 @@ class PortfolioRiskSummary(BaseModel):
     estimated_max_loss_1yr_pct: float
 
 
+class SavePortfolioRequest(BaseModel):
+    portfolio: PortfolioResponse
+    risk_summary: Optional[PortfolioRiskSummary] = None
+    user_email: Optional[str] = None
+
+
 class PortfolioReoptimizeRequest(BaseModel):
     profile: UserProfileInput
     risk_dial: float = Field(ge=0, le=1)
@@ -512,6 +524,11 @@ class PortfolioAnalyzeWeightsResponse(BaseModel):
     weights: AnalyzedWeights
     metrics: RiskMetrics
     validation: PortfolioWeightsValidation
+
+
+class UpdateProfileRequest(BaseModel):
+    profile_patch: Dict[str, Any]
+    user_email: Optional[str] = None
 
 
 class ProjectionRequest(BaseModel):

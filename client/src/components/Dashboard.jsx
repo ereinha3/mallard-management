@@ -131,13 +131,13 @@ function getProjectionInputs(onboardResult, profile) {
   }
 }
 
-function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color, delay = '' }) {
+function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon: Icon, color, delay = '', dataTour }) {
   const isPos = delta >= 0
   const displayValue = typeof value === 'number'
     ? (suffix ? value.toFixed(1) : formatCurrency(value))
     : value
   return (
-    <div className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
+    <div data-tour={dataTour} className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
       <div className="flex items-start justify-between">
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
           {label}
@@ -165,6 +165,11 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color
           </span>
           {deltaLabel && <span style={{ color: 'var(--text-muted)' }}>{deltaLabel}</span>}
         </div>
+      )}
+      {description && (
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {description}
+        </p>
       )}
     </div>
   )
@@ -306,7 +311,7 @@ export default function Dashboard({ onboardResult }) {
 
       <div className="flex-1 p-7 space-y-5">
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-          <div className="card-premium p-5 anim-fade-up d100 transition-all cursor-default"
+          <div data-tour="net-worth" className="card-premium p-5 anim-fade-up d100 transition-all cursor-default"
             style={{ position: 'relative', overflow: 'hidden' }}>
             <div className="flex items-start justify-between mb-4">
               <div>
@@ -339,7 +344,7 @@ export default function Dashboard({ onboardResult }) {
             </div>
           </div>
 
-          <div className="card-premium p-4 anim-fade-up d150 cursor-default">
+          <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
               Retirement Readiness
             </div>
@@ -360,14 +365,16 @@ export default function Dashboard({ onboardResult }) {
             label="Savings Rate"
             value={savingsRate ?? 'Not available'}
             suffix="%"
+            description="Share of income you save each month: (income - expenses) / income."
             icon={Target}
             color="var(--blue)"
             delay="d250"
+            dataTour="savings-rate"
           />
         </div>
 
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr' }}>
-          <div className="card-premium p-5 anim-fade-up d300">
+          <div data-tour="projection" className="card-premium p-5 anim-fade-up d300">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
