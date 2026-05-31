@@ -184,7 +184,7 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
@@ -195,6 +195,10 @@ function SignUpForm({ onAuth }) {
     if (!form.name.trim())    e.name    = 'Full name is required'
     if (!form.email.trim())   e.email   = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email'
+    if (!form.phone.trim())   e.phone   = 'Phone number is required'
+    else if (form.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number'
+    if (!form.zip.trim())     e.zip     = 'ZIP code is required'
+    else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -208,7 +212,13 @@ function SignUpForm({ onAuth }) {
     setErrors({})
     setLoading(true)
     try {
-      const user = await register({ email: form.email, password: form.password, name: form.name })
+      const user = await register({
+        email: form.email,
+        password: form.password,
+        name: form.name,
+        phone: form.phone.trim(),
+        zip: form.zip.trim(),
+      })
       onAuth({ ...user, isNewUser: true })
     } catch (err) {
       setErrors({ form: err.message })
@@ -229,6 +239,13 @@ function SignUpForm({ onAuth }) {
 
       <Field label="Email" type="email" value={form.email} onChange={set('email')}
         placeholder="you@example.com" error={errors.email} autoComplete="email" />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Phone Number" type="tel" value={form.phone} onChange={set('phone')}
+          placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" />
+        <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
+          placeholder="94105" error={errors.zip} autoComplete="postal-code" />
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}

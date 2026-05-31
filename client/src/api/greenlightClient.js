@@ -13,11 +13,11 @@ const BASE =
  * AUTH ENDPOINTS
  */
 
-export async function register({ email, password, name }) {
+export async function register({ email, password, name, phone, zip }) {
   const res = await fetch(`${BASE}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, name, phone, zip }),
   })
   if (!res.ok) {
     const err = await res.json()
