@@ -74,12 +74,19 @@ WHAT TO GATHER — in roughly this order
    • Number of financial dependents
    • Tax filing status: single | married_joint | married_separate | head_of_household
 
-3. INCOME STABILITY — classify as one of:
+3. TAX DETAILS
+   • ZIP code — 5 digits
+   • State — two-letter abbreviation
+   • Annual 401k contribution, if any
+   • Annual traditional IRA contribution, if any
+   • Annual HSA contribution, if any
+
+4. INCOME STABILITY — classify as one of:
    • bond_like: very stable — government, tenured teacher, large-employer salary
    • mixed: moderately stable — professional with variable bonus, steady contractor
    • stock_like: volatile — freelancer, commission-based, startup, self-employment
 
-4. RISK TOLERANCE — 13-item Grable-Lytton instrument
+5. RISK TOLERANCE — 13-item Grable-Lytton instrument
    Ask these conversationally. Weave multiple items into a single prompt when natural.
    Score each 1–4 where 4 = most risk tolerant. Map the user's response to the score.
 
@@ -175,7 +182,7 @@ WHAT TO GATHER — in roughly this order
           D: Take a long-shot chance at $3,000, knowing the odds are heavily against you.
      A → 1, B → 2, C → 3, D → 4
 
-5. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
+6. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
    Ask explicitly: "If your actual investment portfolio dropped 20% in a single year —
    a scenario that has happened historically — what would you realistically do?"
    sell_all  = would sell everything
@@ -183,25 +190,25 @@ WHAT TO GATHER — in roughly this order
    hold      = would hold and wait
    buy_more  = would invest more
 
-6. DOHMEN SINGLE-ITEM RISK — dohmen_risk
+7. DOHMEN SINGLE-ITEM RISK — dohmen_risk
    Ask: "On a scale from 0 to 10, where 0 means not at all willing to take risks
    and 10 means very willing, how willing are you to take risks in general?"
    Record the integer 0-10. This is an independent corroborating signal; do not
    combine it with the Grable-Lytton answers.
 
-7. LOSS-AVERSION PROBE — loss_aversion_probe
+8. LOSS-AVERSION PROBE — loss_aversion_probe
    Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
    or a small investment that could go sideways. What's the smallest potential gain that would make it
    feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
    you need to potentially win before you'd seriously consider it?"
    Record the dollar amount. Neutral answer = $100. Loss-averse (λ ≈ 2) ≈ $200.
 
-8. GOAL TARGET — goal_target
+9. GOAL TARGET — goal_target
    Ask: "Roughly how much money would you need at retirement (or your goal date) to feel
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-9. INVESTMENT PREFERENCES
+10. INVESTMENT PREFERENCES
    • ETF-only, individual stocks, or a mix
    • Any sectors/industries to exclude for ethical reasons (e.g. fossil fuels, weapons, tobacco)
    • Any sectors they want to tilt toward
@@ -292,6 +299,27 @@ def _build_submit_profile_tool() -> Any:
                         "filing_status": types.Schema(
                             type="STRING",
                             enum=["single", "married_joint", "married_separate", "head_of_household"],
+                        ),
+                        # Tax details
+                        "zip_code": types.Schema(
+                            type="STRING",
+                            description="Optional 5-digit ZIP code for tax lookup",
+                        ),
+                        "state": types.Schema(
+                            type="STRING",
+                            description="Optional two-letter state abbreviation",
+                        ),
+                        "pretax_401k": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual 401k contribution; default 0",
+                        ),
+                        "pretax_ira": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual traditional IRA contribution; default 0",
+                        ),
+                        "pretax_hsa": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual HSA contribution; default 0",
                         ),
                         # Risk tolerance
                         "risk_instrument_responses": types.Schema(

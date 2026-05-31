@@ -188,6 +188,7 @@ export default function Dashboard({ onboardResult }) {
   const [projectionError, setProjectionError] = useState(null)
   const profile = getProfile(onboardResult)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
+  const taxBreakdown = onboardResult?.tax_breakdown ?? null
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
 
@@ -249,6 +250,27 @@ export default function Dashboard({ onboardResult }) {
     { label: 'Monthly Expenses', value: monthlyExpenses, positive: false },
     { label: 'Monthly Surplus', value: cashFlow, positive: (cashFlow ?? 0) >= 0 },
   ].filter(row => row.value != null)
+  const ficaTotal = taxBreakdown
+    ? (numberOrNull(taxBreakdown.fica_social_security) ?? 0)
+      + (numberOrNull(taxBreakdown.fica_medicare) ?? 0)
+      + (numberOrNull(taxBreakdown.additional_medicare) ?? 0)
+    : null
+  const taxRows = taxBreakdown ? [
+    { label: 'Gross Income', value: numberOrNull(taxBreakdown.gross_income) },
+    { label: 'Pre-tax Deductions', value: numberOrNull(taxBreakdown.pretax_deductions) },
+    { label: 'AGI', value: numberOrNull(taxBreakdown.agi) },
+    { label: 'Federal Tax', value: numberOrNull(taxBreakdown.federal_income_tax) },
+    { label: 'State Tax', value: numberOrNull(taxBreakdown.state_income_tax) },
+    { label: 'Local Tax', value: numberOrNull(taxBreakdown.local_tax) },
+    { label: 'FICA (SS + Medicare)', value: ficaTotal },
+    { label: 'Total Tax', value: numberOrNull(taxBreakdown.total_tax) },
+    {
+      label: 'Effective Tax Rate',
+      value: numberOrNull(taxBreakdown.effective_tax_rate),
+      percent: true,
+    },
+    { label: 'Net Take-Home', value: numberOrNull(taxBreakdown.net_income), highlight: true },
+  ] : []
 
   return (
     <div role="main" className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -387,7 +409,7 @@ export default function Dashboard({ onboardResult }) {
           </div>
         </div>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
           <div className="card-premium p-5 anim-fade-up d400">
             <div className="flex items-center gap-2 mb-4">
               <Calendar size={13} style={{ color: 'var(--gold-light)' }} />
@@ -481,6 +503,35 @@ export default function Dashboard({ onboardResult }) {
               <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
                 Risk label: <span style={{ color: 'var(--text-secondary)' }}>{risk.label}</span>
               </div>
+            )}
+          </div>
+
+          <div className="card-premium p-5 anim-fade-up d550">
+            <div className="flex items-center gap-2 mb-4">
+              <DollarSign size={13} style={{ color: 'var(--gold-light)' }} />
+              <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Tax Breakdown
+              </div>
+            </div>
+            {taxBreakdown ? (
+              <>
+                {taxRows.map((row) => (
+                  <div key={row.label} className="flex items-center justify-between gap-3 py-2.5" style={{ borderBottom: '1px solid var(--border)' }}>
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{row.label}</span>
+                    <span className="font-mono text-sm font-medium text-right" style={{ color: row.highlight ? 'var(--emerald)' : 'var(--text-primary)' }}>
+                      {row.value == null
+                        ? 'Not available'
+                        : row.percent
+                          ? `${(row.value * 100).toFixed(1)}%`
+                          : formatCurrency(row.value)}
+                    </span>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Add your ZIP code to see your tax breakdown.
+              </p>
             )}
           </div>
         </div>

@@ -2,6 +2,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
 from datetime import date, datetime
+from tax.models import TaxBreakdown
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -128,6 +129,13 @@ class UserProfileInput(BaseModel):
     )
     sector_theme_tilts: List[str] = Field(default_factory=list)
 
+
+    # ── Tax fields ────────────────────────────────────────────────────────────────────────
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    pretax_401k: Optional[float] = Field(default=0.0, ge=0)
+    pretax_ira: Optional[float] = Field(default=0.0, ge=0)
+    pretax_hsa: Optional[float] = Field(default=0.0, ge=0)
     # ── LLM confidence metadata ───────────────────────────────────────────────
     confidence: Dict[str, float] = Field(default_factory=dict)
     uncertainty_flags: List[str] = Field(default_factory=list)
@@ -706,3 +714,4 @@ class OnboardResponse(BaseModel):
     optimizer_input: Optional[OptimizerInput] = None
     portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
+    tax_breakdown: Optional[TaxBreakdown] = None
