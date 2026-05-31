@@ -3,3 +3,5 @@ dist
 .DS_Store
 client-integration/
 **/.codex-tasks
+**/.env
+
