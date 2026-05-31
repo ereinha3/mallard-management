@@ -2,6 +2,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
 from datetime import date, datetime
+from taxplanning.models import BucketPlan, TaxBreakdown
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -91,6 +92,12 @@ class UserProfileInput(BaseModel):
     monthly_expenses: float = Field(gt=0, description="Total monthly essential expenses")
     capital_on_hand: float = Field(ge=0, description="Liquid capital available to invest")
     emergency_fund: float = Field(ge=0, description="Current emergency fund balance")
+    home_value: Optional[float] = Field(default=0.0, ge=0, description="Estimated current home value")
+    non_liquid_savings: Optional[float] = Field(
+        default=0.0,
+        ge=0,
+        description="Non-liquid savings: stocks, ETFs, brokerage accounts",
+    )
     debts: List[DebtItem] = Field(default_factory=list)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -135,6 +142,17 @@ class UserProfileInput(BaseModel):
     )
     sector_theme_tilts: List[str] = Field(default_factory=list)
 
+
+    # ── Tax fields ────────────────────────────────────────────────────────────────────────
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    pretax_401k: Optional[float] = Field(default=0.0, ge=0)
+    pretax_ira: Optional[float] = Field(default=0.0, ge=0)
+    pretax_hsa: Optional[float] = Field(default=0.0, ge=0)
+    employer_match_rate: float = Field(default=0.5, ge=0, le=1.0)
+    employer_match_cap_pct: float = Field(default=0.05, ge=0, le=1.0)
+    has_hsa_eligible_plan: bool = False
+    hsa_coverage: Optional[Literal["self_only", "family"]] = None
     # ── LLM confidence metadata ───────────────────────────────────────────────
     confidence: Dict[str, float] = Field(default_factory=dict)
     uncertainty_flags: List[str] = Field(default_factory=list)
@@ -752,6 +770,8 @@ class OnboardResponse(BaseModel):
     optimizer_input: Optional[OptimizerInput] = None
     portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
+    tax_breakdown: Optional[TaxBreakdown] = None
+    bucket_plan: Optional[BucketPlan] = None
 
 
 class MaintenanceRebalanceRequest(BaseModel):

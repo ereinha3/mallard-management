@@ -44,6 +44,12 @@ function firstPresent(...values) {
   return values.find(value => value != null && value !== '')
 }
 
+function formatProfilePercent(value) {
+  const num = numberOrNull(value)
+  if (num == null) return 'Not provided'
+  return formatPercent(Math.abs(num) <= 1 ? num * 100 : num)
+}
+
 function assetTypeFor(key) {
   if (key.includes('401') || key.includes('ira') || key.includes('retirement')) return 'retirement'
   if (key.includes('home') || key.includes('real_estate')) return 'home'
@@ -59,25 +65,25 @@ function AccountCard({ account, isLiability }) {
     ? (LIABILITY_ICONS[account.type] || LIABILITY_ICONS.other)
     : (ASSET_ICONS[account.type] || ASSET_ICONS.other)
   const Icon = config.icon
-
-  return (
-    <div className="card-premium p-5 transition-all hover:border-gold-light group" style={ACCOUNTS_SURFACE_STYLE}>
-      <button type="button" className="w-full flex items-center gap-4 text-left" onClick={() => setOpen(!open)}>
-        <div
-          className="flex items-center justify-center rounded-xl shrink-0"
-          style={{ width: 48, height: 48, background: config.bg, color: config.color }}
-        >
-          <Icon size={22} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium text-primary truncate group-hover:text-gold-light transition-colors">
-              {account.label}
-            </div>
-            <div className={`text-lg font-mono font-semibold ${isLiability ? 'text-ruby' : 'text-emerald'}`}>
-              {formatCurrency(account.balance, true)}
-            </div>
+  const isExpandable = isLiability || account.details?.length > 0
+  const rowContent = (
+    <>
+      <div
+        className="flex items-center justify-center rounded-xl shrink-0"
+        style={{ width: 48, height: 48, background: config.bg, color: config.color }}
+      >
+        <Icon size={22} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-primary truncate group-hover:text-gold-light transition-colors">
+            {account.label}
           </div>
+          <div className={`text-lg font-mono font-semibold ${isLiability ? 'text-ruby' : 'text-emerald'}`}>
+            {formatCurrency(account.balance, true)}
+          </div>
+        </div>
+        {isExpandable && (
           <div className="flex items-center justify-between mt-0.5">
             <div className="text-xs text-muted truncate">
               {account.subtitle}
@@ -87,8 +93,22 @@ function AccountCard({ account, isLiability }) {
               <ArrowRight size={10} style={{ transform: open ? 'rotate(90deg)' : 'none' }} />
             </div>
           </div>
+        )}
+      </div>
+    </>
+  )
+
+  return (
+    <div className="card-premium p-5 transition-all hover:border-gold-light group" style={ACCOUNTS_SURFACE_STYLE}>
+      {isExpandable ? (
+        <button type="button" className="w-full flex items-center gap-4 text-left" onClick={() => setOpen(!open)}>
+          {rowContent}
+        </button>
+      ) : (
+        <div className="w-full flex items-center gap-4 text-left">
+          {rowContent}
         </div>
-      </button>
+      )}
 
       {open && (
         <div className="mt-4 pt-4 grid grid-cols-1 gap-2 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
@@ -107,7 +127,14 @@ function AccountCard({ account, isLiability }) {
                 <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : 'Not provided'}</span>
               </div>
             </>
-          ) : null}
+          ) : (
+            account.details.map(detail => (
+              <div key={detail.label} className="flex justify-between gap-4">
+                <span className="text-muted">{detail.label}</span>
+                <span className="font-mono text-primary text-right">{detail.value}</span>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -144,7 +171,10 @@ function LinkModal({ onClose }) {
 
 export default function AccountsTab({ onboardResult, embedded = false }) {
   const [showLinkModal, setShowLinkModal] = useState(false)
-  const profile = onboardResult?.validated_profile ?? {}
+  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+  const fallbackProfile = onboardResult?.profile ?? {}
+  const profileValue = (key) => firstPresent(profile[key], fallbackProfile[key])
+  const homeAddress = firstPresent(profile.address, fallbackProfile.address, onboardResult?.user?.address, 'Address not on file')
   const debtAnalysis = onboardResult?.financial_analysis?.debt ?? {}
   const debts = Array.isArray(debtAnalysis.debts) && debtAnalysis.debts.length > 0
     ? debtAnalysis.debts
@@ -164,13 +194,56 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
 
   if (profile.assets && typeof profile.assets === 'object') {
     Object.entries(profile.assets).forEach(([key, value]) => {
+      const lowerKey = String(key).toLowerCase()
+      const label = titleize(key)
+      const balance = numberOrNull(value)
+      const is401k = lowerKey.includes('401')
+      const isPrimaryHome = lowerKey === 'home' || lowerKey === 'primary_home' || lowerKey.includes('primary home') || lowerKey.includes('primary_residence') || label === 'Primary Home'
+      const pretax401k = numberOrNull(profileValue('pretax_401k'))
+
       assets.push({
-        label: titleize(key),
-        balance: numberOrNull(value),
+        label,
+        balance,
         type: assetTypeFor(key),
         subtitle: 'Validated profile',
         key: `validated_profile.assets.${key}`,
+        details: is401k ? [
+          { label: 'Current balance', value: balance != null ? formatCurrency(balance) : 'Not provided' },
+          { label: 'Annual contribution', value: pretax401k != null ? formatCurrency(pretax401k) : 'Not provided' },
+          { label: 'Employer match rate', value: formatProfilePercent(profileValue('employer_match_rate')) },
+          { label: 'Employer match cap', value: formatProfilePercent(profileValue('employer_match_cap_pct')) },
+        ] : isPrimaryHome ? [
+          { label: 'Address', value: homeAddress },
+          { label: 'Home value', value: balance != null ? formatCurrency(balance) : 'Not provided' },
+        ] : undefined,
       })
+    })
+  }
+
+  const nonLiquidVal = numberOrNull(profileValue('non_liquid_savings'))
+  const homeVal = numberOrNull(profileValue('home_value'))
+
+  const assetsCovered = new Set(
+    (profile.assets && typeof profile.assets === 'object')
+      ? Object.keys(profile.assets).map(k => k.toLowerCase())
+      : []
+  )
+
+  if (nonLiquidVal != null && nonLiquidVal > 0 && !assetsCovered.has('taxable_brokerage') && !assetsCovered.has('non_liquid_savings')) {
+    assets.push({ label: 'Stocks & Brokerage', balance: nonLiquidVal, type: 'brokerage', subtitle: 'Validated profile', key: 'non_liquid_savings' })
+  }
+
+  if (homeVal != null && homeVal > 0 && !assetsCovered.has('primary_home') && !assetsCovered.has('home')) {
+    assets.push({
+      label: 'Primary Home',
+      balance: homeVal,
+      type: 'home',
+      subtitle: 'Validated profile',
+      key: 'home_value',
+      details: [
+        { label: 'Address', value: homeAddress },
+        { label: 'Home value', value: formatCurrency(homeVal) },
+      ],
     })
   }
 

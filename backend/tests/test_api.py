@@ -295,6 +295,8 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert etfs["ESGV"]["bucket"] == "us_total_market"
     assert etfs["ESGV"]["replacement_for"] == "VTI"
     assert etfs["ESGV"]["exclusion_reason"] == "fossil_fuels"
+    assert body["bucket_plan"]["buckets"][0]["name"] == "401k employer match"
+    assert body["bucket_plan"]["remaining_annual_surplus_for_taxable"] >= 0
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):

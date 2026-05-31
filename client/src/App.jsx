@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import GreenlightFlow from './components/greenlight/GreenlightFlow'
 import AuthScreen from './components/AuthScreen'
+import TaxProfileForm from './components/TaxProfileForm'
 import OnboardingChat from './components/OnboardingChat'
 import AdvisorChat from './components/AdvisorChat'
 import AccountsTab from './components/AccountsTab'
@@ -16,6 +17,7 @@ import PageTransition from './components/visual/PageTransition'
 import TopoBackground from './components/visual/TopoBackground'
 import { TourProvider } from './components/tour/TourProvider'
 import { getProfile, getActiveOnboarding } from './api/greenlightClient'
+import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
 const AUTH_STORAGE_KEY = 'mallard.auth'
@@ -23,6 +25,8 @@ const AUTH_STORAGE_KEY = 'mallard.auth'
 export default function App() {
   const [user, setUser] = useState(null)
   const [authenticatedThisSession, setAuthenticatedThisSession] = useState(false)
+  const [taxProfileDone, setTaxProfileDone] = useState(false)
+  const [taxProfile, setTaxProfile] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [onboardResult, setOnboardResult] = useState(null)
   const [resumeSession, setResumeSession] = useState(null)
@@ -71,6 +75,7 @@ export default function App() {
       if (cancelled) return null
       if (profile && profile.status !== 'no_profile') {
         setOnboardResult(profile)
+        setTaxProfileDone(true)
         setOnboardingDone(true)
         return null
       }
@@ -113,6 +118,8 @@ export default function App() {
     setAskMallardOpen(false)
     setAuthenticatedThisSession(false)
     setUser(null)
+    setTaxProfile(null)
+    setTaxProfileDone(false)
     setOnboardResult(null)
     setOnboardingDone(false)
     setResumeSession(null)
@@ -310,6 +317,17 @@ export default function App() {
           setAuthenticatedThisSession(true)
           setUser(u)
         }}
+        onDevSkip={() => {
+          // Developer shortcut: bypass login + onboarding, land in the app with demo data
+          setTopoPhase('exit')
+          setLoadingProfile(false)
+          setResumeSession(null)
+          setOnboardResult(DUMMY_ONBOARD_RESULT)
+          setTaxProfileDone(true)
+          setOnboardingDone(true)
+          setAuthenticatedThisSession(true)
+          setUser(DUMMY_USER)
+        }}
       />
     )
   } else if (loadingProfile) {
@@ -321,11 +339,24 @@ export default function App() {
         </div>
       </div>
     )
+  } else if (!taxProfileDone) {
+    screen = (
+      <TaxProfileForm
+        user={user}
+        zip={user?.zip}
+        homeValue={user?.home_value}
+        onComplete={(profile) => {
+          setTaxProfile(profile)
+          setTaxProfileDone(true)
+        }}
+      />
+    )
   } else if (!onboardingDone) {
     screen = (
       <div className="mallard-onboarding-shell" style={{ height: '100vh', width: '100vw' }}>
         <OnboardingChat
           user={user}
+          taxProfile={taxProfile}
           resumeSession={resumeSession}
           onComplete={(result) => {
             setResumeSession(null)
