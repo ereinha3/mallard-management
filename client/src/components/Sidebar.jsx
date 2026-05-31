@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, PiggyBank,
+  LayoutDashboard,
   Settings, Bell, Shield, ChevronRight, Feather, Zap,
   GraduationCap, UserCircle,
 } from 'lucide-react'
@@ -10,7 +10,6 @@ const navItems = [
   { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
   { icon: GraduationCap,   label: 'Learn',        id: 'learn' },
   { icon: UserCircle,      label: 'Profile',      id: 'profile' },
-  { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: Shield,          label: 'Risk',         id: 'risk' },
 ]
 

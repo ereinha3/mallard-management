@@ -142,7 +142,7 @@ function LinkModal({ onClose }) {
   )
 }
 
-export default function AccountsTab({ onboardResult }) {
+export default function AccountsTab({ onboardResult, embedded = false }) {
   const [showLinkModal, setShowLinkModal] = useState(false)
   const profile = onboardResult?.validated_profile ?? {}
   const debtAnalysis = onboardResult?.financial_analysis?.debt ?? {}
@@ -195,11 +195,13 @@ export default function AccountsTab({ onboardResult }) {
     .filter(Boolean)
 
   return (
-    <div className="flex flex-col h-full bg-base overflow-y-auto" style={ACCOUNTS_PAGE_STYLE}>
-      <div className="px-8 py-6 border-b border-border bg-surface sticky top-0 z-10" style={{ background: 'var(--bg-surface)' }}>
+    <div className={embedded ? 'flex flex-col bg-base' : 'flex flex-col h-full bg-base overflow-y-auto'} style={embedded ? { background: 'transparent' } : ACCOUNTS_PAGE_STYLE}>
+      <div className={embedded ? 'px-8 py-6 border-y border-border bg-surface' : 'px-8 py-6 border-b border-border bg-surface sticky top-0 z-10'} style={{ background: 'var(--bg-surface)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="font-display font-semibold text-2xl text-primary leading-none">Accounts</h1>
+            <h1 className="font-display font-semibold text-2xl text-primary leading-none">
+              {embedded ? 'Accounts & Holdings' : 'Accounts'}
+            </h1>
             <p className="text-xs text-muted mt-2 tracking-wide uppercase font-semibold">
               {displayAssets.length + liabilities.length} Profile-Backed Items
             </p>
@@ -215,7 +217,7 @@ export default function AccountsTab({ onboardResult }) {
         </div>
       </div>
 
-      <div className="p-8 space-y-10 max-w-6xl">
+      <div data-tour="accounts-holdings" className="p-8 space-y-10 max-w-6xl">
         <section>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">

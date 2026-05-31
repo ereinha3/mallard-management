@@ -142,7 +142,9 @@ export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
               </span>
             </div>
           </div>
-          <StepIndicator step={step} />
+          <div data-tour="greenlight-gate">
+            <StepIndicator step={step} />
+          </div>
           {(step === STEPS.PORTFOLIO || step === STEPS.REBALANCE) && (
             <button
               onClick={() => setStep(STEPS.INTAKE)}

@@ -59,6 +59,7 @@ function moduleProgress(module, completedSet) {
 function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
   return (
     <aside
+      data-tour="learn-curriculum"
       className="w-full lg:w-[340px] shrink-0 overflow-y-auto p-4 lg:p-6"
       style={{
         background: 'var(--bg-surface)',
@@ -268,7 +269,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
 
         <main className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-8">
           <article className="mx-auto flex max-w-4xl flex-col gap-5">
-            <section className="card-premium p-6 lg:p-8">
+            <section data-tour="learn-lesson" className="card-premium p-6 lg:p-8">
               <div className="mb-6 flex flex-col gap-4 border-b pb-6 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: 'var(--border)' }}>
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--green, var(--emerald))' }}>
@@ -380,6 +381,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
                 </button>
                 <button
                   type="button"
+                  data-tour="learn-ask"
                   onClick={askMallard}
                   className="flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold transition-all duration-150 hover:brightness-110"
                   style={{

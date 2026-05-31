@@ -13,6 +13,26 @@ const TAG_OPTIONS = {
   sector_theme_tilts: ['clean energy', 'healthcare', 'technology', 'real estate', 'international', 'small cap', 'dividends', 'none'],
 }
 
+const GOAL_OPTIONS = ['retirement', 'home', 'education', 'general_wealth']
+const ESG_EXCLUSION_OPTIONS = ['fossil_fuels', 'weapons', 'tobacco', 'gambling']
+const SECTOR_THEME_OPTIONS = [
+  'technology',
+  'healthcare',
+  'financials',
+  'energy',
+  'consumer',
+  'industrials',
+  'real_estate',
+  'clean_energy',
+  'ai',
+  'us_equity',
+  'intl_equity',
+  'bonds',
+  'tips',
+  'gold',
+  'reits',
+]
+
 const FINANCIAL_FIELDS = [
   { key: 'household_income', label: 'Household income', type: 'money' },
   { key: 'monthly_expenses', label: 'Monthly expenses', type: 'money' },
@@ -22,15 +42,16 @@ const FINANCIAL_FIELDS = [
 ]
 
 const PREFERENCE_FIELDS = [
-  { key: 'goals', label: 'Goals', type: 'tags', options: TAG_OPTIONS.goals },
+  { key: 'goals', label: 'Goals', type: 'tags', options: [...TAG_OPTIONS.goals, ...GOAL_OPTIONS] },
+  { key: 'goal_target', label: 'Goal target', type: 'money' },
   {
     key: 'universe_pref',
     label: 'Universe preference',
     type: 'select',
     options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
   },
-  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: TAG_OPTIONS.esg_exclusions },
-  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: TAG_OPTIONS.sector_theme_tilts },
+  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: [...TAG_OPTIONS.esg_exclusions, ...ESG_EXCLUSION_OPTIONS] },
+  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: [...TAG_OPTIONS.sector_theme_tilts, ...SECTOR_THEME_OPTIONS] },
 ]
 
 const OPTIONAL_RISK_FIELDS = [
@@ -147,6 +168,10 @@ function mergeProfileResult(onboardResult, patch) {
 function Field({ field, value, onChange }) {
   const inputId = `profile-${field.key}`
   const tagValues = field.type === 'tags' ? parseField(field.key, value) : []
+  const selectedValues = field.type === 'multi-select' ? parseField(field.key, value) : []
+  const options = field.type === 'multi-select' || field.type === 'tags'
+    ? [...new Set([...(field.options ?? []), ...selectedValues, ...tagValues])]
+    : field.options ?? []
   const commonStyle = {
     width: '100%',
     borderRadius: 8,
@@ -171,13 +196,34 @@ function Field({ field, value, onChange }) {
           style={commonStyle}
         >
           <option value="">Not provided</option>
-          {field.options.map(option => (
+          {options.map(option => (
+            <option key={option} value={option}>{labelize(option)}</option>
+          ))}
+        </select>
+      ) : field.type === 'multi-select' ? (
+        <select
+          id={inputId}
+          multiple
+          size={Math.min(Math.max(options.length, 4), 7)}
+          value={selectedValues}
+          onChange={event => {
+            const nextValues = Array.from(event.target.selectedOptions, option => option.value)
+            onChange(field.key, nextValues.join(', '))
+          }}
+          style={{
+            ...commonStyle,
+            minHeight: 122,
+            padding: 7,
+            lineHeight: 1.5,
+          }}
+        >
+          {options.map(option => (
             <option key={option} value={option}>{labelize(option)}</option>
           ))}
         </select>
       ) : field.type === 'tags' ? (
         <div id={inputId} className="flex flex-wrap gap-2">
-          {field.options.map(option => {
+          {options.map(option => {
             const isSelected = tagValues.includes(option)
             const nextValues = isSelected
               ? tagValues.filter(item => item !== option)
@@ -224,9 +270,9 @@ function Field({ field, value, onChange }) {
   )
 }
 
-function FieldSection({ icon: Icon, title, fields, formState, onChange }) {
+function FieldSection({ icon: Icon, title, fields, formState, onChange, dataTour }) {
   return (
-    <section className="card-premium p-5">
+    <section data-tour={dataTour} className="card-premium p-5">
       <div className="flex items-center gap-2 mb-4">
         <Icon size={14} style={{ color: 'var(--gold-light)' }} />
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -247,7 +293,7 @@ function FieldSection({ icon: Icon, title, fields, formState, onChange }) {
   )
 }
 
-export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
+export default function ProfileView({ onboardResult, userEmail, onUpdated, embedded = false }) {
   const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
   const riskFields = useMemo(() => (
@@ -302,7 +348,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
   const isSaving = saveState === 'saving'
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+    <div className={embedded ? 'flex flex-col' : 'flex flex-col h-full overflow-y-auto'} style={{ background: embedded ? 'transparent' : 'var(--bg-base)' }}>
       <header className="px-8 py-6" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -314,6 +360,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
           <button
             type="submit"
             form="profile-edit-form"
+            data-tour="profile-save"
             disabled={isSaving}
             className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all"
             style={{
@@ -330,7 +377,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
         </div>
       </header>
 
-      <form id="profile-edit-form" onSubmit={handleSave} className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr' }}>
+      <form id="profile-edit-form" data-tour="profile-edit" onSubmit={handleSave} className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr' }}>
         <FieldSection
           icon={Settings}
           title="Financial Profile"
@@ -345,6 +392,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
           fields={PREFERENCE_FIELDS}
           formState={formState}
           onChange={handleChange}
+          dataTour="profile-preferences"
         />
 
         {riskFields.length > 0 && (

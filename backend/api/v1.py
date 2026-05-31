@@ -44,12 +44,14 @@ from persistence import (  # noqa: E402
     get_messages,
     get_or_create_session,
     get_or_create_investment_account,
+    get_latest_active_session,
     get_password_hash,
     get_profile_result,
     get_session,
     get_user,
     list_sessions,
     set_alpaca_account_id,
+    set_session_status,
     update_investment_account_cash,
     upsert_profile,
     verify_password,
@@ -1406,11 +1408,15 @@ async def profile_update(
 async def onboard(
     profile_input: api_models.UserProfileInput,
     user_email: str | None = None,
+    session_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> api_models.OnboardResponse:
     """
     Validate profile -> compute risk profile -> run responsibility gate.
     Returns a halt with math or a greenlight with a packaged OptimizerInput.
+
+    When ``session_id`` is supplied, the elicitation session that produced this
+    profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
     response = _run_pipeline(profile_input)
 
@@ -1421,6 +1427,8 @@ async def onboard(
             profile_input.model_dump_json(),
             response.model_dump_json(),
         )
+        if session_id:
+            set_session_status(db, session_id, "complete")
         db.commit()
 
     return response
@@ -1682,6 +1690,18 @@ async def user_chats(
         _session_out(db, chat_session, include_messages=False)
         for chat_session in list_sessions(db, email, kind)
     ]
+
+
+@router.get("/users/{email}/active-onboarding", response_model=api_models.ResumeOnboarding)
+async def active_onboarding(email: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Resume hook: the latest in-progress (status='active') elicitation session for
+    this user, with its full transcript and any extracted profile, or found=False."""
+    if not get_user(db, email):
+        raise HTTPException(status_code=404, detail="User not found")
+    chat_session = get_latest_active_session(db, email, "elicitation")
+    if not chat_session:
+        return {"found": False, "session": None}
+    return {"found": True, "session": _session_out(db, chat_session)}
 
 
 @router.get("/chats/{session_id}", response_model=api_models.ChatSessionOut)
