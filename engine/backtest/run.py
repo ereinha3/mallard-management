@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -262,3 +263,36 @@ def run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(result.model_dump(mode="json"), indent=2) + "\n")
     return result
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the Greenlight offline backtest.")
+    parser.add_argument("--output-path", default=DATA_DIR / "backtest.json", help="Path to write BacktestResult JSON")
+    parser.add_argument("--window-months", type=int, default=WINDOW_MONTHS, help="Lookback window in months")
+    parser.add_argument(
+        "--rebalance",
+        choices=sorted(REBALANCE_MONTHS),
+        default="quarterly",
+        help="Rebalance cadence",
+    )
+    parser.add_argument("--tx-cost-bps", type=float, default=TX_COST_BPS, help="Transaction cost in basis points")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    result = run_backtest(
+        output_path=args.output_path,
+        window_months=args.window_months,
+        rebalance=args.rebalance,
+        tx_cost_bps=args.tx_cost_bps,
+    )
+    summary = {
+        name: strategy.metrics.model_dump(mode="json")
+        for name, strategy in result.strategies.items()
+    }
+    print(json.dumps({"config": result.config.model_dump(mode="json"), "metrics": summary}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
