@@ -71,9 +71,15 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
           style={{ background: 'var(--bg-elevated)' }}
           onClick={() => onNavigate?.('settings')}
           role="button"
+          aria-label="Open settings"
           tabIndex={0}
           onKeyDown={event => {
-            if (event.key === 'Enter' || event.key === ' ') onNavigate?.('settings')
+            if (event.key === ' ') {
+              event.preventDefault()
+              onNavigate?.('settings')
+            } else if (event.key === 'Enter') {
+              onNavigate?.('settings')
+            }
           }}
         >
           <div
@@ -101,7 +107,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto" aria-label="Primary navigation">
         <div className="text-xs font-semibold px-3 pt-1 pb-2" style={{ color: 'var(--text-muted)', letterSpacing: '0.10em' }}>
           PLANNING
         </div>
@@ -164,6 +170,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
               key={item.id}
               data-tour={`nav-${item.id}`}
               onClick={() => onNavigate?.(item.id)}
+              aria-current={isActive ? 'page' : undefined}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left"
               style={{
                 background: isActive ? 'var(--bg-elevated)' : 'transparent',

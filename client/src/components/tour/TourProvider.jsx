@@ -149,6 +149,13 @@ function TourStyles() {
           margin-top: 10px;
         }
 
+        .mallard-tour-keys {
+          color: var(--text-muted);
+          font-size: 12px;
+          line-height: 1.45;
+          margin-top: 12px;
+        }
+
         .mallard-tour-actions {
           display: flex;
           align-items: center;
@@ -239,6 +246,8 @@ export function TourProvider({ children, onNavigate }) {
   const skippedStepsRef = useRef(new Set())
   const navigationTimerRef = useRef(null)
   const rafRef = useRef(null)
+  const coachmarkRef = useRef(null)
+  const focusedStepRef = useRef(null)
 
   const stopTour = useCallback(() => {
     markTourSeen()
@@ -246,6 +255,7 @@ export function TourProvider({ children, onNavigate }) {
     setSpotlightRect(null)
     setCoachmarkPosition(null)
     skippedStepsRef.current = new Set()
+    focusedStepRef.current = null
   }, [])
 
   const completeTour = useCallback(() => {
@@ -254,6 +264,7 @@ export function TourProvider({ children, onNavigate }) {
     setSpotlightRect(null)
     setCoachmarkPosition(null)
     skippedStepsRef.current = new Set()
+    focusedStepRef.current = null
   }, [])
 
   const moveToStep = useCallback((nextIndex) => {
@@ -269,6 +280,7 @@ export function TourProvider({ children, onNavigate }) {
   const startTour = useCallback((options = {}) => {
     onNavigateRef.current = options.onNavigate || null
     skippedStepsRef.current = new Set()
+    focusedStepRef.current = null
     setStepIndex(0)
     setIsActive(true)
   }, [])
@@ -288,6 +300,13 @@ export function TourProvider({ children, onNavigate }) {
     const target = getStepTarget(step)
 
     if (!target) {
+      if (!skippedStepsRef.current.has(stepIndex) && import.meta.env.DEV) {
+        console.warn('Mallard tour target not found.', {
+          stepIndex,
+          title: step?.title,
+          selector: step?.selector,
+        })
+      }
       if (skippedStepsRef.current.has(stepIndex)) {
         completeTour()
         return
@@ -347,11 +366,16 @@ export function TourProvider({ children, onNavigate }) {
     if (!isActive) return undefined
 
     const handleKeyDown = (event) => {
+      const target = event.target
+      const isInteractiveEnter = event.key === 'Enter'
+        && target instanceof Element
+        && target.closest('button, a, input, textarea, select')
+
       if (event.key === 'Escape') {
         event.preventDefault()
         stopTour()
       }
-      if (event.key === 'ArrowRight' || event.key === 'Enter') {
+      if (event.key === 'ArrowRight' || (event.key === 'Enter' && !isInteractiveEnter)) {
         event.preventDefault()
         goForward()
       }
@@ -373,6 +397,13 @@ export function TourProvider({ children, onNavigate }) {
     return undefined
   }, [startTour, onNavigate])
 
+  useEffect(() => {
+    if (!isActive || !spotlightRect || !coachmarkPosition || focusedStepRef.current === stepIndex) return
+
+    focusedStepRef.current = stepIndex
+    coachmarkRef.current?.focus({ preventScroll: true })
+  }, [coachmarkPosition, isActive, spotlightRect, stepIndex])
+
   const value = useMemo(() => ({
     startTour,
     stopTour,
@@ -381,6 +412,9 @@ export function TourProvider({ children, onNavigate }) {
 
   const currentStep = tourSteps[stepIndex]
   const isLastStep = stepIndex === tourSteps.length - 1
+  const titleId = `mallard-tour-title-${stepIndex}`
+  const bodyId = `mallard-tour-body-${stepIndex}`
+  const keysId = `mallard-tour-keys-${stepIndex}`
 
   return (
     <TourContext.Provider value={value}>
@@ -410,9 +444,12 @@ export function TourProvider({ children, onNavigate }) {
           />
           <section
             aria-live="polite"
-            aria-label="Product tour"
+            aria-labelledby={titleId}
+            aria-describedby={`${bodyId} ${keysId}`}
             className="mallard-tour-card"
+            ref={coachmarkRef}
             role="dialog"
+            tabIndex={-1}
             style={{
               left: coachmarkPosition.left,
               top: coachmarkPosition.top,
@@ -421,8 +458,11 @@ export function TourProvider({ children, onNavigate }) {
             <div className="mallard-tour-eyebrow">
               {stepIndex + 1} / {tourSteps.length}
             </div>
-            <h2 className="mallard-tour-title font-display">{currentStep.title}</h2>
-            <p className="mallard-tour-body">{currentStep.body}</p>
+            <h2 className="mallard-tour-title font-display" id={titleId}>{currentStep.title}</h2>
+            <p className="mallard-tour-body" id={bodyId}>{currentStep.body}</p>
+            <p className="mallard-tour-keys" id={keysId}>
+              Keyboard: Enter or Right for next, Left for back, Esc to skip.
+            </p>
             <div className="mallard-tour-actions">
               <button
                 className="mallard-tour-button"

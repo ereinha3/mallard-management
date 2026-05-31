@@ -175,8 +175,12 @@ function SignInForm({ onAuth }) {
       <PwField label="Password" value={password} onChange={e => setPassword(e.target.value)}
         placeholder="••••••••" error={errors.password} autoComplete="current-password" />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -8 }}>
-        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--gold-light)', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>
-          Forgot password?
+        <button
+          type="button"
+          disabled
+          style={{ background: 'none', border: 'none', cursor: 'not-allowed', fontSize: 12, color: 'var(--text-muted)', padding: 0, fontFamily: 'DM Sans, sans-serif', opacity: 0.78 }}
+        >
+          Password reset coming soon
         </button>
       </div>
       <SubmitBtn loading={loading} label="Sign In" />
@@ -274,7 +278,7 @@ function SignUpForm({ onAuth }) {
       <Field label="Email" type="email" value={form.email} onChange={set('email')}
         placeholder="you@example.com" error={errors.email} autoComplete="email" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="auth-two-col" style={{ display: 'grid', gap: 12 }}>
         <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
           placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" maxLength={14} />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
@@ -287,7 +291,7 @@ function SignUpForm({ onAuth }) {
       <Field label="Home Value (if you own)" value={form.home_value} onChange={set('home_value')}
         placeholder="400,000" error={errors.home_value} autoComplete="off" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="auth-two-col" style={{ display: 'grid', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}
           placeholder="Min. 8 chars" error={errors.password} autoComplete="new-password" />
         <PwField label="Confirm Password" value={form.confirm} onChange={set('confirm')}
@@ -391,6 +395,7 @@ export default function AuthScreen({ onAuth }) {
                 <button
                   type="button"
                   onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+                  className="mallard-text-link"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-light)', fontSize: 12.5, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', padding: 0 }}
                 >
                   {mode === 'signin' ? 'Create one' : 'Sign in'}
@@ -661,6 +666,24 @@ export default function AuthScreen({ onAuth }) {
           background: var(--bg-elevated);
         }
 
+        .auth-two-col {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .mallard-text-link {
+          border-radius: 4px;
+          transition: color 0.15s, box-shadow 0.15s;
+        }
+
+        .mallard-text-link:hover {
+          color: var(--gold-bright) !important;
+        }
+
+        .mallard-text-link:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+
         @media (max-width: 1120px) {
           .mallard-auth-screen {
             height: auto !important;
@@ -700,6 +723,10 @@ export default function AuthScreen({ onAuth }) {
         }
 
         @media (max-width: 620px) {
+          .auth-two-col {
+            grid-template-columns: 1fr !important;
+          }
+
           .mallard-landing-panel {
             padding: 82px 20px 34px;
           }

@@ -53,9 +53,9 @@ const tourSteps = [
     page: 'greenlight',
   },
   {
-    selector: "[data-tour='ask-mallard-button']",
+    selector: "[data-tour='ask-mallard-button'], [role='dialog'][aria-label='Ask Mallard']",
     title: 'Ask Mallard',
-    body: 'The floating button opens the AI advisor from anywhere in the app. Ask it to explain a score, compare allocation choices, interpret a lesson, or turn a vague question like “am I taking too much risk?” into a concrete next step based on your profile.',
+    body: 'The floating button opens the AI advisor from anywhere in the app. If the advisor is already open, this step anchors to the drawer instead. Ask it to explain a score, compare allocation choices, interpret a lesson, or turn a vague question like “am I taking too much risk?” into a concrete next step based on your profile.',
   },
   {
     selector: "[data-tour='learn-curriculum']",

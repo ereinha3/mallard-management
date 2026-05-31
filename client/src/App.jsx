@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MessageCircle, X } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
@@ -19,10 +19,19 @@ import { TourProvider } from './components/tour/TourProvider'
 import { getProfile, getActiveOnboarding } from './api/greenlightClient'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
 const AUTH_STORAGE_KEY = 'mallard.auth'
+const PAGE_LABELS = {
+  dashboard: 'Dashboard',
+  greenlight: 'Greenlight',
+  learn: 'Learn',
+  profile: 'Profile',
+  risk: 'Risk',
+  alerts: 'Alerts',
+  settings: 'Settings',
+}
 
 export default function App() {
+  const mainRef = useRef(null)
   const [user, setUser] = useState(null)
   const [authenticatedThisSession, setAuthenticatedThisSession] = useState(false)
   const [taxProfileDone, setTaxProfileDone] = useState(false)
@@ -33,6 +42,7 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [askMallardOpen, setAskMallardOpen] = useState(false)
   const [askMallardMounted, setAskMallardMounted] = useState(false)
+  const [askMallardDraft, setAskMallardDraft] = useState('')
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [topoPhase, setTopoPhase] = useState('enter')
 
@@ -147,6 +157,10 @@ export default function App() {
     }
   }, [topoPhase])
 
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true })
+  }, [activePage])
+
   function handleLogout() {
     try {
       window.localStorage.removeItem(AUTH_STORAGE_KEY)
@@ -184,7 +198,15 @@ export default function App() {
           onResult={setOnboardResult}
         />
       )}
-      {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
+      {activePage === 'learn' && (
+        <LearnView
+          onboardResult={onboardResult}
+          onAskMallard={(draft) => {
+            setAskMallardDraft(typeof draft === 'string' ? draft : '')
+            setAskMallardOpen(true)
+          }}
+        />
+      )}
       {activePage === 'profile' && (
         <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
           <ProfileView
@@ -208,14 +230,6 @@ export default function App() {
         />
       )}
 
-      {!PAGES_WITH_CONTENT.includes(activePage) && (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: 'transparent' }}>
-          <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
-            {activePage}
-          </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
-        </div>
-      )}
     </>
   )
 
@@ -227,7 +241,10 @@ export default function App() {
             type="button"
             data-tour="ask-mallard-button"
             aria-label="Open Ask Mallard"
-            onClick={() => setAskMallardOpen(true)}
+            onClick={() => {
+              setAskMallardDraft('')
+              setAskMallardOpen(true)
+            }}
             style={{
               position: 'fixed',
               right: 24,
@@ -286,6 +303,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-label="Ask Mallard"
+            inert={!askMallardOpen}
             style={{
               position: 'absolute',
               top: 0,
@@ -303,54 +321,56 @@ export default function App() {
               pointerEvents: 'auto',
             }}
           >
-            <div
-              style={{
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '18px 20px',
-                borderBottom: '1px solid var(--border)',
-                background: 'linear-gradient(180deg, var(--bg-surface), var(--bg-base))',
-                flexShrink: 0,
-              }}
-            >
-              <div>
+            {askMallardMounted && (
+              <>
                 <div
-                  className="font-display"
-                  style={{ color: 'var(--text-primary)', fontSize: 22, fontWeight: 600, lineHeight: 1 }}
+                  style={{
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '18px 20px',
+                    borderBottom: '1px solid var(--border)',
+                    background: 'linear-gradient(180deg, var(--bg-surface), var(--bg-base))',
+                    flexShrink: 0,
+                  }}
                 >
-                  Ask Mallard
+                  <div>
+                    <div
+                      className="font-display"
+                      style={{ color: 'var(--text-primary)', fontSize: 22, fontWeight: 600, lineHeight: 1 }}
+                    >
+                      Ask Mallard
+                    </div>
+                    <div style={{ color: 'var(--gold-light)', fontSize: 11, letterSpacing: '0.10em', marginTop: 5 }}>
+                      FINANCIAL ADVISOR
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close Ask Mallard"
+                    onClick={() => setAskMallardOpen(false)}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-bright)',
+                      background: 'var(--bg-elevated)',
+                      color: 'var(--gold-light)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <X size={17} />
+                  </button>
                 </div>
-                <div style={{ color: 'var(--gold-light)', fontSize: 11, letterSpacing: '0.10em', marginTop: 5 }}>
-                  FINANCIAL ADVISOR
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <AdvisorChat context={onboardResult} user={user} initialDraft={askMallardDraft} />
                 </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Close Ask Mallard"
-                onClick={() => setAskMallardOpen(false)}
-                style={{
-                  width: 34,
-                  height: 34,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 8,
-                  border: '1px solid var(--border-bright)',
-                  background: 'var(--bg-elevated)',
-                  color: 'var(--gold-light)',
-                  cursor: 'pointer',
-                }}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              {askMallardMounted && (
-                <AdvisorChat context={onboardResult} user={user} />
-              )}
-            </div>
+              </>
+            )}
           </aside>
         </div>
       </>
@@ -442,7 +462,13 @@ export default function App() {
             user={user}
             onboardResult={onboardResult}
           />
-          <main className="mallard-main-surface" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent' }}>
+          <main
+            ref={mainRef}
+            className="mallard-main-surface"
+            tabIndex={-1}
+            aria-label={`${PAGE_LABELS[activePage] ?? 'Mallard'} page content`}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent' }}
+          >
             <PageTransition key={activePage} pageKey={activePage}>
               {activeContent}
             </PageTransition>

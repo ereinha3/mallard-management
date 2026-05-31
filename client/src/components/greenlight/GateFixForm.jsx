@@ -587,7 +587,7 @@ export default function GateFixForm({ gateResult, userEmail, onComplete }) {
                           <span style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 800 }}>
                             Balance
                           </span>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+                          <div className="gate-fix-balance-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10 }}>
                             <div style={{ position: 'relative' }}>
                               <span
                                 aria-hidden="true"
@@ -669,12 +669,12 @@ export default function GateFixForm({ gateResult, userEmail, onComplete }) {
         </div>
 
         {submitError && (
-          <div style={{ color: 'var(--ruby)', fontSize: 13, marginTop: 18, lineHeight: 1.5 }}>
+          <div role="alert" style={{ color: 'var(--ruby)', fontSize: 13, marginTop: 18, lineHeight: 1.5 }}>
             {submitError}
           </div>
         )}
         {submitSuccess && (
-          <div style={{ color: 'var(--emerald)', fontSize: 13, marginTop: 18, lineHeight: 1.5 }}>
+          <div aria-live="polite" style={{ color: 'var(--emerald)', fontSize: 13, marginTop: 18, lineHeight: 1.5 }}>
             {submitSuccess}
           </div>
         )}
@@ -714,6 +714,13 @@ export default function GateFixForm({ gateResult, userEmail, onComplete }) {
         >
           {submitting ? 'Re-checking...' : 'Re-check eligibility'}
         </button>
+        <style>{`
+          @media (max-width: 520px) {
+            .gate-fix-balance-row {
+              grid-template-columns: 1fr !important;
+            }
+          }
+        `}</style>
       </form>
     </div>
   )
