@@ -37,6 +37,15 @@ export const LOCAL_TAX_RATES: Record<string, LocalTaxConfig> = {
     nonResidentRate: 0,
     note: "Alias for 'new york city'",
   },
+  // zipcodes library returns "New York" (not "New York City") for Manhattan zips
+  "new york": {
+    cityName: "New York City",
+    type: "bracket",
+    rate: 0.03876,
+    residentRate: 0.03876,
+    nonResidentRate: 0,
+    note: "Alias for 'new york city' — matches zipcodes library output for NYC zips",
+  },
   "yonkers": {
     cityName: "Yonkers",
     type: "flat",

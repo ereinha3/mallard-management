@@ -75,6 +75,7 @@ export interface GateResult {
   verdict: GateVerdict;
   haltReason: HaltReason | null;
   clearToProceed: boolean;
+  clearToInvest: boolean;   // alias for clearToProceed — used by frontend
 
   // Ordered gate checks
   surplusCheck: SurplusCheck;

@@ -151,6 +151,7 @@ export function runResponsibilityGate(input: GateInput): GateResult {
     verdict,
     haltReason,
     clearToProceed,
+    clearToInvest: clearToProceed,
     surplusCheck,
     emergencyFund,
     debts: debtAnalyses,
