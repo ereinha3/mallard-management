@@ -228,7 +228,7 @@ export default function InvestPanel({ userEmail, portfolio, onChange }) {
 
   return (
     <div data-tour="invest" className="card-premium p-5 anim-fade-up d375">
-      <PanelHeader cash={cash} hasAccount={accountReady} invested={invested} />
+      <PanelHeader />
 
       {loading ? (
         <StatusNote icon={Loader2}>Loading your brokerage account…</StatusNote>
@@ -373,27 +373,17 @@ export default function InvestPanel({ userEmail, portfolio, onChange }) {
   )
 }
 
-function PanelHeader({ cash, hasAccount, invested } = {}) {
+function PanelHeader() {
+  // The account-value figure lives in the Net Worth card ("Invested with
+  // Mallard"); this header stays a plain title so it isn't a redundant total.
   return (
-    <div className="flex items-center justify-between">
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-          Invest
-        </div>
-        <div className="font-display font-semibold text-lg" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          Put your allocation to work
-        </div>
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+        Invest
       </div>
-      {hasAccount && (
-        <div className="text-right">
-          <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-            {invested > 0 ? 'Invested' : 'Cash'}
-          </div>
-          <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
-            {formatCurrency(invested > 0 ? invested : (cash ?? 0), true)}
-          </div>
-        </div>
-      )}
+      <div className="font-display font-semibold text-lg" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+        Put your allocation to work
+      </div>
     </div>
   )
 }
