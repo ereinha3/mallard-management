@@ -18,7 +18,7 @@ import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'accounts', 'risk', 'alerts', 'settings']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
 const AUTH_LOCAL_STORAGE_KEYS = []
 
 export default function App() {
@@ -95,13 +95,16 @@ export default function App() {
       )}
       {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
       {activePage === 'profile' && (
-        <ProfileView
-          onboardResult={onboardResult}
-          userEmail={user?.email}
-          onUpdated={setOnboardResult}
-        />
+        <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+          <ProfileView
+            onboardResult={onboardResult}
+            userEmail={user?.email}
+            onUpdated={setOnboardResult}
+            embedded
+          />
+          <AccountsTab onboardResult={onboardResult} embedded />
+        </div>
       )}
-      {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
       {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
       {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} />}

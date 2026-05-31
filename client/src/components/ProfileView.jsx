@@ -8,6 +8,26 @@ const MONEY_FIELDS = new Set(['household_income', 'monthly_expenses', 'capital_o
 const NUMBER_FIELDS = new Set(['age', 'horizon_years', 'target_volatility_pct', ...MONEY_FIELDS])
 const ARRAY_FIELDS = new Set(['goals', 'esg_exclusions', 'sector_theme_tilts'])
 
+const GOAL_OPTIONS = ['retirement', 'home', 'education', 'general_wealth']
+const ESG_EXCLUSION_OPTIONS = ['fossil_fuels', 'weapons', 'tobacco', 'gambling']
+const SECTOR_THEME_OPTIONS = [
+  'technology',
+  'healthcare',
+  'financials',
+  'energy',
+  'consumer',
+  'industrials',
+  'real_estate',
+  'clean_energy',
+  'ai',
+  'us_equity',
+  'intl_equity',
+  'bonds',
+  'tips',
+  'gold',
+  'reits',
+]
+
 const FINANCIAL_FIELDS = [
   { key: 'household_income', label: 'Household income', type: 'money' },
   { key: 'monthly_expenses', label: 'Monthly expenses', type: 'money' },
@@ -18,7 +38,7 @@ const FINANCIAL_FIELDS = [
 ]
 
 const PREFERENCE_FIELDS = [
-  { key: 'goals', label: 'Goals', type: 'list', placeholder: 'retirement, house' },
+  { key: 'goals', label: 'Goals', type: 'multi-select', options: GOAL_OPTIONS },
   { key: 'goal_target', label: 'Goal target', type: 'money' },
   {
     key: 'universe_pref',
@@ -26,8 +46,8 @@ const PREFERENCE_FIELDS = [
     type: 'select',
     options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
   },
-  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'list', placeholder: 'tobacco, firearms' },
-  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'list', placeholder: 'clean energy, healthcare' },
+  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'multi-select', options: ESG_EXCLUSION_OPTIONS },
+  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'multi-select', options: SECTOR_THEME_OPTIONS },
 ]
 
 const OPTIONAL_RISK_FIELDS = [
@@ -143,6 +163,10 @@ function mergeProfileResult(onboardResult, patch) {
 
 function Field({ field, value, onChange }) {
   const inputId = `profile-${field.key}`
+  const selectedValues = field.type === 'multi-select' ? parseField(field.key, value) : []
+  const options = field.type === 'multi-select'
+    ? [...new Set([...(field.options ?? []), ...selectedValues])]
+    : field.options ?? []
   const commonStyle = {
     width: '100%',
     borderRadius: 8,
@@ -167,7 +191,28 @@ function Field({ field, value, onChange }) {
           style={commonStyle}
         >
           <option value="">Not provided</option>
-          {field.options.map(option => (
+          {options.map(option => (
+            <option key={option} value={option}>{labelize(option)}</option>
+          ))}
+        </select>
+      ) : field.type === 'multi-select' ? (
+        <select
+          id={inputId}
+          multiple
+          size={Math.min(Math.max(options.length, 4), 7)}
+          value={selectedValues}
+          onChange={event => {
+            const nextValues = Array.from(event.target.selectedOptions, option => option.value)
+            onChange(field.key, nextValues.join(', '))
+          }}
+          style={{
+            ...commonStyle,
+            minHeight: 122,
+            padding: 7,
+            lineHeight: 1.5,
+          }}
+        >
+          {options.map(option => (
             <option key={option} value={option}>{labelize(option)}</option>
           ))}
         </select>
@@ -215,7 +260,7 @@ function FieldSection({ icon: Icon, title, fields, formState, onChange }) {
   )
 }
 
-export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
+export default function ProfileView({ onboardResult, userEmail, onUpdated, embedded = false }) {
   const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
   const riskFields = useMemo(() => (
@@ -270,7 +315,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
   const isSaving = saveState === 'saving'
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+    <div className={embedded ? 'flex flex-col' : 'flex flex-col h-full overflow-y-auto'} style={{ background: embedded ? 'transparent' : 'var(--bg-base)' }}>
       <header className="px-8 py-6" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
