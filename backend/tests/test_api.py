@@ -643,6 +643,72 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
 
 
+def test_maintenance_rebalance_quarterly_and_reprofile_refresh_active_portfolio(test_app: FastAPI):
+    client = _client(test_app)
+    email = "maintenance-rebalance@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    original_weights = onboard_response.json()["portfolio"]["weights"]["by_ticker"]
+
+    deposit_response = client.post(
+        "/api/v1/funding/mock/deposit",
+        json={"user_email": email, "amount": 2000.0},
+    )
+    assert deposit_response.status_code == 200
+
+    quarterly_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={"user_email": email, "trigger": "quarterly", "fresh_data": False},
+    )
+    assert quarterly_response.status_code == 200
+    quarterly = quarterly_response.json()
+    assert quarterly["trigger"] == "quarterly"
+    assert quarterly["data_source"] == "skipped"
+    assert quarterly["status"] == "greenlight"
+    assert quarterly["action"] in {"none", "steer", "trade"}
+    assert quarterly["portfolio"]["weights"]["by_ticker"]
+    if quarterly["action"] == "trade":
+        assert quarterly["trades"]
+        assert quarterly["fills"]
+    assert quarterly["positions"]["portfolio_value"] == pytest.approx(2000.0)
+
+    stored_after_quarterly = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_quarterly.status_code == 200
+    assert (
+        stored_after_quarterly.json()["portfolio"]["weights"]["by_ticker"]
+        == quarterly["portfolio"]["weights"]["by_ticker"]
+    )
+
+    reprofile_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={
+            "user_email": email,
+            "trigger": "reprofile",
+            "fresh_data": False,
+            "profile_patch": {"esg_exclusions": []},
+        },
+    )
+    assert reprofile_response.status_code == 200
+    reprofile = reprofile_response.json()
+    assert reprofile["trigger"] == "reprofile"
+    assert reprofile["data_source"] == "skipped"
+    assert reprofile["status"] == "greenlight"
+    assert reprofile["action"] in {"none", "trade"}
+    assert reprofile["portfolio"]["weights"]["by_ticker"] != original_weights
+    assert reprofile["positions"]["items"]
+
+    stored_after_reprofile = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_reprofile.status_code == 200
+    stored = stored_after_reprofile.json()
+    assert stored["validated_profile"]["esg_exclusions"] == []
+    assert stored["portfolio"]["weights"]["by_ticker"] == reprofile["portfolio"]["weights"]["by_ticker"]
+
+
 def test_active_onboarding_returns_found_false_when_no_session(test_app: FastAPI):
     client = _client(test_app)
     email = "no-resume@example.com"

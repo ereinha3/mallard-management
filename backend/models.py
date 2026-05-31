@@ -752,3 +752,25 @@ class OnboardResponse(BaseModel):
     optimizer_input: Optional[OptimizerInput] = None
     portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
+
+
+class MaintenanceRebalanceRequest(BaseModel):
+    user_email: str
+    trigger: Literal["quarterly", "reprofile"]
+    profile_patch: Optional[Dict[str, Any]] = None
+    fresh_data: bool = True
+    execute: bool = True
+
+
+class MaintenanceRebalanceResponse(BaseModel):
+    trigger: Literal["quarterly", "reprofile"]
+    data_source: Literal["skipped", "live", "cached"]
+    status: Literal["greenlight", "halt", "needs_clarification", "no_profile"]
+    action: Literal["none", "steer", "trade"]
+    drifts: Optional[Dict[Sleeve, Drift]] = None
+    trades: List[RebalanceTrade] = Field(default_factory=list)
+    fills: List[FillOut] = Field(default_factory=list)
+    positions: Optional[Positions] = None
+    portfolio: Optional[PortfolioResponse] = None
+    gate_result: Optional[GateResult] = None
+    clarification_requests: List[ClarificationRequest] = Field(default_factory=list)

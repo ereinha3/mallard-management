@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 
 from data.loaders import latest_prices
 from data.repository import ticker_to_sleeve
 from schemas.constants import DRIFT_BAND_PP
-from schemas.models import Positions, RebalanceDecision, Sleeve, TargetWeights
+from schemas.models import Positions, RebalanceDecision, RebalanceTrade, Sleeve, TargetWeights
 
 EPSILON = 1e-9
 
@@ -93,3 +94,32 @@ def decide_rebalance(positions: Positions, weights: TargetWeights) -> RebalanceD
         trades.append({"ticker": ticker, "side": side, "shares": abs(gap_dollars) / price})
 
     return RebalanceDecision(action="trade", drifts=drifts, steer=None, trades=trades)
+
+
+def rebalance_to_target(
+    positions: Positions,
+    weights: TargetWeights,
+    prices: Mapping[str, float],
+) -> list[RebalanceTrade]:
+    """Build a full transition from current holdings/cash to target ticker weights."""
+
+    total_value = sum(position.market_value for position in positions.items) + positions.cash
+    current_dollars = {position.ticker: position.market_value for position in positions.items}
+    tickers = set(current_dollars) | set(weights.by_ticker)
+    sells: list[RebalanceTrade] = []
+    buys: list[RebalanceTrade] = []
+
+    for ticker in sorted(tickers):
+        price = prices.get(ticker)
+        if price is None or price <= 0:
+            continue
+
+        target = float(weights.by_ticker.get(ticker, 0.0)) * total_value
+        current = float(current_dollars.get(ticker, 0.0))
+        delta = target - current
+        if delta < -1e-2:
+            sells.append(RebalanceTrade(ticker=ticker, side="sell", shares=abs(delta) / price))
+        elif delta > 1e-2:
+            buys.append(RebalanceTrade(ticker=ticker, side="buy", shares=delta / price))
+
+    return sells + buys

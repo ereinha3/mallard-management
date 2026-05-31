@@ -72,7 +72,7 @@ from optimizer.cvar import cvar_weights  # noqa: E402
 from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions  # noqa: E402
 from profiler.profile import build_risk_profile  # noqa: E402
 from profiler.validate import validate_profile  # noqa: E402
-from rebalance.rebalancer import decide_rebalance  # noqa: E402
+from rebalance.rebalancer import decide_rebalance, rebalance_to_target  # noqa: E402
 from schemas.models import (  # noqa: E402
     Positions as EnginePositions,
     TargetWeights as EngineTargetWeights,
@@ -1888,3 +1888,123 @@ async def get_config() -> dict:
             "expected_after_tax_market_return": EXPECTED_AFTER_TAX_MARKET_RETURN,
         },
     }
+
+
+@router.post(
+    "/maintenance/rebalance",
+    response_model=api_models.MaintenanceRebalanceResponse,
+    summary="Run portfolio maintenance and optionally execute trades",
+)
+async def maintenance_rebalance(
+    request: api_models.MaintenanceRebalanceRequest,
+    db: Session = Depends(get_db),
+) -> api_models.MaintenanceRebalanceResponse:
+    profile = _stored_profile_or_404(db, request.user_email)
+    merged_input = profile.get_input()
+
+    if request.trigger == "reprofile" and request.profile_patch:
+        merged_input = _deep_merge(merged_input, request.profile_patch)
+        try:
+            profile_input = api_models.UserProfileInput.model_validate(merged_input)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Updated profile is invalid.",
+                    "clarification_requests": [
+                        clarification.model_dump()
+                        for clarification in _validation_clarifications(exc)
+                    ],
+                },
+            ) from exc
+    else:
+        profile_input = api_models.UserProfileInput.model_validate(merged_input)
+
+    data_source = "skipped"
+    if request.trigger == "quarterly" and request.fresh_data:
+        import concurrent.futures
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            from data.ingest import refresh as refresh_module
+
+            future = executor.submit(
+                refresh_module.refresh,
+                db_url=os.environ.get("GREENLIGHT_DB_URL"),
+            )
+            future.result(timeout=20.0)
+            data_source = "live"
+        except Exception:
+            data_source = "cached"
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    response = _run_pipeline(profile_input)
+    if response.status != "greenlight" or response.portfolio is None:
+        return api_models.MaintenanceRebalanceResponse(
+            trigger=request.trigger,
+            data_source=data_source,
+            status=response.status,
+            action="none",
+            gate_result=response.gate_result,
+            clarification_requests=response.clarification_requests,
+            portfolio=response.portfolio,
+        )
+
+    new_weights = EngineTargetWeights.model_validate(response.portfolio.weights.model_dump())
+    account = get_or_create_investment_account(db, request.user_email)
+    try:
+        broker = get_broker(request.user_email, cash_available=account.cash_available)
+        current_positions = broker.read_positions()
+        decision = None
+        drifts = None
+
+        if request.trigger == "quarterly":
+            decision = decide_rebalance(current_positions, _price_backed_weights(new_weights))
+            trades = decision.trades if decision.action == "trade" else []
+            action = decision.action
+            drifts = {
+                sleeve: api_models.Drift.model_validate(drift.model_dump())
+                for sleeve, drift in decision.drifts.items()
+            }
+        else:
+            from data.loaders import latest_prices
+
+            target_weights = _price_backed_weights(new_weights)
+            tickers = sorted(
+                {position.ticker for position in current_positions.items}
+                | set(target_weights.by_ticker)
+            )
+            prices = latest_prices(tickers)
+            trades = rebalance_to_target(current_positions, target_weights, prices)
+            action = "trade" if trades else "none"
+
+        fills = []
+        positions = current_positions
+        if request.execute and trades:
+            fills = broker.place_trades(trades)
+            positions = broker.read_positions()
+            update_investment_account_cash(db, request.user_email, positions.cash)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = response.model_dump(mode="json")
+    upsert_profile(
+        db,
+        request.user_email,
+        json.dumps(profile_input.model_dump(mode="json")),
+        json.dumps(result),
+    )
+    db.commit()
+
+    return api_models.MaintenanceRebalanceResponse(
+        trigger=request.trigger,
+        data_source=data_source,
+        status=response.status,
+        action=action,
+        drifts=drifts,
+        trades=[api_models.RebalanceTrade.model_validate(trade.model_dump()) for trade in trades],
+        fills=[api_models.FillOut.model_validate(fill.model_dump()) for fill in fills],
+        positions=api_models.Positions.model_validate(positions.model_dump()),
+        portfolio=response.portfolio,
+    )
