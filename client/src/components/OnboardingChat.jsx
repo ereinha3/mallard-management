@@ -285,6 +285,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
   const initializedRef = useRef(isResume) // resumed sessions are already initialized (don't re-seed)
   const sessionIdRef = useRef(resumeSession?.id ?? null)
   const resumeKickedRef = useRef(false)
+  const formExtrasRef = useRef({})
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -303,7 +304,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
       setBuilding(true)
       try {
         const result = await postOnboard(
-          { ...profile, ...getTaxProfilePayload(taxProfile) },
+          { ...profile, ...getTaxProfilePayload(taxProfile), ...formExtrasRef.current },
           user?.email,
           sessionIdRef.current,
         )
@@ -402,6 +403,9 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
       companyTenure: data.companyTenure,
       companySize: data.companySize,
       employmentType: data.employmentType,
+    }
+    formExtrasRef.current = {
+      non_liquid_savings: data.non_liquid_savings ?? 0,
     }
     setStep('chat')
 

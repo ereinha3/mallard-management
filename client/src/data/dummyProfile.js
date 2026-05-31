@@ -103,6 +103,8 @@ export const DUMMY_ONBOARD_RESULT = {
     esg_exclusions: [],
     sector_theme_tilts: [],
     address: '742 Evergreen Terrace, Springfield, VA 22150',
+    home_value: 420000,
+    non_liquid_savings: 45000,
     pretax_401k: 19500,
     employer_match_rate: 0.5,
     employer_match_cap_pct: 0.05,
