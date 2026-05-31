@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { numberOrNull } from '../lib/utils'
 
-const RADIUS = 54
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-
 function getScoreColor(score) {
   if (score >= 80) return '#1eb87a'
   if (score >= 60) return '#c49a2c'
@@ -17,11 +14,18 @@ function getScoreLabel(score) {
   return 'At Risk'
 }
 
-export default function RetirementScore({ score }) {
+export default function RetirementScore({ score, size = 140 }) {
   const [displayed, setDisplayed] = useState(0)
   const parsedScore = numberOrNull(score)
   const hasScore = parsedScore != null
   const safeScore = hasScore ? Math.min(100, Math.max(0, parsedScore)) : 0
+
+  // Geometry derived from `size` so the ring fits whatever column it lands in.
+  const stroke = Math.max(7, Math.round(size * 0.072))
+  const radius = (size - stroke) / 2 - 1
+  const circumference = 2 * Math.PI * radius
+  const center = size / 2
+  const numberFont = Math.round(size * 0.3)
 
   useEffect(() => {
     if (!hasScore) {
@@ -38,26 +42,26 @@ export default function RetirementScore({ score }) {
   }, [hasScore, safeScore])
 
   const visibleScore = hasScore ? displayed : 0
-  const offset = CIRCUMFERENCE - (visibleScore / 100) * CIRCUMFERENCE
+  const offset = circumference - (visibleScore / 100) * circumference
   const color = hasScore ? getScoreColor(safeScore) : 'var(--text-muted)'
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-2">
-      <div style={{ position: 'relative', width: 140, height: 140 }}>
-        <svg width="140" height="140" style={{ transform: 'rotate(-90deg)' }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
           <circle
-            cx="70" cy="70" r={RADIUS}
+            cx={center} cy={center} r={radius}
             fill="none"
             stroke="var(--bg-elevated)"
-            strokeWidth="10"
+            strokeWidth={stroke}
           />
           <circle
-            cx="70" cy="70" r={RADIUS}
+            cx={center} cy={center} r={radius}
             fill="none"
             stroke={color}
-            strokeWidth="10"
+            strokeWidth={stroke}
             strokeLinecap="round"
-            strokeDasharray={CIRCUMFERENCE}
+            strokeDasharray={circumference}
             strokeDashoffset={offset}
             style={{ transition: 'stroke-dashoffset 0.05s linear, stroke 0.4s ease' }}
           />
@@ -68,11 +72,11 @@ export default function RetirementScore({ score }) {
         >
           <span
             className="font-display font-semibold"
-            style={{ fontSize: 42, lineHeight: 1, color, letterSpacing: '-0.03em' }}
+            style={{ fontSize: numberFont, lineHeight: 1, color, letterSpacing: '-0.03em' }}
           >
             {hasScore ? Math.round(displayed) : '—'}
           </span>
-          <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+          <span className="font-mono" style={{ fontSize: Math.max(10, Math.round(size * 0.085)), color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             /100
           </span>
         </div>
