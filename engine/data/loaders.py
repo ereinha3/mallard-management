@@ -12,8 +12,18 @@ from schemas.models import Bucket, EsgExclusion, ExcludedTicker, Sleeve, Univers
 
 DATA_DIR = Path(__file__).resolve().parent
 
-RISKY_SLEEVES: list[Sleeve] = ["us_equity", "intl_equity", "reits", "gold", "real_assets"]
-SAFE_SLEEVES: list[Sleeve] = ["bonds", "tips"]
+RISKY_SLEEVES: list[Sleeve] = [
+    "us_equity",
+    "intl_equity",
+    "reits",
+    "gold",
+    "real_assets",
+    "core_bonds",
+    "credit",
+    "duration_hedge",
+    "inflation",
+]
+SAFE_SLEEVES: list[Sleeve] = ["cash_like"]
 ESG_COLUMNS = ("fossil_fuels", "weapons", "tobacco", "gambling")
 
 _THEME_ALIASES = {
@@ -30,8 +40,12 @@ _THEME_ALIASES = {
     "international": ("intl", "international", "foreign", "developed_intl", "emerging", "em"),
     "reits": ("reit", "reits", "real_estate", "property"),
     "gold": ("gold", "commodity", "commodities"),
-    "bonds": ("bond", "bonds", "fixed_income", "treasury", "corporate", "muni"),
+    "bonds": ("bond", "bonds", "fixed_income", "core_bonds", "treasury", "corporate", "muni"),
     "tips": ("tips", "inflation", "inflation_protected"),
+    "cash_like": ("cash", "cash_like", "t_bill", "treasury_bill", "short_treasury"),
+    "credit": ("credit", "corporate", "high_yield", "bank_loans", "em_bonds"),
+    "duration_hedge": ("duration", "duration_hedge", "long_treasury", "intermediate_treasury"),
+    "inflation": ("inflation", "tips", "inflation_protected"),
 }
 _NEGATIVE_THEME_WORDS = ("avoid", "exclude", "away", "underweight")
 
@@ -103,6 +117,41 @@ def _row_matches_terms(row: Mapping[str, object], terms: Iterable[str]) -> bool:
     return False
 
 
+def _ordered_role_sleeves(
+    sleeves: Mapping[str, list[str]],
+    sleeve_roles: Mapping[str, str],
+    role: str,
+    preferred_order: Iterable[Sleeve],
+) -> list[Sleeve]:
+    preferred = [
+        sleeve
+        for sleeve in preferred_order
+        if sleeve in sleeves and sleeve_roles.get(str(sleeve)) == role
+    ]
+    extras = sorted(
+        sleeve
+        for sleeve in sleeves
+        if sleeve_roles.get(str(sleeve)) == role and sleeve not in preferred
+    )
+    return [*preferred, *extras]
+
+
+def _normalize_weights(
+    weights: Mapping[str, float],
+    fallback_keys: Iterable[str],
+) -> dict[str, float]:
+    explicit = {key: float(value) for key, value in weights.items() if float(value) > 0.0}
+    total = sum(explicit.values())
+    if total > 0.0:
+        return {key: value / total for key, value in explicit.items()}
+
+    keys = list(fallback_keys)
+    if not keys:
+        return {}
+    equal_weight = 1.0 / len(keys)
+    return {key: equal_weight for key in keys}
+
+
 def _apply_theme_tilts(rows: pd.DataFrame, sector_theme_tilts: Iterable[str] | None) -> pd.DataFrame:
     result = rows
     positive: list[list[str]] = []
@@ -170,6 +219,7 @@ def load_universe(
     sleeves: dict[Sleeve, list[str]] = {}
     buckets: dict[Bucket, list[str]] = {}
     bucket_roles: dict[Bucket, str] = {}
+    sleeve_roles: dict[Sleeve, str] = {}
     market_weights: dict[Sleeve, float] = {}
     bucket_market_weights: dict[Bucket, float] = {}
     excluded: list[ExcludedTicker] = []
@@ -191,41 +241,26 @@ def load_universe(
         bucket_tickers = buckets.setdefault(bucket, [])
         if ticker not in bucket_tickers:
             bucket_tickers.append(ticker)
+        sleeve_roles[sleeve] = role
         bucket_roles[bucket] = role
         weight = row.get("market_weight", "")
         if weight != "":
             market_weights[sleeve] = market_weights.get(sleeve, 0.0) + float(weight)
             bucket_market_weights[bucket] = bucket_market_weights.get(bucket, 0.0) + float(weight)
 
-    for sleeve in sleeves:
-        market_weights.setdefault(sleeve, 1.0)
-    for bucket in buckets:
-        bucket_market_weights.setdefault(bucket, 1.0)
-
     tickers = sorted({ticker for tickers_for_sleeve in sleeves.values() for ticker in tickers_for_sleeve})
-    total_weight = sum(market_weights.values())
-    if total_weight <= 0:
-        equal_weight = 1.0 / len(market_weights)
-        market_weights = {sleeve: equal_weight for sleeve in market_weights}
-    elif abs(total_weight - 1.0) > 1e-12:
-        market_weights = {sleeve: weight / total_weight for sleeve, weight in market_weights.items()}
-    bucket_total_weight = sum(bucket_market_weights.values())
-    if bucket_total_weight <= 0:
-        equal_bucket_weight = 1.0 / len(bucket_market_weights)
-        bucket_market_weights = {bucket: equal_bucket_weight for bucket in bucket_market_weights}
-    elif abs(bucket_total_weight - 1.0) > 1e-12:
-        bucket_market_weights = {
-            bucket: weight / bucket_total_weight
-            for bucket, weight in bucket_market_weights.items()
-        }
+    market_weights = _normalize_weights(market_weights, sleeves.keys())
+    bucket_market_weights = _normalize_weights(bucket_market_weights, buckets.keys())
     risky_buckets = [bucket for bucket in buckets if bucket_roles.get(bucket) == "risky"]
     safe_buckets = [bucket for bucket in buckets if bucket_roles.get(bucket) == "safe"]
+    risky_sleeves = _ordered_role_sleeves(sleeves, sleeve_roles, "risky", RISKY_SLEEVES)
+    safe_sleeves = _ordered_role_sleeves(sleeves, sleeve_roles, "safe", SAFE_SLEEVES)
     return Universe(
         tickers=tickers,
         sleeves=sleeves,
         buckets=buckets,
-        risky_sleeves=RISKY_SLEEVES,
-        safe_sleeves=SAFE_SLEEVES,
+        risky_sleeves=risky_sleeves,
+        safe_sleeves=safe_sleeves,
         risky_buckets=risky_buckets,
         safe_buckets=safe_buckets,
         market_weights=market_weights,

@@ -12,10 +12,12 @@ def _latest_price(ticker: str) -> float:
 
 def _target(vti: float = 0.5, bnd: float = 0.5, tip: float = 0.0) -> TargetWeights:
     by_ticker = {"VTI": vti, "BND": bnd}
-    by_sleeve = {"us_equity": vti, "bonds": bnd}
+    # BND/TIP were reclassified out of the legacy bonds/tips sleeves in the
+    # Sharpe-audit remediation (BND -> core_bonds, TIP -> inflation).
+    by_sleeve = {"us_equity": vti, "core_bonds": bnd}
     if tip > 0:
         by_ticker["TIP"] = tip
-        by_sleeve["tips"] = tip
+        by_sleeve["inflation"] = tip
     return TargetWeights(
         by_ticker=by_ticker,
         by_sleeve=by_sleeve,
@@ -49,10 +51,10 @@ def test_rebalance_steers_contributions_when_inside_drift_band():
     decision = decide_rebalance(_positions({"VTI": 530.0, "BND": 470.0}), _target())
 
     assert decision.action == "steer"
-    assert decision.steer.next_contribution_to == ["bonds"]
+    assert decision.steer.next_contribution_to == ["core_bonds"]
     assert decision.trades == []
     assert round(decision.drifts["us_equity"].drift_pp, 2) == 3.0
-    assert round(decision.drifts["bonds"].drift_pp, 2) == -3.0
+    assert round(decision.drifts["core_bonds"].drift_pp, 2) == -3.0
 
 
 def test_rebalance_trades_minimal_correction_when_band_breached():

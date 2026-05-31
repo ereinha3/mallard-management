@@ -176,7 +176,7 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "greenlight"
-    assert body["portfolio"]["weights"]["method"] == "erc"
+    assert body["portfolio"]["weights"]["method"] == "strategic"
     assert body["validated_profile"]["home_value"] == 365000
     assert body["validated_profile"]["non_liquid_savings"] == 42000
     assert body["financial_analysis"]["snapshot"]["net_worth_estimate"] == 410500
@@ -199,7 +199,7 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert record["onboard_result"]["status"] == "greenlight"
     assert record["onboard_result"]["validated_profile"]["home_value"] == 365000
     assert record["onboard_result"]["validated_profile"]["non_liquid_savings"] == 42000
-    assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
+    assert record["onboard_result"]["portfolio"]["weights"]["method"] == "strategic"
 
 
 def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
@@ -298,7 +298,7 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     body = response.json()
     assert body["status"] == "greenlight"
     assert body["optimizer_input"]["capital_on_hand"] == 7500
-    assert body["portfolio"]["weights"]["method"] == "erc"
+    assert body["portfolio"]["weights"]["method"] == "strategic"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["portfolio"]["weights"]["by_bucket"].values()) - 1.0) < 1e-6
     assert body["portfolio"]["weights"]["by_bucket"]["gold"] < 0.35
@@ -322,6 +322,14 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert body["gate"]["emergency_fund_months_required"] == constants.EF_MONTHS
     assert body["gate"]["high_apr_threshold"] == constants.HIGH_APR
     assert body["market_assumptions"]["expected_market_return"] == constants.EXPECTED_MARKET_RETURN
+    risk_model = body["risk_model"]
+    for name in dir(constants):
+        if name.startswith("GL_"):
+            assert risk_model[name.lower()] == getattr(constants, name)
+    assert risk_model["gamma_min"] == constants.GAMMA_MIN
+    assert risk_model["gamma_max"] == constants.GAMMA_MAX
+    assert risk_model["sr_ref"] == constants.SR_REF
+    assert risk_model["capacity_weights"] == constants.CAPACITY_WEIGHTS
     paths = {route.path for route in test_app.routes}
     assert "/api/v1/chat" in paths
     assert "/api/v1/advisor/chat" in paths
@@ -381,7 +389,7 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
             },
             "weights": {
                 "by_ticker": {"VTI": 0.5, "BND": 0.5},
-                "by_sleeve": {"us_equity": 0.5, "bonds": 0.5},
+                "by_sleeve": {"us_equity": 0.5, "core_bonds": 0.5},
                 "blend_alpha": 0.5,
                 "method": "erc",
             },
@@ -630,7 +638,7 @@ def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_ap
     assert body["validation"]["sum_safe_bucket"] < 2 / 6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
-    assert body["validation"]["warnings"] == ["Input by_sleeve sum was 6.000000; normalized to 1.0."]
+    assert body["validation"]["warnings"] == ["Input by_sleeve sum was 9.000000; normalized to 1.0."]
     assert abs(sum(body["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_sleeve"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_bucket"].values()) - 1.0) < 1e-6
@@ -651,7 +659,7 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
                 "by_sleeve": {
                     "us_equity": 0.4,
                     "intl_equity": 0.2,
-                    "bonds": 0.3,
+                    "cash_like": 0.3,
                     "real_assets": 0.1,
                 }
             },
@@ -665,14 +673,14 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    # Equity + real_assets sleeves (0.7) are risky; the bonds sleeve adds its
-    # credit-risky buckets on top, so risky exceeds 0.7 and safe falls below 0.3.
+    # Equity + real_assets sleeves (0.7) are risky; cash_like (0.3) is the only
+    # safe leg, so the risky/safe bucket split is 0.7 / 0.3.
     assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
-    assert body["validation"]["sum_risky_bucket"] > 0.7
-    assert body["validation"]["sum_safe_bucket"] < 0.3
+    assert abs(body["validation"]["sum_risky_bucket"] - 0.7) < 1e-6
+    assert abs(body["validation"]["sum_safe_bucket"] - 0.3) < 1e-6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
-    assert body["weights"]["by_sleeve"]["tips"] == 0.0
+    assert body["weights"]["by_sleeve"]["core_bonds"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
 
 

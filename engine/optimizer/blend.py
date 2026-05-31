@@ -18,7 +18,36 @@ from schemas.constants import (
 )
 from schemas.models import TargetWeights
 from optimizer.erc import cov_ledoit_wolf, erc_weights
+from optimizer.strategic import strategic_target_weights
 from optimizer.tilt import momentum_vol_tilt
+
+
+SATELLITE_BUCKET_CAP = 0.04
+
+_CORE_RISKY_SLEEVES = frozenset({"us_equity", "intl_equity"})
+_CORE_BUCKET_EXACT = frozenset(
+    {
+        "us_equity",
+        "intl_equity",
+        "us_total_market",
+        "us_large_blend",
+        "intl_developed",
+        "intl_emerging",
+        "international_developed",
+        "international_emerging",
+        "developed_markets",
+        "emerging_markets",
+        "em_equity",
+    }
+)
+_CORE_BUCKET_MARKERS = (
+    "total_market",
+    "large_blend",
+    "broad_market",
+    "broad_developed",
+    "broad_emerging",
+    "global_equity",
+)
 
 
 def solve_blend_alpha(
@@ -176,6 +205,60 @@ def _normalized(weights: Mapping[str, float]) -> dict[str, float]:
     return {key: float(value / total) for key, value in weights.items()}
 
 
+def _is_core_risky_bucket(
+    bucket: str,
+    bucket_sleeves: Mapping[str, str],
+) -> bool:
+    bucket_key = str(bucket)
+    sleeve = str(bucket_sleeves.get(bucket_key, bucket_key))
+    if sleeve not in _CORE_RISKY_SLEEVES:
+        return False
+
+    normalized_bucket = bucket_key.lower()
+    return (
+        normalized_bucket in _CORE_BUCKET_EXACT
+        or any(marker in normalized_bucket for marker in _CORE_BUCKET_MARKERS)
+    )
+
+
+def _satellite_capped_risky_weights(
+    risky_weights: Mapping[str, float],
+    universe: Any,
+) -> dict[str, float]:
+    weights = _normalized(
+        {str(bucket): max(float(weight), 0.0) for bucket, weight in risky_weights.items()}
+    )
+    bucket_sleeves = _bucket_to_sleeve(universe)
+    core_buckets = [
+        bucket for bucket in weights if _is_core_risky_bucket(bucket, bucket_sleeves)
+    ]
+    satellite_buckets = [bucket for bucket in weights if bucket not in core_buckets]
+    if not core_buckets or not satellite_buckets:
+        return weights
+
+    capped = dict(weights)
+    excess = 0.0
+    for bucket in satellite_buckets:
+        weight = capped[bucket]
+        if weight > SATELLITE_BUCKET_CAP:
+            capped[bucket] = SATELLITE_BUCKET_CAP
+            excess += weight - SATELLITE_BUCKET_CAP
+
+    if excess <= 0.0:
+        return weights
+
+    core_total = sum(capped[bucket] for bucket in core_buckets)
+    if core_total > 0.0:
+        for bucket in core_buckets:
+            capped[bucket] += excess * capped[bucket] / core_total
+    else:
+        equal_add = excess / len(core_buckets)
+        for bucket in core_buckets:
+            capped[bucket] += equal_add
+
+    return _normalized(capped)
+
+
 def _safe_bucket_weights(universe: Any) -> dict[str, float]:
     safe_buckets = list(getattr(universe, "safe_buckets", []) or [])
     if not safe_buckets:
@@ -204,8 +287,24 @@ def _safe_sleeve_weights(universe: Any) -> dict[str, float]:
 
 
 def _periods_per_year(index: Any) -> float:
+    """Observations-per-year used to annualize the CAL-blend covariance.
+
+    Inferred from the return index's calendar span so it works for both daily
+    data (~252) and monthly data (~12).
+
+    NOTE: ``pd.to_datetime`` raises on a monthly ``PeriodIndex`` (what the
+    walk-forward backtest passes), which previously fell through to the 252.0
+    default — annualizing MONTHLY covariance as if it were DAILY and inflating
+    the risky-sleeve vol by sqrt(252/12) ~= 4.58x. That made ``solve_blend_alpha``
+    believe the risky sleeve was far above the target vol and systematically
+    under-risked the portfolio. Convert PeriodIndex to timestamps first so the
+    calendar-span calculation yields ~12 for monthly data.
+    """
+
     try:
-        dates = pd.to_datetime(index)
+        dates = index.to_timestamp() if isinstance(index, pd.PeriodIndex) else pd.to_datetime(index)
+        if len(dates) < 2:
+            return 252.0
         span_days = max((dates.max() - dates.min()).days, 1)
         return float((len(dates) - 1) * 365.25 / span_days)
     except Exception:
@@ -232,7 +331,7 @@ def _portfolio_vols_and_corr(
     return sigma_risky, sigma_safe, rho
 
 
-def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> TargetWeights:
+def _build_erc_target_weights(risk_profile: Any, universe: Any, prices: Any) -> TargetWeights:
     """Build TargetWeights per docs/greenlight/05 §2.6 and §4."""
 
     bucket_matrix = _bucket_returns(universe, prices)
@@ -255,6 +354,7 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
         lookback_months=TILT_LOOKBACK_MONTHS,
         lam=TILT_LAMBDA,
     )
+    risky_weights = _satellite_capped_risky_weights(risky_weights, universe)
     safe_weights = {
         bucket: weight
         for bucket, weight in _safe_bucket_weights(universe).items()
@@ -314,3 +414,26 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
         blend_alpha=float(alpha_final),
         method="erc",
     )
+
+
+def build_target_weights(
+    risk_profile: Any,
+    universe: Any,
+    prices: Any,
+    *,
+    method: str = "strategic",
+    use_erc: bool | None = None,
+) -> TargetWeights:
+    """Build TargetWeights, defaulting to the strategic model portfolio.
+
+    The legacy ERC/CAL allocator remains available as ``method="erc"`` or
+    ``use_erc=True`` for experiments and regression tests.
+    """
+
+    if use_erc is True:
+        method = "erc"
+    if method == "strategic":
+        return strategic_target_weights(risk_profile, universe, prices)
+    if method == "erc":
+        return _build_erc_target_weights(risk_profile, universe, prices)
+    raise ValueError(f"unknown optimizer method: {method!r}")

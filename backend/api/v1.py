@@ -64,7 +64,7 @@ from data.loaders import load_prices, returns_matrix, ticker_metadata  # noqa: E
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
-from llm.elicitation import stream_elicitation  # noqa: E402
+from llm.elicitation import stream_interview  # noqa: E402
 from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
@@ -79,6 +79,7 @@ from schemas.models import (  # noqa: E402
     TargetWeights as EngineTargetWeights,
     UserProfile as EngineUserProfile,
 )
+from schemas import constants as engine_constants  # noqa: E402
 from sizing.sizer import size_orders  # noqa: E402
 from tax.rates import (  # noqa: E402
     expected_after_tax_market_return,
@@ -1457,6 +1458,35 @@ async def brokerage_deposit(
     )
 
 
+@router.post("/brokerage/journal", response_model=api_models.BrokerageJournalOut)
+async def brokerage_journal(
+    request: api_models.BrokerageJournalRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageJournalOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    if not account.alpaca_account_id:
+        raise HTTPException(status_code=400, detail="No alpaca_account_id stored for user.")
+
+    try:
+        service = BrokerageService(client=get_broker_client())
+        journal = service.journal_funds(account.alpaca_account_id, request.amount)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated_account = update_investment_account_cash(
+        db,
+        request.user_email,
+        account.cash_available + request.amount,
+    )
+    db.commit()
+    db.refresh(updated_account)
+    return api_models.BrokerageJournalOut(
+        id=getattr(journal, "id", None),
+        status=getattr(journal, "status", None),
+        cash_available=updated_account.cash_available,
+    )
+
+
 @router.post("/execution/preview", response_model=api_models.OrderPlanOut)
 async def execution_preview(
     request: api_models.ExecutionRequest,
@@ -1745,7 +1775,13 @@ async def portfolio_reoptimize(
     try:
         validated, _ = _greenlit_engine_context(request.profile)
         universe = _build_universe(validated)
-        optimizer_target_vol = _optimizer_target_vol_for_dial(universe, request.risk_dial)
+        # The strategic allocator maps target_vol in [0.05, 0.18] -> glidepath
+        # score s in [0, 1]. Drive the user's risk dial directly across that band
+        # so the slider actually slides the equity/bond/cash mix (conservative ->
+        # aggressive), rather than onto the much narrower empirical safe/risky
+        # frontier (which collapsed most of the dial range to the conservative end).
+        dial = max(0.0, min(1.0, float(request.risk_dial)))
+        optimizer_target_vol = 0.05 + dial * (0.18 - 0.05)
         weights = build_target_weights(
             _risk_profile_with_target_vol(validated, optimizer_target_vol),
             universe,
@@ -1869,7 +1905,7 @@ async def chat(request: api_models.ChatRequest) -> StreamingResponse:
         if session_id:
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
         assistant_chunks = []
-        async for event in stream_elicitation(request.messages):
+        async for event in stream_interview(request.messages, session_id=session_id):
             if event.get("type") == "token":
                 assistant_chunks.append(event.get("content", ""))
             elif event.get("type") == "profile_ready" and session_id:
@@ -1983,6 +2019,11 @@ async def chat_transcript(session_id: str, db: Session = Depends(get_db)) -> dic
 @router.get("/config", summary="Gate thresholds and market assumptions")
 async def get_config() -> dict:
     """Canonical constants exposed so the frontend can display the parameter panel."""
+    gl_constants = {
+        name.lower(): value
+        for name, value in vars(engine_constants).items()
+        if name.startswith("GL_")
+    }
     return {
         "gate": {
             "emergency_fund_months_required": EF_MONTHS,
@@ -1993,6 +2034,13 @@ async def get_config() -> dict:
             "expected_market_return": EXPECTED_MARKET_RETURN,
             "ltcg_rate": LTCG_RATE,
             "expected_after_tax_market_return": EXPECTED_AFTER_TAX_MARKET_RETURN,
+        },
+        "risk_model": {
+            **gl_constants,
+            "gamma_min": engine_constants.GAMMA_MIN,
+            "gamma_max": engine_constants.GAMMA_MAX,
+            "sr_ref": engine_constants.SR_REF,
+            "capacity_weights": engine_constants.CAPACITY_WEIGHTS,
         },
     }
 

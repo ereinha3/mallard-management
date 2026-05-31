@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 class FakeBrokerClient:
@@ -125,3 +128,69 @@ def test_brokerage_service_raises_cleanly_without_sdk_or_credentials(
 
     with pytest.raises(RuntimeError, match="alpaca-py SDK|BROKER_API_KEY|BROKER_SECRET_KEY"):
         BrokerageService()
+
+
+def test_brokerage_journal_route_journals_and_updates_local_cash(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import v1 as api_v1
+    from persistence import Base, InvestmentAccount
+
+    db_path = tmp_path / "brokerage_journal.db"
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+    with TestingSessionLocal() as db:
+        db.add(
+            InvestmentAccount(
+                user_email="journal@example.com",
+                cash_available=25.0,
+                cash_pending=0.0,
+                broker_provider="alpaca",
+                alpaca_account_id="alpaca-acct-123",
+            )
+        )
+        db.commit()
+
+    fake_client = FakeBrokerClient()
+    monkeypatch.setenv("BROKER_FIRM_ACCOUNT_ID", "firm-sweep-1")
+    monkeypatch.setattr(api_v1, "get_broker_client", lambda: fake_client)
+
+    assert any(
+        route.path == "/brokerage/journal" and "POST" in route.methods
+        for route in api_v1.router.routes
+    )
+
+    with TestingSessionLocal() as db:
+        response = asyncio.run(
+            api_v1.brokerage_journal(
+                api_v1.api_models.BrokerageJournalRequest(
+                    user_email="journal@example.com",
+                    amount=1000.0,
+                ),
+                db,
+            )
+        )
+
+    assert response.id == "journal-123"
+    assert response.status == "EXECUTED"
+    assert response.cash_available == 1025.0
+    request = fake_client.journals[0]
+    assert request.from_account == "firm-sweep-1"
+    assert request.to_account == "alpaca-acct-123"
+    assert request.amount == 1000.0
+    assert str(request.entry_type).upper().endswith("JNLC")
+
+    with TestingSessionLocal() as db:
+        account = (
+            db.query(InvestmentAccount)
+            .filter(InvestmentAccount.user_email == "journal@example.com")
+            .one()
+        )
+        assert account.cash_available == 1025.0

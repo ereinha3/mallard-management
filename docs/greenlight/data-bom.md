@@ -1,8 +1,8 @@
-# Greenlight — Data Bill of Materials (free / yfinance)
+# Greenlight — Data Bill of Materials (free / yfinance + FRED)
 
 **Goal:** gather everything the risk engine needs from free sources (primarily `yfinance`), in formats that drop straight into the engine's CSV loaders. **Refresh cadence: quarterly. Data granularity: daily history over a long lookback** (see the frequency note in the design discussion — rebalancing quarterly does NOT mean sampling quarterly; covariance/Monte-Carlo/backtest need many observations).
 
-There are **four datasets**. (1) and (4) are fully automatable from yfinance. (3) is mostly automatable (with gaps). (2) — the bucket classification — is the one genuinely manual sheet, and it's the most important one for the hierarchical model.
+There are **four datasets**. (1) is fully automatable from yfinance; (4) uses yfinance for benchmarks and FRED for the risk-free series. (3) is mostly automatable (with gaps). (2) — the bucket classification — is the one genuinely manual sheet, and it's the most important one for the hierarchical model.
 
 ---
 
@@ -66,19 +66,20 @@ Used to (a) filter the raw pool down to liquid/cheap funds and (b) pick the 1–
 
 ---
 
-## Dataset 4 — Benchmarks & risk-free rate (AUTOMATED via yfinance)
+## Dataset 4 — Benchmarks & risk-free rate (AUTOMATED via yfinance + FRED)
 
 For the backtest comparison and Sharpe/Deflated-Sharpe.
 
-| Series | Ticker | Use |
+| Series | Source / ticker | Use |
 |---|---|---|
 | US total market | `VTI` (or `SPY`) | equity benchmark / 60-40 equity leg |
 | US aggregate bonds | `BND` (or `AGG`) | 60/40 bond leg |
 | Target-date fund | `VTTSX` (Vanguard Target 2060) | a real "balanced fund" benchmark |
-| Risk-free | `^IRX` (13-week T-bill, in %) | Sharpe denominator (`rf_daily = ^IRX/100/252`) |
+| Risk-free | FRED `DGS3MO` (3-month Treasury constant maturity, annual %) | Sharpe / cash-rate input (`rf_daily = DGS3MO/100/252`) |
 
-- Same daily history as Dataset 1; `^IRX` is a yield series (no `auto_adjust`), divide by 100.
-- **Output file:** fold into `prices.csv` (benchmarks) + `engine/data/riskfree.csv` (`date,annual_yield`).
+- Benchmarks use the same daily yfinance history as Dataset 1. The implemented risk-free ingest uses `engine/data/ingest/fred_source.py` and `DEFAULT_RISK_FREE_SERIES = "DGS3MO"` in `engine/data/ingest/refresh.py`, storing values in the engine `macro_series` table.
+- **Original plan:** yfinance `^IRX` was the first documented source; it is superseded by FRED `DGS3MO` in the current implementation.
+- **Output:** benchmarks fold into price history; risk-free observations are stored as `series_id=DGS3MO`, `date`, `value` in `macro_series`.
 
 ---
 
@@ -97,6 +98,6 @@ For the backtest comparison and Sharpe/Deflated-Sharpe.
 
 ## Suggested gather order
 1. Curate `classification.csv` (Dataset 2) → this defines the universe + buckets.
-2. From its ticker list, auto-fetch `prices.csv` (Dataset 1) + benchmarks/rf (Dataset 4).
+2. From its ticker list, auto-fetch `prices.csv` (Dataset 1) + benchmarks from yfinance and `DGS3MO` from FRED (Dataset 4).
 3. Compute/fetch `selection_meta.csv` (Dataset 3); apply the liquidity filter.
 4. Hand back; the engine ingests these four files directly.

@@ -1,241 +1,185 @@
+"""Ordered elicitation script for the onboarding interview.
+
+Design: the SERVER owns the interview. Each item carries
+  - `ask`:   a conversational question to show the user — NEVER any numbered
+             options / scale anchors (those make it feel like a form/quiz).
+  - `score_kind`: how the user's free-text answer is mapped to a value
+             ("scale4" 1-4, "scale10" 0-10, "enum", "dollar", "freeform").
+  - `rubric`: HIDDEN scoring guidance for the scorer LLM (the original
+             validated anchors / extraction spec). Never shown to the user.
+  - `gl_index`: for Grable-Lytton items, the canonical 0-12 slot in
+             `risk_instrument_responses`. The ASK order below is reordered
+             (vivid/behavioral first, less repetitive) but each GL answer is
+             stored at its canonical index, so the validated 13-item sum and
+             its population norms are preserved.
+
+`step_from_messages` / `next_directive` are retained for the interim prompt
+path; the score-gated orchestration consumes `score_kind`/`rubric`/`gl_index`.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional  # noqa: F401
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class ScriptItem:
     key: str
-    kind: str  # "instrument" | "soft"
-    text: str
+    score_kind: str          # "scale4" | "scale10" | "enum" | "dollar" | "freeform"
+    ask: str                 # conversational prompt shown to the user (no anchors/numbers)
+    rubric: str = ""         # hidden scorer guidance (validated anchors / extraction spec)
+    gl_index: int | None = None      # 0-12 canonical slot for Grable-Lytton items
+    enum_values: tuple[str, ...] = field(default_factory=tuple)
+
+    # Back-compat shim: older code referenced `.kind` ("instrument" | "soft").
+    @property
+    def kind(self) -> str:
+        return "soft" if self.score_kind == "freeform" else "instrument"
 
 
+# Ask order: warm-up (goals, debts) -> vivid behavioral risk scenarios -> the
+# remaining/self-report items -> corroborating signals -> goal amount, prefs.
 SCRIPT: list[ScriptItem] = [
     ScriptItem(
         key="goals_horizon",
-        kind="soft",
-        text=(
-            "their primary financial goal(s) and the number of years until they "
-            "need the money (their investment time horizon)"
-        ),
+        score_kind="freeform",
+        ask="What are you investing toward, and roughly how many years until you'll want to use the money?",
+        rubric="Extract primary goal(s) and horizon_years (integer years). null if neither is given.",
     ),
     ScriptItem(
         key="debts",
-        kind="soft",
-        text=(
-            "any outstanding debts — for each, the balance, APR, and type "
-            "(credit_card / student / mortgage / auto / personal / other). "
-            "This drives the responsibility gate, so it matters. The intake form "
-            "did not capture debts."
-        ),
-    ),
-    ScriptItem(
-        key="GL1",
-        kind="instrument",
-        text="""Ask: How would you describe your attitude toward financial risk in general?
-1 = Very cautious, avoid all risk
-2 = Somewhat cautious, prefer safe options
-3 = Comfortable with moderate risk for better returns
-4 = Enjoy taking financial risks for potentially higher rewards""",
-    ),
-    ScriptItem(
-        key="GL2",
-        kind="instrument",
-        text="""Ask: Have you invested in stocks, bonds, or mutual funds before?
-1 = Never and not comfortable with it
-2 = Never but open to learning
-3 = Some experience, comfortable with basics
-4 = Experienced investor""",
-    ),
-    ScriptItem(
-        key="GL3",
-        kind="instrument",
-        text="""Ask: If the market dropped 15% right after you invested, what would you do?
-1 = Sell everything to cut losses
-2 = Sell some to reduce exposure
-3 = Hold and wait for recovery
-4 = Buy more while prices are lower""",
-    ),
-    ScriptItem(
-        key="GL4",
-        kind="instrument",
-        text="""Ask: If your employer let you put part of your retirement into company stock?
-1 = Definitely not — too risky
-2 = A small amount only
-3 = A moderate amount
-4 = A large portion — I believe in where I work""",
-    ),
-    ScriptItem(
-        key="GL5",
-        kind="instrument",
-        text="""Ask: If an investment fell significantly in value, how would you feel and act?
-1 = Very anxious, would sell immediately
-2 = Worried, would likely reduce my position
-3 = Accept it as normal volatility and hold
-4 = See it as a buying opportunity""",
-    ),
-    ScriptItem(
-        key="GL6",
-        kind="instrument",
-        text="""Ask: If you inherited $100,000 unexpectedly, where would most of it go?
-1 = Savings account or CDs
-2 = Mostly bonds or low-risk investments
-3 = Diversified mix of stocks and bonds
-4 = Mostly growth stocks or aggressive investments""",
-    ),
-    ScriptItem(
-        key="GL7",
-        kind="instrument",
-        text="""Ask: If you unexpectedly received $20,000, what would you do?
-1 = Pay off debt or put it in savings
-2 = Low-risk, income-producing investments
-3 = A mix of low and moderate-risk investments
-4 = Growth-oriented, higher-risk assets""",
-    ),
-    ScriptItem(
-        key="GL8",
-        kind="instrument",
-        text="""Ask: How would you describe yourself as a financial risk taker?
-1 = Very conservative
-2 = Conservative
-3 = Moderate risk taker
-4 = Aggressive risk taker""",
-    ),
-    ScriptItem(
-        key="GL9",
-        kind="instrument",
-        text="""Ask: When you hear "financial risk," what comes to mind?
-1 = Loss or danger — something to avoid
-2 = Something mostly negative
-3 = Uncertainty with mixed possibilities
-4 = Opportunity and potential gain""",
-    ),
-    ScriptItem(
-        key="GL10",
-        kind="instrument",
-        text="""Ask: Experts predict a sector will surge next year. Your money isn't there. What do you do?
-1 = Nothing — stay in my conservative mix
-2 = Move a small amount just in case
-3 = Shift a moderate amount there
-4 = Move aggressively toward that opportunity""",
-    ),
-    ScriptItem(
-        key="GL11",
-        kind="instrument",
-        text="""Ask: An investment jumped 25% and hit your advisor's target price. What do you do?
-1 = Sell everything and lock in the gain
-2 = Sell most of it
-3 = Hold and see where it goes
-4 = Buy more — momentum is working""",
-    ),
-    ScriptItem(
-        key="GL12",
-        kind="instrument",
-        text="""Ask: Would you rather have $1,000 today or wait a year for potentially $1,200?
-1 = Definitely take $1,000 now
-2 = Slight preference for now
-3 = Slight preference to wait
-4 = Definitely wait for the larger amount""",
-    ),
-    ScriptItem(
-        key="GL13",
-        kind="instrument",
-        text="""Ask: Imagine you unexpectedly come into some extra money — say $100 — and you have a few options
-     for what to do with it. Which sounds most like you? A: Keep the full $100, no risk.
-     B: Try something where you might walk away with $250, but there's an equal chance you end up
-     with nothing. C: Go for a shot at $750, though it's more likely you'd end up with nothing.
-     D: Take a long-shot chance at $3,000, knowing the odds are heavily against you.
-A → 1, B → 2, C → 3, D → 4""",
+        score_kind="freeform",
+        ask="Before we talk markets — do you have any debts hanging over you right now (cards, student loans, car, mortgage)? If so, roughly how much and at what rate?",
+        rubric="Extract a list of {balance, apr (decimal), kind in credit_card|student|mortgage|auto|personal|other}. If the user clearly has none, return []. null only if they didn't address it.",
     ),
     ScriptItem(
         key="loss_scenario",
-        kind="instrument",
-        text="""Ask explicitly: "If your actual investment portfolio dropped 20% in a single year —
-a scenario that has happened historically — what would you realistically do?"
-sell_all  = would sell everything
-sell_some = would sell part
-hold      = would hold and wait
-buy_more  = would invest more""",
+        score_kind="enum",
+        ask="Imagine your portfolio dropped 20% in a single year — something that genuinely happens. Picture actually seeing that balance. What would you really do?",
+        rubric="Map to one of: sell_all (sell everything), sell_some (sell part), hold (hold and wait), buy_more (invest more). null if unclear.",
+        enum_values=("sell_all", "sell_some", "hold", "buy_more"),
     ),
     ScriptItem(
-        key="dohmen",
-        kind="instrument",
-        text='''Ask: "On a scale from 0 to 10, where 0 means not at all willing to take risks
-and 10 means very willing, how willing are you to take risks in general?"''',
+        key="GL3", score_kind="scale4", gl_index=2,
+        ask="Say you invest, and almost immediately the market falls 15%. Gut reaction — what do you do?",
+        rubric="1=sell everything to cut losses; 2=sell some to reduce exposure; 3=hold and wait for recovery; 4=buy more while cheaper.",
     ),
     ScriptItem(
-        key="loss_aversion",
-        kind="instrument",
-        text='''Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
-or a small investment that could go sideways. What's the smallest potential gain that would make it
-feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
-you need to potentially win before you'd seriously consider it?"''',
+        key="GL5", score_kind="scale4", gl_index=4,
+        ask="When something you own drops a lot in value, how does that actually sit with you — and what do you tend to do about it?",
+        rubric="1=very anxious, sell immediately; 2=worried, likely reduce; 3=accept as normal volatility, hold; 4=see it as a buying opportunity.",
+    ),
+    ScriptItem(
+        key="GL13", score_kind="scale4", gl_index=12,
+        ask="Say $100 lands in your lap. Which feels most like you: keep it safe; take a coin-flip shot at turning it into $250 (or nothing); a longer shot at $750; or a real long shot at $3,000?",
+        rubric="A keep $100 safe ->1; B 50/50 for $250 ->2; C shot at $750 ->3; D long-shot $3000 ->4.",
+    ),
+    ScriptItem(
+        key="GL6", score_kind="scale4", gl_index=5,
+        ask="If $100,000 unexpectedly landed in your account tomorrow, where would most of it end up?",
+        rubric="1=savings/CDs; 2=mostly bonds/low-risk; 3=diversified stocks+bonds; 4=mostly growth/aggressive.",
+    ),
+    ScriptItem(
+        key="GL7", score_kind="scale4", gl_index=6,
+        ask="Smaller version: an unexpected $20,000. What's your instinct for it?",
+        rubric="1=pay off debt or save; 2=low-risk income investments; 3=mix of low/moderate risk; 4=growth-oriented/higher risk.",
+    ),
+    ScriptItem(
+        key="GL10", score_kind="scale4", gl_index=9,
+        ask="Suppose smart people are convinced a certain sector will take off next year, and you're not in it. Do you chase it — and how hard?",
+        rubric="1=nothing, stay put; 2=move a small amount; 3=shift a moderate amount; 4=move aggressively toward it.",
+    ),
+    ScriptItem(
+        key="GL11", score_kind="scale4", gl_index=10,
+        ask="An investment of yours just jumped 25% and hit the target price. What do you do now?",
+        rubric="1=sell all, lock the gain; 2=sell most; 3=hold and see; 4=buy more, momentum's working.",
+    ),
+    ScriptItem(
+        key="GL12", score_kind="scale4", gl_index=11,
+        ask="Would you rather take $1,000 today, or wait a year for a shot at $1,200?",
+        rubric="1=definitely $1000 now; 2=slight preference for now; 3=slight preference to wait; 4=definitely wait for more.",
+    ),
+    ScriptItem(
+        key="GL4", score_kind="scale4", gl_index=3,
+        ask="If your employer let you put part of your retirement savings into the company's own stock, how much would you be comfortable putting in?",
+        rubric="1=none, too risky; 2=a small amount; 3=a moderate amount; 4=a large portion.",
+    ),
+    ScriptItem(
+        key="GL2", score_kind="scale4", gl_index=1,
+        ask="How much investing have you actually done before — stocks, funds, that kind of thing?",
+        rubric="1=never and uncomfortable; 2=never but open; 3=some experience, comfortable with basics; 4=experienced.",
+    ),
+    ScriptItem(
+        key="GL1", score_kind="scale4", gl_index=0,
+        ask="Stepping back — how would you describe your overall relationship with financial risk?",
+        rubric="1=very cautious, avoid all risk; 2=somewhat cautious, prefer safe; 3=comfortable with moderate risk for better returns; 4=enjoy risk for higher rewards.",
+    ),
+    ScriptItem(
+        key="GL8", score_kind="scale4", gl_index=7,
+        ask="If you had to label yourself as a risk taker with money, where would you land?",
+        rubric="1=very conservative; 2=conservative; 3=moderate risk taker; 4=aggressive risk taker.",
+    ),
+    ScriptItem(
+        key="GL9", score_kind="scale4", gl_index=8,
+        ask="When you hear the words “financial risk,” what's the first thing that comes to mind?",
+        rubric="1=loss/danger to avoid; 2=mostly negative; 3=uncertainty, mixed; 4=opportunity/potential gain.",
+    ),
+    ScriptItem(
+        key="dohmen", score_kind="scale10",
+        ask="On a scale of 0 to 10, how willing are you to take risks in general — not just money, life in general?",
+        rubric="Record the integer 0-10 the user gives (0=not at all willing, 10=very willing). null if no number.",
+    ),
+    ScriptItem(
+        key="loss_aversion", score_kind="dollar",
+        ask="Last one like this: if there were a 50-50 chance of losing $100, how big would the potential win need to be before you'd take that bet?",
+        rubric="Record the dollar amount (number). Neutral ~100, loss-averse ~200+. null if no amount.",
     ),
     ScriptItem(
         key="goal_target",
-        kind="soft",
-        text=(
-            "roughly how much money they would need at their goal/retirement date "
-            "to feel secure."
-        ),
+        score_kind="freeform",
+        ask="Roughly what number would you need at your goal — retirement or otherwise — to feel genuinely secure? A ballpark is fine.",
+        rubric="Extract goal_target as a dollar number. 0 if they truly have no idea. null if unaddressed.",
     ),
     ScriptItem(
         key="preferences",
-        kind="soft",
-        text=(
-            "investment preferences: ETF-only / individual stocks / mix; any "
-            "sectors to exclude for ethical reasons; any sectors to tilt toward."
-        ),
+        score_kind="freeform",
+        ask="Finally, are there any areas you'd want to avoid for ethical reasons — like fossil fuels, weapons, or tobacco — or any sectors you'd want to lean into?",
+        rubric="Mallard builds ETF-only portfolios; do NOT ask about individual stocks. Extract esg_exclusions (list) and sector_tilts (list); universe_pref is always 'etf'. Empty/none is valid; null if unaddressed.",
     ),
 ]
 
+GL_COUNT = sum(1 for item in SCRIPT if item.gl_index is not None)
+
 
 def step_from_messages(messages) -> int:
-    """
-    Stateless step counter. step = (number of user-role messages) - 1, clamped to [0, len(SCRIPT)].
-    The first user message is the pre-filled intake-form seed (not an answer), hence the -1.
-    Accepts both pydantic objects with a .role attribute AND plain dicts with ["role"].
-    Never returns a negative value.
+    """Interim stateless step = (#user messages) - 1, clamped to [0, len(SCRIPT)].
+
+    Retained for the legacy prompt path; the score-gated orchestration uses
+    persisted state instead.
     """
     user_messages = 0
     for message in messages:
-        if isinstance(message, dict):
-            role = message.get("role")
-        else:
-            role = getattr(message, "role", None)
+        role = message.get("role") if isinstance(message, dict) else getattr(message, "role", None)
         if role == "user":
             user_messages += 1
-
     return min(max(user_messages - 1, 0), len(SCRIPT))
 
 
 def current_item(step: int) -> ScriptItem | None:
-    """Return SCRIPT[step] if 0 <= step < len(SCRIPT), else None."""
     if 0 <= step < len(SCRIPT):
         return SCRIPT[step]
     return None
 
 
 def next_directive(step: int) -> str | None:
-    """
-    - If step >= len(SCRIPT): return None (caller will instruct the model to call submit_profile).
-    - For kind=="instrument": return exactly:
-        "ASK NEXT — present this question VERBATIM as essentially your entire next message. "
-        "You may prepend at most one short, warm lead-in sentence, but do NOT reword, merge, "
-        "or omit the question or any of its options/scale:\n\n<item.text>"
-    - For kind=="soft": return exactly:
-        "ASK NEXT — ask the user, conversationally and as a single question, about: <item.text>"
+    """Interim directive: render the conversational `ask` with NO numbered options.
+
+    The full orchestration replaces this with explicit score->render calls.
     """
     item = current_item(step)
     if item is None:
         return None
-
-    if item.kind == "instrument":
-        return (
-            "ASK NEXT — present this question VERBATIM as essentially your entire next message. "
-            "You may prepend at most one short, warm lead-in sentence, but do NOT reword, merge, "
-            f"or omit the question or any of its options/scale:\n\n{item.text}"
-        )
-
-    return f"ASK NEXT — ask the user, conversationally and as a single question, about: {item.text}"
+    return (
+        "ASK NEXT — ask the user this, conversationally, as a single question, in your own warm "
+        "words. Do NOT show any numbered options, letter choices, or scale anchors; let them answer "
+        f"naturally. Do not ask anything already answered earlier:\n\n{item.ask}"
+    )

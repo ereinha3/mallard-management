@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 
 
+_VARIANCE_FLOOR = 1e-12
+
+
 def _finite_return_values(returns: object) -> np.ndarray:
     values = np.asarray(returns, dtype=float)
     if values.ndim != 2:
@@ -30,6 +33,37 @@ def _sample_covariance(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     centered = values - values.mean(axis=0, keepdims=True)
     sample = (centered.T @ centered) / values.shape[0]
     return np.atleast_2d(sample), centered
+
+
+def _pairwise_sample_covariance(values: np.ndarray) -> np.ndarray:
+    n_assets = values.shape[1]
+    sample = np.zeros((n_assets, n_assets), dtype=float)
+
+    for i in range(n_assets):
+        column = values[:, i]
+        mask = np.isfinite(column)
+        if int(mask.sum()) >= 2:
+            centered = column[mask] - float(column[mask].mean())
+            sample[i, i] = float(centered @ centered) / int(mask.sum())
+        else:
+            sample[i, i] = _VARIANCE_FLOOR
+
+    for i in range(n_assets):
+        for j in range(i + 1, n_assets):
+            mask = np.isfinite(values[:, i]) & np.isfinite(values[:, j])
+            n_obs = int(mask.sum())
+            if n_obs < 2:
+                covariance = 0.0
+            else:
+                left = values[mask, i]
+                right = values[mask, j]
+                left_centered = left - float(left.mean())
+                right_centered = right - float(right.mean())
+                covariance = float(left_centered @ right_centered) / n_obs
+            sample[i, j] = covariance
+            sample[j, i] = covariance
+
+    return (sample + sample.T) / 2.0
 
 
 def _constant_correlation_target(sample: np.ndarray) -> np.ndarray:
@@ -65,7 +99,7 @@ def _target_directional_derivative(sample: np.ndarray, direction: np.ndarray) ->
 
 def _ledoit_wolf_delta_from_centered(centered: np.ndarray, sample: np.ndarray) -> float:
     n_obs, n_assets = centered.shape
-    if n_assets == 1:
+    if n_obs == 0 or n_assets == 1:
         return 0.0
 
     target = _constant_correlation_target(sample)
@@ -87,23 +121,48 @@ def _ledoit_wolf_delta_from_centered(centered: np.ndarray, sample: np.ndarray) -
     return min(1.0, max(0.0, kappa_hat / n_obs))
 
 
-def ledoit_wolf_shrinkage_delta(returns: object) -> float:
-    """Estimate Ledoit-Wolf shrinkage intensity toward a constant-correlation target."""
+def _pairwise_delta(values: np.ndarray, sample: np.ndarray) -> float:
+    if values.shape[0] < 2 or values.shape[1] == 1:
+        return 0.0
 
-    values = _finite_return_values(returns)
-    sample, centered = _sample_covariance(values)
-    if sample.shape != (values.shape[1], values.shape[1]):
-        sample = sample.reshape(values.shape[1], values.shape[1])
+    centered = values.copy()
+    for idx in range(centered.shape[1]):
+        column = centered[:, idx]
+        mask = np.isfinite(column)
+        if np.any(mask):
+            column[mask] = column[mask] - float(column[mask].mean())
+        column[~mask] = 0.0
+        centered[:, idx] = column
+
     return _ledoit_wolf_delta_from_centered(centered, sample)
 
 
-def cov_ledoit_wolf(returns: object, delta: float | None = None) -> pd.DataFrame:
-    """Estimate a linear-shrinkage covariance per docs/greenlight/06 Phase 3.2.
+def _psd_repair(sigma: np.ndarray) -> np.ndarray:
+    repaired = np.asarray(sigma, dtype=float)
+    repaired = np.nan_to_num(repaired, nan=0.0, posinf=0.0, neginf=0.0)
+    repaired = (repaired + repaired.T) / 2.0
+    if repaired.size == 0:
+        return repaired
 
-    This uses the constant-correlation target described in
-    docs/greenlight/.codex-tasks/ENV-CONSTRAINTS.md.
-    """
+    diag = np.diag(repaired).copy()
+    floor = max(_VARIANCE_FLOOR, float(np.max(np.abs(diag))) * 1e-12)
+    diag = np.maximum(diag, floor)
+    np.fill_diagonal(repaired, diag)
 
+    try:
+        eigenvalues, eigenvectors = np.linalg.eigh(repaired)
+    except np.linalg.LinAlgError:
+        return np.diag(diag)
+
+    clipped = np.maximum(eigenvalues, floor)
+    repaired = (eigenvectors * clipped) @ eigenvectors.T
+    repaired = (repaired + repaired.T) / 2.0
+    repaired = np.nan_to_num(repaired, nan=0.0, posinf=0.0, neginf=0.0)
+    repaired += np.eye(repaired.shape[0]) * floor
+    return (repaired + repaired.T) / 2.0
+
+
+def _cov_ledoit_wolf_complete(returns: object, delta: float | None = None) -> pd.DataFrame:
     values = _finite_return_values(returns)
     labels = _columns(returns)
     sample, centered = _sample_covariance(values)
@@ -124,6 +183,59 @@ def cov_ledoit_wolf(returns: object, delta: float | None = None) -> pd.DataFrame
     frame = pd.DataFrame(sigma, index=labels, columns=labels)
     frame.attrs["ledoit_wolf_delta"] = float(shrinkage)
     return frame
+
+
+def _cov_ledoit_wolf_pairwise(returns: object, delta: float | None = None) -> pd.DataFrame:
+    values = np.asarray(returns, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("returns must be a 2D matrix")
+
+    labels = _columns(returns)
+    sample = _pairwise_sample_covariance(values)
+    if values.shape[1] == 1:
+        sigma = sample
+        shrinkage = 0.0
+    else:
+        target = _constant_correlation_target(sample)
+        shrinkage = _pairwise_delta(values, sample) if delta is None else float(delta)
+        shrinkage = min(1.0, max(0.0, shrinkage))
+        sigma = (1.0 - shrinkage) * sample + shrinkage * target
+
+    sigma = _psd_repair(sigma)
+    frame = pd.DataFrame(sigma, index=labels, columns=labels)
+    frame.attrs["ledoit_wolf_delta"] = float(shrinkage)
+    return frame
+
+
+def ledoit_wolf_shrinkage_delta(returns: object) -> float:
+    """Estimate Ledoit-Wolf shrinkage intensity toward a constant-correlation target."""
+
+    raw_values = np.asarray(returns, dtype=float)
+    if raw_values.ndim != 2:
+        raise ValueError("returns must be a 2D matrix")
+    if not np.isfinite(raw_values).all() or raw_values.shape[0] < 2:
+        return _pairwise_delta(raw_values, _pairwise_sample_covariance(raw_values))
+
+    values = _finite_return_values(raw_values)
+    sample, centered = _sample_covariance(values)
+    if sample.shape != (values.shape[1], values.shape[1]):
+        sample = sample.reshape(values.shape[1], values.shape[1])
+    return _ledoit_wolf_delta_from_centered(centered, sample)
+
+
+def cov_ledoit_wolf(returns: object, delta: float | None = None) -> pd.DataFrame:
+    """Estimate a linear-shrinkage covariance per docs/greenlight/06 Phase 3.2.
+
+    This uses the constant-correlation target described in
+    docs/greenlight/.codex-tasks/ENV-CONSTRAINTS.md.
+    """
+
+    values = np.asarray(returns, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("returns must be a 2D matrix")
+    if np.isfinite(values).all() and values.shape[0] >= 2:
+        return _cov_ledoit_wolf_complete(returns, delta=delta)
+    return _cov_ledoit_wolf_pairwise(returns, delta=delta)
 
 
 def erc_weights(returns: object) -> dict[str, float]:

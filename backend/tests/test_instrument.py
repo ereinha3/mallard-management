@@ -57,10 +57,13 @@ def test_step_from_messages_accepts_dicts_and_role_attribute_objects() -> None:
     assert step_from_messages(object_messages) == 2
 
 
-def test_script_contains_gl_items_in_order_as_instruments() -> None:
-    gl_items = [item for item in SCRIPT if item.key.startswith("GL")]
+def test_all_gl_items_present_with_canonical_indices() -> None:
+    # Ask order is reordered (behavioral-first), but every GL item carries its
+    # canonical 0-12 slot so the validated 13-item sum + norms are preserved.
+    gl_items = [item for item in SCRIPT if item.gl_index is not None]
 
-    assert [item.key for item in gl_items] == [f"GL{i}" for i in range(1, 14)]
+    assert {item.key for item in gl_items} == {f"GL{i}" for i in range(1, 14)}
+    assert sorted(item.gl_index for item in gl_items) == list(range(13))
     assert all(item.kind == "instrument" for item in gl_items)
 
 
@@ -84,12 +87,14 @@ def test_next_directive_after_script_is_none() -> None:
     assert next_directive(len(SCRIPT)) is None
 
 
-def test_next_directive_for_gl_item_contains_verbatim() -> None:
-    gl_index = next(i for i, item in enumerate(SCRIPT) if item.kind == "instrument")
-    directive = next_directive(gl_index)
+def test_next_directive_for_gl_item_hides_numbered_options() -> None:
+    gl_step = next(i for i, item in enumerate(SCRIPT) if item.gl_index is not None)
+    directive = next_directive(gl_step)
 
     assert directive is not None
-    assert "VERBATIM" in directive
+    assert "conversationally" in directive
+    # the user must never be shown the 1-4 scale anchors in the question
+    assert "1 =" not in directive and "1=" not in directive
 
 
 def test_next_directive_for_soft_item_contains_conversationally() -> None:

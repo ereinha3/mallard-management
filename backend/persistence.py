@@ -156,6 +156,11 @@ class ChatSession(Base):
         nullable=True,
         comment="Profile facts extracted from the chat transcript as raw JSON.",
     )
+    elicitation_state: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Score-gated interview state (step + collected scores) as raw JSON.",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -391,6 +396,14 @@ def _ensure_additive_columns(db_engine: Engine) -> None:
             connection.exec_driver_sql(
                 f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"
             )
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(chat_sessions)")
+        }
+        if "elicitation_state" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE chat_sessions ADD COLUMN elicitation_state TEXT"
+            )
 
 
 def get_session() -> Session:
@@ -614,6 +627,29 @@ def set_alpaca_account_id(db: Session, email: str, account_id: str) -> Investmen
     account = get_or_create_investment_account(db, email)
     account.alpaca_account_id = account_id
     return account
+
+
+def get_session_elicitation_state(db: Session, session_id: str | None) -> dict[str, Any] | None:
+    if not session_id:
+        return None
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or not chat_session.elicitation_state:
+        return None
+    return json.loads(chat_session.elicitation_state)
+
+
+def set_session_elicitation_state(
+    db: Session,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> ChatSession | None:
+    if not session_id:
+        return None
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if chat_session:
+        chat_session.elicitation_state = json.dumps(state)
+        chat_session.updated_at = datetime.utcnow()
+    return chat_session
 
 
 init_db()
