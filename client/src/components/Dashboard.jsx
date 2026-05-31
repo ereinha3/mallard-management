@@ -51,6 +51,19 @@ function getProfile(onboardResult) {
   return onboardResult?.validated_profile ?? onboardResult?.profile ?? onboardResult ?? {}
 }
 
+function addAssetRow(rows, covered, row, aliases = []) {
+  const amount = numberOrNull(row.value)
+  if (amount == null || amount <= 0) return
+
+  const keys = [row.key, row.label, ...aliases]
+    .filter(Boolean)
+    .map(key => String(key).toLowerCase())
+  if (keys.some(key => covered.has(key))) return
+
+  rows.push({ ...row, value: amount })
+  keys.forEach(key => covered.add(key))
+}
+
 function getAssetRows(profile) {
   const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
   const hasHomeInAssets = Object.keys(assetsObj).some(key => key.toLowerCase().includes('home'))
@@ -80,6 +93,19 @@ function getAssetRows(profile) {
         : 'other',
     })
   })
+
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'non_liquid_savings', label: 'Stocks & Brokerage', value: profile.non_liquid_savings, type: 'brokerage' },
+    ['taxable_brokerage', 'brokerage', 'stocks_brokerage'],
+  )
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'home_value', label: 'Primary Home', value: profile.home_value, type: 'home' },
+    ['home', 'primary_home', 'primary_residence'],
+  )
 
   const unique = new Map()
   rows.forEach(row => {
@@ -207,17 +233,26 @@ export default function Dashboard({ onboardResult }) {
   const bucketPlan = onboardResult?.bucket_plan ?? null
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
+  const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
 
-  const netWorth = numberOrNull(snapshot.net_worth_estimate)
+  const assets = getAssetRows(profile)
+  const liabilities = getLiabilityRows(onboardResult, profile)
+  const rowAssetTotal = assets.reduce((sum, row) => sum + row.value, 0)
   const totalDebt = numberOrNull(snapshot.total_debt)
+    ?? liabilities.reduce((sum, row) => sum + row.balance, 0)
+  const totalAssets = rowAssetTotal > 0
+    ? rowAssetTotal
+    : (numberOrNull(snapshot.net_worth_estimate) != null && totalDebt != null
+      ? numberOrNull(snapshot.net_worth_estimate) + totalDebt
+      : null)
+  const netWorth = totalAssets != null && totalDebt != null
+    ? totalAssets - totalDebt
+    : numberOrNull(snapshot.net_worth_estimate)
   const cashFlow = numberOrNull(snapshot.monthly_surplus)
   const savingsRate = numberOrNull(snapshot.savings_rate_pct)
   const monthlyIncome = numberOrNull(snapshot.monthly_income)
   const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
-  const totalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
   const score = numberOrNull(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
-  const assets = getAssetRows(profile)
-  const liabilities = getLiabilityRows(onboardResult, profile)
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
 
   useEffect(() => {
@@ -504,6 +539,22 @@ export default function Dashboard({ onboardResult }) {
                 {formatMaybeCurrency(totalDebt, true)}
               </span>
             </div>
+            {payoffPlan && (
+              <div className="mt-3 pt-3 grid grid-cols-2 gap-3 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ color: 'var(--text-muted)' }}>Debt freedom</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {payoffPlan.months_to_freedom != null ? `${payoffPlan.months_to_freedom} mo` : 'Not available'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div style={{ color: 'var(--text-muted)' }}>Saved vs snowball</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+                    {payoffPlan.avalanche_vs_snowball_interest_saved != null ? formatCurrency(payoffPlan.avalanche_vs_snowball_interest_saved, true) : 'Not available'}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card-premium p-5 anim-fade-up d500">
