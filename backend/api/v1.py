@@ -53,6 +53,7 @@ from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
 from llm.elicitation import stream_elicitation  # noqa: E402
+from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
 from optimizer.blend import build_target_weights  # noqa: E402
@@ -413,7 +414,7 @@ def _compute_financial_analysis(
         tolerance_score=risk_profile.tolerance_score,
         binding_axis=risk_profile.binding_axis,
         target_volatility_pct=round(vol_mid * 100.0, 1),
-        estimated_max_loss_1yr_pct=round(vol_mid * 2.0 * 100.0, 1),
+        estimated_max_loss_1yr_pct=_estimated_max_loss_1yr_pct_for_profile(profile, risk_profile),
         loss_aversion_flag=risk_profile.loss_aversion_flag,
         contradiction_note=risk_profile.contradiction_note,
     )
@@ -492,6 +493,36 @@ def _periods_per_year(index: Any) -> float:
         return float((len(dates) - 1) * 365.25 / span_days)
     except Exception:
         return 252.0
+
+
+def _estimated_max_loss_1yr_pct(
+    weights: Mapping[str, float],
+    returns: Any,
+) -> float:
+    loss = scenario_var_1yr_loss(
+        weights,
+        returns,
+        seed=DEFAULT_SCENARIO_VAR_SEED,
+    )
+    return round(loss * 100.0, 1)
+
+
+def _estimated_max_loss_1yr_pct_for_weights(universe: Any, weights: Any) -> float:
+    _ensure_engine_data()
+    return _estimated_max_loss_1yr_pct(
+        weights.by_sleeve,
+        returns_matrix(universe.sleeves),
+    )
+
+
+def _estimated_max_loss_1yr_pct_for_profile(validated: Any, risk_profile: Any) -> float:
+    universe = _build_universe(validated)
+    weights = build_target_weights(
+        _risk_profile_with_context(validated, risk_profile),
+        universe,
+        load_prices(),
+    )
+    return _estimated_max_loss_1yr_pct_for_weights(universe, weights)
 
 
 def _compute_risk_metrics(universe: Any, weights: Any) -> api_models.RiskMetrics:
@@ -1141,7 +1172,7 @@ async def portfolio_reoptimize(
         portfolio=portfolio_result,
         risk_summary=api_models.PortfolioRiskSummary(
             target_volatility_pct=round(realized_vol * 100.0, 1),
-            estimated_max_loss_1yr_pct=round(realized_vol * 2.0 * 100.0, 1),
+            estimated_max_loss_1yr_pct=_estimated_max_loss_1yr_pct_for_weights(universe, weights),
         ),
     )
 

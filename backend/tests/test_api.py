@@ -316,6 +316,29 @@ def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: Fast
     assert sleeve_weights[0] != sleeve_weights[2]
 
 
+def test_portfolio_reoptimize_max_loss_is_seeded_scenario_var(test_app: FastAPI):
+    client = _client(test_app)
+    profile = _persona("persona_greenlight.json")
+
+    first = client.post(
+        "/api/v1/portfolio/reoptimize",
+        json={"profile": profile, "risk_dial": 0.5},
+    )
+    second = client.post(
+        "/api/v1/portfolio/reoptimize",
+        json={"profile": profile, "risk_dial": 0.5},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_body = first.json()
+    second_body = second.json()
+    max_loss = first_body["risk_summary"]["estimated_max_loss_1yr_pct"]
+    expected_vol = first_body["portfolio"]["metrics"]["expected_vol"]
+    assert max_loss == second_body["risk_summary"]["estimated_max_loss_1yr_pct"]
+    assert max_loss != round(expected_vol * 2.0 * 100.0, 1)
+
+
 def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_app: FastAPI):
     client = _client(test_app)
     profile = _persona("persona_greenlight.json")
