@@ -100,6 +100,7 @@ export default function IntakeChat({ onComplete }) {
   const [analyzing, setAnalyzing] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const calledRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -159,6 +160,8 @@ export default function IntakeChat({ onComplete }) {
   }, [onComplete])
 
   useEffect(() => {
+    if (calledRef.current) return
+    calledRef.current = true
     const seed = [{ role: 'user', content: "Hi, I'd like to check whether I'm ready to start investing." }]
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(seed)
