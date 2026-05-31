@@ -162,29 +162,43 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     client = _client(test_app)
     email = "profile-persist@example.com"
     _register(client, email)
+    payload = {
+        **_persona("persona_greenlight.json"),
+        "home_value": 365000,
+        "non_liquid_savings": 42000,
+    }
 
     response = client.post(
         f"/api/v1/onboard?user_email={email}",
-        json=_persona("persona_greenlight.json"),
+        json=payload,
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "greenlight"
     assert body["portfolio"]["weights"]["method"] == "erc"
+    assert body["validated_profile"]["home_value"] == 365000
+    assert body["validated_profile"]["non_liquid_savings"] == 42000
+    assert body["financial_analysis"]["snapshot"]["net_worth_estimate"] == 410500
 
     profile_response = client.get(f"/api/v1/profile/{email}")
     assert profile_response.status_code == 200
     profile = profile_response.json()
     assert profile["status"] == "greenlight"
     assert profile["portfolio"]["universe"]["tickers"]
+    assert profile["validated_profile"]["home_value"] == 365000
+    assert profile["validated_profile"]["non_liquid_savings"] == 42000
 
     record_response = client.get(f"/api/v1/users/{email}/record")
     assert record_response.status_code == 200
     record = record_response.json()
     assert record["account"]["email"] == email
     assert record["profile_input"]["household_income"] == body["validated_profile"]["household_income"]
+    assert record["profile_input"]["home_value"] == 365000
+    assert record["profile_input"]["non_liquid_savings"] == 42000
     assert record["onboard_result"]["status"] == "greenlight"
+    assert record["onboard_result"]["validated_profile"]["home_value"] == 365000
+    assert record["onboard_result"]["validated_profile"]["non_liquid_savings"] == 42000
     assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
 
 

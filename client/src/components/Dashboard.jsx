@@ -51,19 +51,41 @@ function getProfile(onboardResult) {
   return onboardResult?.validated_profile ?? onboardResult?.profile ?? onboardResult ?? {}
 }
 
+function addAssetRow(rows, covered, row, aliases = []) {
+  const amount = numberOrNull(row.value)
+  if (amount == null || amount <= 0) return
+
+  const keys = [row.key, row.label, ...aliases]
+    .filter(Boolean)
+    .map(key => String(key).toLowerCase())
+  if (keys.some(key => covered.has(key))) return
+
+  rows.push({ ...row, value: amount })
+  keys.forEach(key => covered.add(key))
+}
+
 function getAssetRows(profile) {
-  const rows = [
-    { label: 'Liquid Cash', value: numberOrNull(profile.capital_on_hand), type: 'cash' },
-    { label: 'Emergency Fund', value: numberOrNull(profile.emergency_fund), type: 'emergency' },
-  ]
+  const rows = []
+  const covered = new Set()
+
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'capital_on_hand', label: 'Liquid Cash', value: profile.capital_on_hand, type: 'cash' },
+    ['liquid_cash', 'cash'],
+  )
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'emergency_fund', label: 'Emergency Fund', value: profile.emergency_fund, type: 'emergency' },
+  )
 
   if (profile.assets && typeof profile.assets === 'object') {
     Object.entries(profile.assets).forEach(([key, value]) => {
-      const amount = numberOrNull(value)
-      if (amount == null || amount <= 0) return
-      rows.push({
+      addAssetRow(rows, covered, {
+        key,
         label: key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
-        value: amount,
+        value,
         type: key.includes('home') ? 'home'
           : key.includes('vehicle') || key.includes('auto') ? 'vehicle'
           : key.includes('brokerage') ? 'brokerage'
@@ -72,6 +94,19 @@ function getAssetRows(profile) {
       })
     })
   }
+
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'non_liquid_savings', label: 'Stocks & Brokerage', value: profile.non_liquid_savings, type: 'brokerage' },
+    ['taxable_brokerage', 'brokerage', 'stocks_brokerage'],
+  )
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'home_value', label: 'Primary Home', value: profile.home_value, type: 'home' },
+    ['home', 'primary_home', 'primary_residence'],
+  )
 
   const unique = new Map()
   rows.forEach(row => {
@@ -200,16 +235,24 @@ export default function Dashboard({ onboardResult }) {
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
 
-  const netWorth = numberOrNull(snapshot.net_worth_estimate)
+  const assets = getAssetRows(profile)
+  const liabilities = getLiabilityRows(onboardResult, profile)
+  const rowAssetTotal = assets.reduce((sum, row) => sum + row.value, 0)
   const totalDebt = numberOrNull(snapshot.total_debt)
+    ?? liabilities.reduce((sum, row) => sum + row.balance, 0)
+  const totalAssets = rowAssetTotal > 0
+    ? rowAssetTotal
+    : (numberOrNull(snapshot.net_worth_estimate) != null && totalDebt != null
+      ? numberOrNull(snapshot.net_worth_estimate) + totalDebt
+      : null)
+  const netWorth = totalAssets != null && totalDebt != null
+    ? totalAssets - totalDebt
+    : numberOrNull(snapshot.net_worth_estimate)
   const cashFlow = numberOrNull(snapshot.monthly_surplus)
   const savingsRate = numberOrNull(snapshot.savings_rate_pct)
   const monthlyIncome = numberOrNull(snapshot.monthly_income)
   const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
-  const totalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
   const score = numberOrNull(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
-  const assets = getAssetRows(profile)
-  const liabilities = getLiabilityRows(onboardResult, profile)
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
 
   useEffect(() => {
