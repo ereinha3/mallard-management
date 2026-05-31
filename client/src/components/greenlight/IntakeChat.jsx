@@ -1,105 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
-import { CheckCircle, AlertTriangle, Loader } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { CheckCircle, AlertTriangle, Send, Loader } from 'lucide-react'
+import { streamChat, postOnboard } from '../../api/greenlightClient'
 
-// --- Scripted conversations ---
-
-const HALT_SCRIPT = [
-  {
-    agent: "Hello. I'm Greenlight. My job is to answer one question before anything else: should you be investing right now? Let's build your picture. What's your household income?",
-    user: "$78,000 a year.",
-    extract: { key: 'income', label: 'Household income', value: '$78,000 / yr', status: 'ok' },
-  },
-  {
-    agent: "Got it. And your essential monthly expenses: housing, food, utilities, transportation?",
-    user: "About $3,200 a month.",
-    extract: { key: 'expenses', label: 'Monthly expenses', value: '$3,200 / mo', status: 'ok' },
-  },
-  {
-    agent: "How much capital do you have available to put to work?",
-    user: "$6,000.",
-    extract: { key: 'capital', label: 'Capital on hand', value: '$6,000', status: 'ok' },
-  },
-  {
-    agent: "Important one. How many months of essential expenses do you have in a liquid emergency fund right now?",
-    user: "About $1,500 saved, so maybe half a month.",
-    extract: { key: 'emergency', label: 'Emergency fund', value: '$1,500 · 0.5 months', status: 'warn', note: 'Need: $9,600 (3 mo.)' },
-  },
-  {
-    agent: "Do you carry any debt? If yes, I'll need the balance and the interest rate for each.",
-    user: "$9,000 on a credit card at 22% APR. Also $14,000 in student loans at 4.5%.",
-    extract: { key: 'debt', label: 'Outstanding debt', value: 'CC $9k @ 22%  ·  Student $14k @ 4.5%', status: 'warn', note: '22% APR above 8% threshold' },
-  },
-  {
-    agent: "Your age and target retirement horizon?",
-    user: "28. Hoping to retire around 65.",
-    extract: { key: 'lifecycle', label: 'Age / Horizon', value: '28 yrs · 37 yrs to retirement', status: 'ok' },
-  },
-  {
-    agent: "Last one: risk comfort level and any investment preferences?",
-    user: "Moderate-aggressive. ESG matters to me. No fossil fuels or weapons.",
-    extract: { key: 'prefs', label: 'Risk & Preferences', value: 'Moderate-aggressive · ESG', status: 'ok', note: 'Excl: fossil fuels, weapons' },
-  },
-  {
-    agent: "Got it. Running the responsibility gate now...",
-    user: null,
-    extract: null,
-  },
-]
-
-const GREEN_SCRIPT = [
-  {
-    agent: "Welcome back. Let's confirm your updated financial picture. Income still $78,000?",
-    user: "Yes, same.",
-    extract: { key: 'income', label: 'Household income', value: '$78,000 / yr', status: 'ok' },
-  },
-  {
-    agent: "And you mentioned you've paid off the credit card and built up savings?",
-    user: "Paid off the $9,000 card in full. Emergency fund is now $10,000, about 3.1 months.",
-    extract: { key: 'emergency', label: 'Emergency fund', value: '$10,000 · 3.1 months', status: 'ok', note: '✓ Meets 3-month threshold' },
-  },
-  {
-    agent: "The student loan at 4.5%, still outstanding?",
-    user: "$14,000 remaining at 4.5% APR.",
-    extract: { key: 'debt', label: 'Outstanding debt', value: 'Student $14k @ 4.5%', status: 'ok', note: 'Below 8%, investing allowed alongside' },
-  },
-  {
-    agent: "Capital available to invest now?",
-    user: "$7,500.",
-    extract: { key: 'capital', label: 'Capital on hand', value: '$7,500', status: 'ok' },
-  },
-  {
-    agent: "Preferences unchanged: moderate-aggressive, ESG-screened?",
-    user: "Exactly. Still no fossil fuels or weapons.",
-    extract: { key: 'prefs', label: 'Risk & Preferences', value: 'Moderate-aggressive · ESG', status: 'ok', note: 'Excl: fossil fuels, weapons' },
-  },
-  {
-    agent: "Running the gate...",
-    user: null,
-    extract: null,
-  },
-]
-
-function useTypewriter(text, speed = 18) {
-  const [displayed, setDisplayed] = useState('')
-  const [done, setDone] = useState(false)
-  useEffect(() => {
-    setDisplayed('')
-    setDone(false)
-    if (!text) { setDone(true); return }
-    let i = 0
-    const timer = setInterval(() => {
-      i++
-      setDisplayed(text.slice(0, i))
-      if (i >= text.length) { setDone(true); clearInterval(timer) }
-    }, speed)
-    return () => clearInterval(timer)
-  }, [text])
-  return { displayed, done }
-}
-
-function AgentBubble({ text, isActive }) {
-  const { displayed, done } = useTypewriter(isActive ? text : text, isActive ? 18 : 0)
-  const content = isActive ? displayed : text
+function AgentBubble({ text, isStreaming }) {
   return (
     <div className="flex gap-3 items-start">
       <div
@@ -122,8 +25,8 @@ function AgentBubble({ text, isActive }) {
           maxWidth: 480,
         }}
       >
-        {content}
-        {isActive && !done && (
+        {text}
+        {isStreaming && (
           <span
             className="inline-block w-0.5 h-4 ml-0.5 align-text-bottom"
             style={{ background: 'var(--emerald)', animation: 'blink 1s step-end infinite' }}
@@ -152,15 +55,15 @@ function UserBubble({ text }) {
   )
 }
 
-function ParamRow({ label, value, status, note, visible }) {
-  if (!visible) return null
+function ParamRow({ label, value, status, note }) {
   return (
     <div
-      className="px-4 py-3 rounded-xl anim-fade-up"
+      className="px-4 py-3 rounded-xl"
       style={{
         background: 'var(--bg-elevated)',
         border: `1px solid ${status === 'warn' ? 'rgba(230,69,69,0.3)' : 'var(--border)'}`,
         marginBottom: 8,
+        animation: 'fadeUp 0.3s ease both',
       }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -180,102 +83,162 @@ function ParamRow({ label, value, status, note, visible }) {
         <div className="shrink-0 mt-0.5">
           {status === 'warn'
             ? <AlertTriangle size={14} style={{ color: 'var(--ruby)' }} />
-            : <CheckCircle size={14} style={{ color: 'var(--emerald)' }} />
-          }
+            : <CheckCircle size={14} style={{ color: 'var(--emerald)' }} />}
         </div>
       </div>
     </div>
   )
 }
 
-export default function IntakeChat({ scenario, onComplete }) {
-  const script = scenario === 'halt' ? HALT_SCRIPT : GREEN_SCRIPT
-  const [msgIdx, setMsgIdx] = useState(0)
-  const [phase, setPhase] = useState('agent') // 'agent' | 'user' | 'next'
-  const [extractedKeys, setExtractedKeys] = useState([])
-  const [running, setRunning] = useState(false)
-  const [finished, setFinished] = useState(false)
+export default function IntakeChat({ onComplete }) {
+  const [messages, setMessages] = useState([])
+  const [streamingText, setStreamingText] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [inputVal, setInputVal] = useState('')
+  const [error, setError] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
   const bottomRef = useRef(null)
-
-  const currentMsg = script[msgIdx]
-  const isLastMsg = msgIdx === script.length - 1
+  const inputRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [msgIdx, phase])
+  }, [messages, streamingText])
 
-  function advance() {
-    if (phase === 'agent') {
-      if (currentMsg.user) {
-        // show user response after short delay
-        setTimeout(() => {
-          setPhase('user')
-          if (currentMsg.extract) {
-            setExtractedKeys(prev => [...prev, currentMsg.extract.key])
-          }
-        }, 400)
-      } else {
-        // last agent message (running gate...)
-        if (currentMsg.extract) setExtractedKeys(prev => [...prev, currentMsg.extract.key])
-        setRunning(true)
-        setTimeout(() => {
-          setFinished(true)
-        }, 2000)
-      }
-    } else if (phase === 'user') {
-      // advance to next message
-      if (isLastMsg) {
-        setFinished(true)
-      } else {
-        setMsgIdx(i => i + 1)
-        setPhase('agent')
-      }
-    }
+  useEffect(() => {
+    if (!isStreaming && !analyzing) inputRef.current?.focus()
+  }, [isStreaming, analyzing])
+
+  const callBackend = useCallback((msgList) => {
+    setIsStreaming(true)
+    setStreamingText('')
+    setError(null)
+    let accumulated = ''
+
+    streamChat({
+      messages: msgList,
+      onToken: (chunk) => {
+        accumulated += chunk
+        setStreamingText(accumulated)
+      },
+      onProfileReady: async (profileData) => {
+        if (accumulated) {
+          setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
+        }
+        setStreamingText('')
+        setIsStreaming(false)
+        setProfile(profileData)
+        setAnalyzing(true)
+        try {
+          const result = await postOnboard(profileData)
+          await new Promise(r => setTimeout(r, 800))
+          onComplete(result)
+        } catch {
+          await new Promise(r => setTimeout(r, 800))
+          onComplete(null)
+        }
+      },
+      onError: (msg) => {
+        setIsStreaming(false)
+        setStreamingText('')
+        setError(msg)
+      },
+      onDone: () => {
+        if (accumulated) {
+          setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
+        }
+        setStreamingText('')
+        setIsStreaming(false)
+      },
+    })
+  }, [onComplete])
+
+  useEffect(() => {
+    const seed = [{ role: 'user', content: "Hi, I'd like to check whether I'm ready to start investing." }]
+    setMessages(seed)
+    callBackend(seed)
+  }, []) // eslint-disable-line
+
+  function handleSend(e) {
+    e.preventDefault()
+    const text = inputVal.trim()
+    if (!text || isStreaming || analyzing) return
+    const updated = [...messages, { role: 'user', content: text }]
+    setMessages(updated)
+    setInputVal('')
+    callBackend(updated)
   }
 
-  // All params keyed from script
-  const allParams = script.filter(s => s.extract).map(s => s.extract)
-
-  const visibleMessages = []
-  for (let i = 0; i <= msgIdx; i++) {
-    const s = script[i]
-    visibleMessages.push({ role: 'agent', text: s.agent, isActive: i === msgIdx && phase === 'agent' })
-    if (i < msgIdx || (i === msgIdx && phase === 'user')) {
-      if (s.user) visibleMessages.push({ role: 'user', text: s.user })
-    }
-  }
+  const paramRows = profile ? [
+    {
+      label: 'Annual Income',
+      value: `$${Math.round(profile.household_income).toLocaleString()}`,
+      status: 'ok',
+    },
+    {
+      label: 'Monthly Expenses',
+      value: `$${Math.round(profile.monthly_expenses).toLocaleString()}`,
+      status: 'ok',
+    },
+    {
+      label: 'Emergency Fund',
+      value: `$${Math.round(profile.emergency_fund).toLocaleString()}`,
+      status: profile.emergency_fund < profile.monthly_expenses * 3 ? 'warn' : 'ok',
+      note: profile.emergency_fund < profile.monthly_expenses * 3
+        ? 'May be below 3-month threshold'
+        : 'Meets 3-month threshold',
+    },
+    {
+      label: 'Capital on Hand',
+      value: `$${Math.round(profile.capital_on_hand).toLocaleString()}`,
+      status: 'ok',
+    },
+    {
+      label: 'Debts',
+      value: profile.debts?.length ? `${profile.debts.length} item(s)` : 'None',
+      status: profile.debts?.some(d => d.apr > 0.08) ? 'warn' : 'ok',
+      note: profile.debts?.some(d => d.apr > 0.08) ? 'High-APR debt detected (>8%)' : null,
+    },
+    {
+      label: 'Age / Horizon',
+      value: `${profile.age} yrs · ${profile.horizon_years} yrs to goal`,
+      status: 'ok',
+    },
+    {
+      label: 'Filing Status',
+      value: profile.filing_status?.replace(/_/g, ' '),
+      status: 'ok',
+    },
+    {
+      label: 'Income Stability',
+      value: profile.income_stability?.replace(/_/g, ' '),
+      status: 'ok',
+    },
+  ].filter(r => r.value) : []
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       {/* Chat column */}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          borderRight: '1px solid var(--border)',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Chat title */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
         <div className="px-8 py-5 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-            {scenario === 'green' ? 'Updated Profile · Re-run' : 'Elicitation · Session 1'}
+            Elicitation · Live Session
           </div>
           <div className="font-display font-semibold text-xl mt-0.5" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-            {scenario === 'green' ? "Let's confirm what's changed." : "Should you be investing right now?"}
+            Should you be investing right now?
           </div>
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
-          {visibleMessages.map((m, i) => (
-            m.role === 'agent'
-              ? <AgentBubble key={i} text={m.text} isActive={m.isActive} />
-              : <UserBubble key={i} text={m.text} />
-          ))}
+          {messages.slice(1).map((m, i) =>
+            m.role === 'assistant'
+              ? <AgentBubble key={i} text={m.content} isStreaming={false} />
+              : <UserBubble key={i} text={m.content} />
+          )}
 
-          {running && !finished && (
+          {streamingText && <AgentBubble text={streamingText} isStreaming={true} />}
+
+          {isStreaming && !streamingText && (
             <div className="flex gap-3 items-center">
               <div
                 className="shrink-0 flex items-center justify-center rounded-full"
@@ -283,8 +246,32 @@ export default function IntakeChat({ scenario, onComplete }) {
               >
                 <Loader size={12} style={{ color: 'var(--emerald)', animation: 'spin 1s linear infinite' }} />
               </div>
-              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Running responsibility gate<span style={{ animation: 'blink 1s step-end infinite' }}>...</span>
+              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Greenlight is thinking...</div>
+            </div>
+          )}
+
+          {analyzing && (
+            <div className="flex gap-3 items-center">
+              <div
+                className="shrink-0 flex items-center justify-center rounded-full"
+                style={{ width: 28, height: 28, background: 'rgba(30,184,122,0.15)', border: '1px solid #1eb87a55' }}
+              >
+                <Loader size={12} style={{ color: 'var(--emerald)', animation: 'spin 1s linear infinite' }} />
+              </div>
+              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running responsibility gate...</div>
+            </div>
+          )}
+
+          {error && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
+              background: 'rgba(217,64,64,0.08)', border: '1px solid rgba(217,64,64,0.25)',
+              borderRadius: 10, fontSize: 13, color: 'var(--ruby)',
+            }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 3 }}>Backend error</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{error}</div>
               </div>
             </div>
           )}
@@ -292,34 +279,54 @@ export default function IntakeChat({ scenario, onComplete }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Action footer */}
         <div className="px-8 py-5 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-          {!finished ? (
-            <button
-              onClick={advance}
-              className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all"
+          <form onSubmit={handleSend} style={{ display: 'flex', gap: 10 }}>
+            <input
+              ref={inputRef}
+              value={inputVal}
+              onChange={e => setInputVal(e.target.value)}
+              placeholder={
+                analyzing ? 'Running analysis...'
+                : isStreaming ? 'Greenlight is typing...'
+                : 'Type your answer...'
+              }
+              disabled={isStreaming || analyzing}
               style={{
-                background: 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
-                color: '#070910',
-                opacity: running ? 0.4 : 1,
-                cursor: running ? 'not-allowed' : 'pointer',
+                flex: 1, padding: '11px 16px',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-bright)',
+                borderRadius: 9, color: 'var(--text-primary)',
+                fontSize: 14, fontFamily: 'DM Sans, sans-serif',
+                outline: 'none',
+                opacity: (isStreaming || analyzing) ? 0.5 : 1,
+                transition: 'border-color 0.15s, box-shadow 0.15s',
               }}
-              disabled={running}
-            >
-              {phase === 'agent' ? 'Continue →' : 'Next question →'}
-            </button>
-          ) : (
+              onFocus={e => {
+                e.target.style.borderColor = 'var(--emerald)'
+                e.target.style.boxShadow = '0 0 0 3px rgba(30,184,122,0.12)'
+              }}
+              onBlur={e => {
+                e.target.style.borderColor = 'var(--border-bright)'
+                e.target.style.boxShadow = 'none'
+              }}
+            />
             <button
-              onClick={onComplete}
-              className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all"
+              type="submit"
+              disabled={isStreaming || analyzing || !inputVal.trim()}
               style={{
-                background: 'linear-gradient(135deg, #1eb87a, #16a864)',
-                color: '#070910',
+                width: 44, height: 44, borderRadius: 9, border: 'none', flexShrink: 0,
+                cursor: (isStreaming || analyzing || !inputVal.trim()) ? 'not-allowed' : 'pointer',
+                background: (isStreaming || analyzing || !inputVal.trim())
+                  ? 'var(--bg-elevated)'
+                  : 'linear-gradient(135deg, #1eb87a, #16a864)',
+                color: (isStreaming || analyzing || !inputVal.trim()) ? 'var(--text-muted)' : '#070910',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.15s',
               }}
             >
-              See gate result →
+              <Send size={16} />
             </button>
-          )}
+          </form>
           <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
             Elicitation agent · parameters extracted to typed schema · deterministic engine evaluates
           </p>
@@ -327,57 +334,33 @@ export default function IntakeChat({ scenario, onComplete }) {
       </div>
 
       {/* Parameter extraction panel */}
-      <div
-        style={{
-          width: 320,
-          minWidth: 320,
-          background: 'var(--bg-surface)',
-          overflow: 'y-auto',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <div style={{ width: 320, minWidth: 320, background: 'var(--bg-surface)', display: 'flex', flexDirection: 'column' }}>
         <div className="px-5 py-5 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
             Extracted Parameters
           </div>
           <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-            Live · LLM → typed schema
+            {profile ? 'Complete · submitting to engine' : 'Live · LLM → typed schema'}
           </div>
         </div>
+
         <div className="flex-1 px-5 py-4 overflow-y-auto">
-          {allParams.map(p => (
-            <ParamRow
-              key={p.key}
-              label={p.label}
-              value={p.value}
-              status={p.status}
-              note={p.note}
-              visible={extractedKeys.includes(p.key)}
-            />
-          ))}
-          {extractedKeys.length === 0 && (
-            <div className="text-xs text-center py-8" style={{ color: 'var(--text-muted)' }}>
-              Parameters will appear as<br />the conversation progresses
-            </div>
-          )}
-          {extractedKeys.length > 0 && extractedKeys.length < allParams.length && (
-            <div className="flex items-center gap-2 mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-              <div className="flex gap-1">
-                {[0,1,2].map(i => (
-                  <div key={i} className="w-1 h-1 rounded-full" style={{ background: 'var(--text-muted)', animation: `blink ${0.6 + i * 0.2}s step-end infinite` }} />
-                ))}
+          {profile
+            ? paramRows.map(p => (
+                <ParamRow key={p.label} label={p.label} value={p.value} status={p.status} note={p.note} />
+              ))
+            : (
+              <div className="text-xs text-center py-8" style={{ color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                {messages.length > 1
+                  ? <>Parameters appear here once Greenlight<br />has gathered your complete<br />financial picture.</>
+                  : <>Parameters will appear as<br />the conversation progresses.</>
+                }
               </div>
-              Awaiting next response
-            </div>
-          )}
+            )
+          }
         </div>
 
-        {/* Engine boundary label */}
-        <div
-          className="px-5 py-4 shrink-0"
-          style={{ borderTop: '1px solid var(--border)' }}
-        >
+        <div className="px-5 py-4 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
           <div
             className="rounded-xl p-3 text-xs"
             style={{
@@ -396,6 +379,8 @@ export default function IntakeChat({ scenario, onComplete }) {
       <style>{`
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)} }
+        input::placeholder { color: var(--text-muted); opacity: 1; }
       `}</style>
     </div>
   )

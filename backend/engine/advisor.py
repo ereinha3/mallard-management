@@ -21,7 +21,7 @@ from google.genai import types
 
 from models import ChatMessage
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 _ADVISOR_SYSTEM_PROMPT = """
 You are Greenlight's financial advisor chatbot. You help users understand their
@@ -106,14 +106,13 @@ def _stream_sync(
         max_output_tokens=1024,
     )
 
-    with client.models.generate_content_stream(
+    for chunk in client.models.generate_content_stream(
         model=GEMINI_MODEL,
         contents=contents,
         config=config,
-    ) as stream:
-        for chunk in stream:
-            if chunk.text:
-                yield {"type": "token", "content": chunk.text}
+    ):
+        if chunk.text:
+            yield {"type": "token", "content": chunk.text}
 
 
 async def stream_advisor(

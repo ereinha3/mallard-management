@@ -68,6 +68,13 @@ function StepIndicator({ step }) {
 
 export default function GreenlightFlow() {
   const [step, setStep] = useState(STEPS.INTAKE)
+  const [gateResult, setGateResult] = useState(null)
+
+  function handleIntakeComplete(result) {
+    setGateResult(result)
+    const status = result?.gate_result?.status
+    setStep(status === 'greenlight' ? STEPS.GATE_GREEN : STEPS.GATE_HALT)
+  }
 
   const isFullscreen = step === STEPS.GATE_HALT || step === STEPS.GATE_GREEN
 
@@ -127,7 +134,7 @@ export default function GreenlightFlow() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         {step === STEPS.INTAKE && (
-          <IntakeChat scenario="halt" onComplete={() => setStep(STEPS.GATE_HALT)} />
+          <IntakeChat onComplete={handleIntakeComplete} />
         )}
         {step === STEPS.GATE_HALT && (
           <GateScreen
@@ -136,7 +143,7 @@ export default function GreenlightFlow() {
           />
         )}
         {step === STEPS.INTAKE_FIX && (
-          <IntakeChat scenario="green" onComplete={() => setStep(STEPS.GATE_GREEN)} />
+          <IntakeChat onComplete={handleIntakeComplete} />
         )}
         {step === STEPS.GATE_GREEN && (
           <GateScreen

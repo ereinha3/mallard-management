@@ -1,12 +1,13 @@
 import {
   LayoutDashboard, TrendingUp, PiggyBank, BarChart3,
-  Settings, Bell, Shield, ChevronRight, Feather, Zap,
+  Settings, Bell, Shield, ChevronRight, Feather, Zap, MessageCircle,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard' },
   { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
+  { icon: MessageCircle,   label: 'Ask Mallard',  id: 'advisor' },
   { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: BarChart3,       label: 'Portfolio',    id: 'portfolio' },
   { icon: Shield,          label: 'Risk',         id: 'risk' },

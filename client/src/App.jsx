@@ -4,12 +4,14 @@ import Dashboard from './components/Dashboard'
 import GreenlightFlow from './components/greenlight/GreenlightFlow'
 import AuthScreen from './components/AuthScreen'
 import OnboardingChat from './components/OnboardingChat'
+import AdvisorChat from './components/AdvisorChat'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'advisor']
 
 export default function App() {
   const [user, setUser] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
+  const [onboardResult, setOnboardResult] = useState(null)
   const [activePage, setActivePage] = useState('dashboard')
 
   // Stage 1: not logged in
@@ -31,7 +33,7 @@ export default function App() {
       <OnboardingChat
         user={user}
         onComplete={(result) => {
-          // result is the OnboardResponse from /api/v1/onboard (or null if backend offline)
+          setOnboardResult(result)
           setOnboardingDone(true)
         }}
       />
@@ -45,6 +47,7 @@ export default function App() {
       <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activePage === 'dashboard' && <Dashboard />}
         {activePage === 'greenlight' && <GreenlightFlow />}
+        {activePage === 'advisor' && <AdvisorChat context={onboardResult} />}
         {!PAGES_WITH_CONTENT.includes(activePage) && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
             <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
