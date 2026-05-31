@@ -125,6 +125,17 @@ def main() -> int:
     check("tax report (TLH + wash-sale)", r.status_code == 200 and len(tx.get("harvestable", [])) > 0,
           f"harvestable={len(tx.get('harvestable', []))}, wash_sale={len(tx.get('wash_sale_warnings', []))}")
 
+    # Portfolio reoptimize (kimball) — displayed target vol must match realized expected_vol
+    for dial in (0.0, 0.5, 1.0):
+        r = client.post("/api/v1/portfolio/reoptimize", json={"profile": persona, "risk_dial": dial})
+        rb_ = r.json()
+        if r.status_code != 200:
+            check(f"reoptimize dial={dial}", False, str(rb_)[:120]); continue
+        shown = rb_["risk_summary"]["target_volatility_pct"]
+        real = round(rb_["portfolio"]["metrics"]["expected_vol"] * 100.0, 1)
+        check(f"reoptimize dial={dial}: shown target == realized vol", shown == real,
+              f"shown={shown}% realized={real}%")
+
     # Module F — backtest
     r = client.post("/api/v1/backtest", json={"weights": w})
     bt = r.json()

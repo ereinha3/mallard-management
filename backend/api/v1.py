@@ -559,22 +559,6 @@ def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_mod
     )
 
 
-def _target_vol_for_dial(risk_profile: Any, risk_dial: float) -> float:
-    band = risk_profile.target_vol_band
-    low = float(band.conservative)
-    mid = float(band.mid)
-    high = float(band.aggressive)
-    dial = max(0.0, min(1.0, float(risk_dial)))
-
-    if dial <= 0.5:
-        target = low + (mid - low) * (dial / 0.5)
-    else:
-        target = mid + (high - mid) * ((dial - 0.5) / 0.5)
-
-    lower, upper = min(low, high), max(low, high)
-    return min(upper, max(lower, target))
-
-
 def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
     """Map the user dial onto the realized safe/risky frontier used by the optimizer."""
     _ensure_engine_data()
@@ -1070,8 +1054,7 @@ async def portfolio_reoptimize(
 ) -> api_models.PortfolioReoptimizeResponse:
     """Build a greenlit portfolio with target volatility selected within the user's allowed band."""
     try:
-        validated, risk_profile = _greenlit_engine_context(request.profile)
-        target_vol = _target_vol_for_dial(risk_profile, request.risk_dial)
+        validated, _ = _greenlit_engine_context(request.profile)
         universe = _build_universe(validated)
         optimizer_target_vol = _optimizer_target_vol_for_dial(universe, request.risk_dial)
         weights = build_target_weights(
@@ -1089,11 +1072,16 @@ async def portfolio_reoptimize(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Report the portfolio's REALIZED volatility so the displayed target matches
+    # portfolio.metrics.expected_vol exactly. Previously the displayed target came
+    # from the gamma-derived band while the portfolio was built on the empirical
+    # safe/risky frontier, so the two numbers could disagree on screen.
+    realized_vol = portfolio_result.metrics.expected_vol
     return api_models.PortfolioReoptimizeResponse(
         portfolio=portfolio_result,
         risk_summary=api_models.PortfolioRiskSummary(
-            target_volatility_pct=round(target_vol * 100.0, 1),
-            estimated_max_loss_1yr_pct=round(target_vol * 2.0 * 100.0, 1),
+            target_volatility_pct=round(realized_vol * 100.0, 1),
+            estimated_max_loss_1yr_pct=round(realized_vol * 2.0 * 100.0, 1),
         ),
     )
 
