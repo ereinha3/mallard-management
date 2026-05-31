@@ -8,9 +8,11 @@ function statusLabel(status) {
 
 export default function AlertsView({ onboardResult }) {
   const gate = onboardResult?.gate_result ?? {}
-  const steps = onboardResult?.financial_analysis?.path_to_greenlight?.steps ?? []
+  const steps = gate.path_to_greenlight?.steps ?? []
   const status = gate.status
-  const checks = gate.checks ? Object.entries(gate.checks) : []
+  const alertChecks = Array.isArray(gate.checks)
+    ? gate.checks.filter(check => check?.status === 'fail' || check?.status === 'warn')
+    : []
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -35,23 +37,53 @@ export default function AlertsView({ onboardResult }) {
         </div>
 
         <section className="card-premium p-5">
+          <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
+            Attention Required
+          </div>
+          {alertChecks.length > 0 ? alertChecks.map((check, index) => (
+            <div key={check.key ?? `alert-${index}`} className="py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex justify-between gap-4">
+                <div className="text-sm font-medium capitalize" style={{ color: 'var(--text-primary)' }}>
+                  {String(check.key ?? 'gate check').replace(/_/g, ' ')}
+                </div>
+                <div className="text-xs font-bold uppercase tracking-widest" style={{ color: check.status === 'fail' ? 'var(--ruby)' : 'var(--gold-light)' }}>
+                  {check.status}
+                </div>
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                {check.detail || 'No detail returned for this check.'}
+              </div>
+            </div>
+          )) : (
+            <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No failed or warning gate checks were returned.
+            </div>
+          )}
+        </section>
+
+        <section className="card-premium p-5">
           <div className="flex items-center gap-2 mb-4">
             <Route size={14} style={{ color: 'var(--gold-light)' }} />
             <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
               Path To Greenlight
             </div>
           </div>
-          {steps.length > 0 ? steps.map(item => (
-            <div key={`${item.step}-${item.action}`} className="py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+          {steps.length > 0 ? steps.map((item, index) => (
+            <div key={`${item.step ?? index}-${item.action ?? 'step'}`} className="py-3" style={{ borderBottom: '1px solid var(--border)' }}>
               <div className="flex justify-between gap-4">
-                <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.action}</div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--emerald)' }} />
+                  <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {item.action ?? `Step ${index + 1}`}
+                  </div>
+                </div>
                 {item.target_amount != null && (
                   <div className="font-mono text-sm" style={{ color: 'var(--gold-light)' }}>
                     {formatCurrency(Number(item.target_amount))}
                   </div>
                 )}
               </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              <div className="text-xs mt-1 ml-7" style={{ color: 'var(--text-muted)' }}>
                 {item.months_estimated != null ? `${item.months_estimated} months estimated` : 'No timeline returned'}
                 {item.note ? ` · ${item.note}` : ''}
               </div>
@@ -59,24 +91,6 @@ export default function AlertsView({ onboardResult }) {
           )) : (
             <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
               No path-to-greenlight steps were returned.
-            </div>
-          )}
-        </section>
-
-        <section className="card-premium p-5">
-          <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
-            Gate Checks
-          </div>
-          {checks.length > 0 ? checks.map(([key, check]) => (
-            <div key={key} className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-              <span className="text-sm capitalize" style={{ color: 'var(--text-secondary)' }}>{key.replace(/_/g, ' ')}</span>
-              <span style={{ color: check?.passed ? 'var(--emerald)' : 'var(--ruby)' }}>
-                {check?.passed ? 'Passed' : 'Needs attention'}
-              </span>
-            </div>
-          )) : (
-            <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              No gate checks were returned.
             </div>
           )}
         </section>
