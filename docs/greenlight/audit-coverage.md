@@ -81,6 +81,62 @@ Re-verified by two read-only Codex re-auditors after merging recent work (`2ade2
 
 ---
 
+## 1b. Post-merge re-audit — HEAD `0ba5ca0` (supersedes earlier statuses)
+
+After the `ethan` merge (DB universe seed, bucket allocation, `tilt.py`, BL/CVaR, JNLC) + the `G-01` SDK wiring + `G-03`. Re-verified read-only by Codex against current HEAD. **Owner** = the in-flight workstream that will close it (ModuleA–G engine remediation, or CHAT = the elicitation-convergence agent); **UNOWNED** = needs separate work.
+
+**✅ Now CLOSED:** `G-01` (SDK wrappers + `{profile,method}` body), `G-03` (bracket-aware tax+gate), `G-36` (live portfolio fetch; hardcoded GLIDEPATH gone). Plus the 01 §3.1 guided-intake constraint (§1a).
+
+**Owned by in-flight agents (tracked, not actionable by us):**
+
+| Gap | Status | Owner | Note |
+|---|---|---|---|
+| G-02 | PARTIAL | ModuleB | backtest improved (ragged/SPY); **API still drops CAGR/DSR/drawdown/`naive_mvo`** |
+| G-04 | PARTIAL | ModuleA | pref/theme filters exist; bundled universe ETF-only so `stock` pref can't yield stock-only |
+| G-05 | OPEN | CHAT | `profile_ready` still emits raw fn-args before server GL firewall |
+| G-06 | OPEN | CHAT | raw auditable `RiskSignals` contract still unmodeled |
+| G-07 | PARTIAL | CHAT | GL order pinned; scoring still 13×(1–4)=52 max vs spec 13–47 |
+| G-09 | OPEN | CHAT | engine requests clarification; chat doesn't re-administer conflicting items |
+| G-17/D-1 | PARTIAL | ModuleC1 | custom NumPy vs riskfolio/sklearn/cvxpy commitment |
+| G-18 | OPEN | ModuleC2 | glide still ignores `horizon` |
+| G-19 | PARTIAL | ModuleC2 | optimizer consumes only `target_vol_band.mid` |
+| G-20/D-5 | PARTIAL | ModuleG | BL/CVaR backend live; full-sleeve replacement, no frontend toggle |
+| G-21 | PARTIAL | ModuleD | `tilt.py` wired; signal still rewards positive raw-vol z-score |
+| G-25 | PARTIAL | ModuleB | DSR uses static trial count; no experiment log |
+
+**❌ REMAINS UNOWNED (actionable backlog):**
+
+| Gap | Status | Note |
+|---|---|---|
+| G-08 | OPEN | signal variances hardcoded; missing loss-probe defaults to 100.0 (`v1.py:137`) |
+| G-10 | OPEN | capacity formula deviates from 02 §3.1 |
+| G-11/D-6 | OPEN | `tolerance_score` is raw GL sum, not normalized 0–100 |
+| G-12/D-4 | PARTIAL | standalone §6 routes absent (capability under `/api/v1/*`) — doc reconcile |
+| G-13 | PARTIAL | `path_to_greenlight` exists; no conversion-event state machine |
+| G-14 | PARTIAL | no cached/offline LLM fallback (demo-safety) |
+| G-15 | PARTIAL | `/config` exposes only gate+market, not GL/γ/SR_REF/capacity weights |
+| G-16 | OPEN | loss-aversion not applied as a downstream optimizer shade |
+| G-22 | OPEN | no min-var/max-div ERC ensemble |
+| G-23 | OPEN | bootstrap fixed `BLOCK_L=12`; no Politis-White auto length |
+| G-24 | OPEN | API randomizes first no-seed projection |
+| G-26/D-3 | PARTIAL | risk-free is FRED `DGS3MO` vs documented `^IRX` — doc reconcile |
+| G-27 | OPEN | no generic event/audit-history table |
+| G-28 | OPEN | execution endpoints force `monthly_surplus=0.0` (DCA bypassed) |
+| G-29 | PARTIAL | Alpaca broker best-effort fills; no lifecycle reconciliation |
+| G-30 | PARTIAL | JNLC service landed but **no API route** wires it |
+| G-31/D-2 | PARTIAL | explainability is Gemini function-tools; no MCP server (chosen: **re-document**) |
+| G-32 | OPEN | auth returns `mock-token-*`; routes unprotected |
+| G-33 | OPEN | no `/sim/fast-forward` (or live quarterly trigger) |
+| G-35 | PARTIAL | backend returns checks; UI keeps hardcoded fallback gate cards |
+| G-37 | OPEN | `AlertsView` reads `gate.path_to_greenlight`; backend path under `financial_analysis` |
+| G-38 | PARTIAL | `SettingsView` ignores `onboardResult` (mitigated by editable `ProfileView`) |
+
+### Our pick from the remainder — **Portfolio maintenance: quarterly rebalance + elevate-to-active** (in build)
+
+Highest pitch value: it makes the README's "**then maintains it automatically**" claim real and demoable, and closes the *execution* half (touches `G-28`, `G-33`, and the 01 §6 event-driven reallocation). Demo-safe build (confirmed): manual quarterly trigger endpoint, live data refresh with timeout→cached fallback, simulator execution (Alpaca behind flag). Lives in `backend/api/v1.py` (new routes) + `engine/rebalance/` + `engine/broker/` + `engine/data/ingest/refresh.py` + `backend/persistence.py` — collision-free vs ModuleA–G and CHAT.
+
+---
+
 ## 2. Cross-cutting verdict by spec principle
 
 The README names six non-negotiable commitments. Status of each:
