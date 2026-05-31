@@ -1,48 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import {
-  AreaChart, Area, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
-} from 'recharts'
 import { formatCurrency } from '../lib/utils'
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  const visiblePayload = payload.filter(p => ['p5', 'p25', 'p50', 'p75', 'p95'].includes(p.dataKey))
-  return (
-    <div
-      className="rounded-xl px-4 py-3 text-sm"
-      style={{
-        background: 'var(--bg-elevated)',
-        border: '1px solid var(--border-bright)',
-        boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
-        minWidth: 200,
-      }}
-    >
-      <div className="font-semibold mb-2" style={{ color: 'var(--text-secondary)', letterSpacing: '0.05em', fontSize: 11 }}>
-        Year {label}
-      </div>
-      {visiblePayload.map((p) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4 py-0.5">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-              {p.dataKey.toUpperCase()}
-            </span>
-          </div>
-          <span className="font-mono font-medium" style={{ color: 'var(--text-primary)', fontSize: 13 }}>
-            {formatCurrency(p.value, true)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-const tickStyle = {
-  fill: 'var(--text-muted)',
-  fontFamily: "'DM Mono', monospace",
-  fontSize: 11,
-}
 
 function numberOrNull(value) {
   const num = Number(value)
@@ -52,16 +9,20 @@ function numberOrNull(value) {
 function getProjectionInputs(onboardResult) {
   const optimizer = onboardResult?.optimizer_input ?? {}
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
-  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years) ?? 1
-  const monthlyContribution = Math.max(0, numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings) ?? 0)
-  const capitalOnHand = Math.max(0, numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand) ?? 0)
-  const goalTarget = Math.max(0, numberOrNull(optimizer.goal_target ?? profile.goal_target) ?? 0)
+  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
+  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
+  const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
+
+  if (horizonYears == null || monthlyContribution == null || capitalOnHand == null || goalTarget == null) {
+    return null
+  }
 
   return {
     horizon_years: Math.max(1, Math.round(horizonYears)),
-    monthly_contribution: monthlyContribution,
-    capital_on_hand: capitalOnHand,
-    goal_target: goalTarget,
+    monthly_contribution: Math.max(0, monthlyContribution),
+    capital_on_hand: Math.max(0, capitalOnHand),
+    goal_target: Math.max(0, goalTarget),
   }
 }
 
@@ -85,20 +46,47 @@ function rowsFromProjection(projection) {
   }))
 }
 
-function legacyRows(data) {
-  return Array.isArray(data)
-    ? data.map((row, i) => ({
-        year: row.year ?? i + 1,
-        p5: row.conservative ?? row.p5,
-        p25: row.p25,
-        p50: row.base ?? row.p50,
-        p75: row.p75,
-        p95: row.optimistic ?? row.p95,
-      }))
-    : []
+function projectionScale(data) {
+  const values = data.flatMap(row => [row.p5, row.p25, row.p50, row.p75, row.p95])
+    .map(Number)
+    .filter(Number.isFinite)
+  if (values.length === 0) return null
+
+  const min = Math.min(0, ...values)
+  const max = Math.max(...values)
+  const pad = Math.max((max - min) * 0.08, max * 0.04, 1)
+  return { min, max: max + pad }
 }
 
-export default function ProjectionChart({ data: liveData, projection: providedProjection, onboardResult, retirementYear }) {
+function linePath(data, key, xFor, yFor) {
+  return data
+    .map((row, index) => {
+      const value = Number(row[key])
+      if (!Number.isFinite(value)) return null
+      return `${index === 0 ? 'M' : 'L'} ${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`
+    })
+    .filter(Boolean)
+    .join(' ')
+}
+
+function bandPath(data, lowerKey, upperKey, xFor, yFor) {
+  const upper = data
+    .map((row, index) => ({ x: xFor(index), y: yFor(Number(row[upperKey])) }))
+    .filter(point => Number.isFinite(point.y))
+  const lower = data
+    .map((row, index) => ({ x: xFor(index), y: yFor(Number(row[lowerKey])) }))
+    .filter(point => Number.isFinite(point.y))
+    .reverse()
+  if (upper.length === 0 || lower.length === 0) return ''
+  return [
+    `M ${upper[0].x.toFixed(2)} ${upper[0].y.toFixed(2)}`,
+    ...upper.slice(1).map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
+    ...lower.map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
+    'Z',
+  ].join(' ')
+}
+
+export default function ProjectionChart({ projection: providedProjection, onboardResult, retirementYear }) {
   const [fetchedProjection, setFetchedProjection] = useState(null)
   const [loadingProjection, setLoadingProjection] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -108,7 +96,7 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
     let cancelled = false
 
     async function loadProjection() {
-      if (providedProjection || Array.isArray(liveData)) {
+      if (providedProjection) {
         setFetchedProjection(null)
         setProjectionError(null)
         setLoadingProjection(false)
@@ -116,6 +104,13 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
       }
 
       if (!portfolio?.weights) {
+        setProjectionError(null)
+        setLoadingProjection(false)
+        return
+      }
+
+      const projectionInputs = getProjectionInputs(onboardResult)
+      if (!projectionInputs) {
         setProjectionError(null)
         setLoadingProjection(false)
         return
@@ -131,7 +126,7 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
         }
         const response = await postProjection({
           weights: portfolio.weights,
-          ...getProjectionInputs(onboardResult),
+          ...projectionInputs,
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
@@ -146,21 +141,31 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
     loadProjection()
 
     return () => { cancelled = true }
-  }, [providedProjection, liveData, onboardResult, portfolio])
+  }, [providedProjection, onboardResult, portfolio])
 
   const projection = providedProjection ?? fetchedProjection
-  const data = useMemo(() => (
-    projection ? rowsFromProjection(projection) : legacyRows(liveData)
-  ), [projection, liveData])
+  const data = useMemo(() => (projection ? rowsFromProjection(projection) : []), [projection])
   const referenceYear = projection?.horizon_years ?? retirementYear
+  const scale = useMemo(() => projectionScale(data), [data])
 
-  if (!portfolio?.weights && !projection && !Array.isArray(liveData)) {
+  if (!portfolio?.weights && !projection) {
     return (
       <div
         className="flex items-center justify-center text-sm"
         style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
       >
         Portfolio weights are required before a Monte Carlo projection can run.
+      </div>
+    )
+  }
+
+  if (!projection && !getProjectionInputs(onboardResult)) {
+    return (
+      <div
+        className="flex items-center justify-center text-sm"
+        style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+      >
+        Projection inputs were not returned by the backend.
       </div>
     )
   }
@@ -176,7 +181,7 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
     )
   }
 
-  if (data.length === 0) {
+  if (data.length === 0 || !scale) {
     return (
       <div
         className="flex items-center justify-center text-sm"
@@ -186,6 +191,20 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
       </div>
     )
   }
+
+  const width = 720
+  const height = projection ? 230 : 280
+  const margin = { top: 14, right: 18, bottom: 30, left: 70 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const xFor = (index) => margin.left + (data.length <= 1 ? 0 : (index / (data.length - 1)) * plotWidth)
+  const yFor = (value) => margin.top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(part => scale.min + (scale.max - scale.min) * part)
+  const xTicks = [0, Math.floor((data.length - 1) / 2), data.length - 1]
+    .filter((value, index, values) => values.indexOf(value) === index)
+  const p90Band = bandPath(data, 'p5', 'p95', xFor, yFor)
+  const p50Band = bandPath(data, 'p25', 'p75', xFor, yFor)
+  const retireX = referenceYear && Number(referenceYear) <= data.length ? xFor(Number(referenceYear) - 1) : null
 
   return (
     <div>
@@ -211,48 +230,60 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
           </div>
         </div>
       )}
-      <div style={{ width: '100%', height: projection ? 230 : 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="gradP95" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#1eb87a" stopOpacity={0.18} />
-                <stop offset="95%" stopColor="#1eb87a" stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="gradP75" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#c49a2c" stopOpacity={0.22} />
-                <stop offset="95%" stopColor="#c49a2c" stopOpacity={0.03} />
-              </linearGradient>
-              <linearGradient id="gradP25" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#4a72e8" stopOpacity={0.16} />
-                <stop offset="95%" stopColor="#4a72e8" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="year" tick={tickStyle} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={tickStyle}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => formatCurrency(v, true)}
-              width={58}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            {referenceYear && (
-              <ReferenceLine
-                x={String(referenceYear)}
-                stroke="rgba(196,154,44,0.5)"
-                strokeDasharray="4 4"
-                label={{ value: 'Retire', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
-              />
-            )}
-            <Area type="monotone" dataKey="p95" stroke="#1eb87a" strokeWidth={1} fill="url(#gradP95)" dot={false} activeDot={false} />
-            <Area type="monotone" dataKey="p75" stroke="#c49a2c" strokeWidth={1} fill="url(#gradP75)" dot={false} activeDot={false} />
-            <Area type="monotone" dataKey="p25" stroke="#4a72e8" strokeWidth={1} fill="url(#gradP25)" dot={false} activeDot={false} />
-            <Line type="monotone" dataKey="p50" stroke="#ddb84a" strokeWidth={2.25} dot={false} activeDot={{ r: 4, fill: '#ddb84a' }} />
-            <Line type="monotone" dataKey="p5" stroke="rgba(230,69,69,0.8)" strokeWidth={1.25} dot={false} strokeDasharray="4 3" activeDot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
+      <div style={{ width: '100%', height }}>
+        <svg
+          role="img"
+          aria-label="Monte Carlo portfolio projection percentile paths"
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        >
+          <defs>
+            <linearGradient id="projectionBand90" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#4a72e8" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#4a72e8" stopOpacity="0.03" />
+            </linearGradient>
+            <linearGradient id="projectionBand50" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ddb84a" stopOpacity="0.24" />
+              <stop offset="100%" stopColor="#ddb84a" stopOpacity="0.05" />
+            </linearGradient>
+          </defs>
+
+          {yTicks.map((tick) => {
+            const y = yFor(tick)
+            return (
+              <g key={`y-${tick}`}>
+                <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} stroke="var(--border)" strokeDasharray="3 4" />
+                <text x={margin.left - 10} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11" fontFamily="DM Mono, monospace">
+                  {formatCurrency(tick, true)}
+                </text>
+              </g>
+            )
+          })}
+
+          {xTicks.map((index) => (
+            <text key={`x-${index}`} x={xFor(index)} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11" fontFamily="DM Mono, monospace">
+              Yr {data[index]?.year}
+            </text>
+          ))}
+
+          {retireX != null && (
+            <g>
+              <line x1={retireX} y1={margin.top} x2={retireX} y2={height - margin.bottom} stroke="rgba(196,154,44,0.55)" strokeDasharray="4 4" />
+              <text x={retireX - 6} y={margin.top + 12} textAnchor="end" fill="var(--gold-light)" fontSize="10" fontFamily="DM Mono, monospace">
+                Retire
+              </text>
+            </g>
+          )}
+
+          {p90Band && <path d={p90Band} fill="url(#projectionBand90)" />}
+          {p50Band && <path d={p50Band} fill="url(#projectionBand50)" />}
+          <path d={linePath(data, 'p95', xFor, yFor)} fill="none" stroke="#1eb87a" strokeWidth="1.4" />
+          <path d={linePath(data, 'p75', xFor, yFor)} fill="none" stroke="#c49a2c" strokeWidth="1.2" opacity="0.7" />
+          <path d={linePath(data, 'p25', xFor, yFor)} fill="none" stroke="#4a72e8" strokeWidth="1.2" opacity="0.7" />
+          <path d={linePath(data, 'p50', xFor, yFor)} fill="none" stroke="#ddb84a" strokeWidth="2.8" />
+          <path d={linePath(data, 'p5', xFor, yFor)} fill="none" stroke="rgba(230,69,69,0.85)" strokeWidth="1.4" strokeDasharray="5 4" />
+        </svg>
       </div>
     </div>
   )

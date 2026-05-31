@@ -37,7 +37,7 @@ const tourSteps = [
   {
     selector: "[data-tour='greenlight-portfolio']",
     title: 'Your Portfolio',
-    body: 'Once cleared, Mallard shows the target portfolio built from your profile, risk analysis, capital, and preferences. This section is the map: sleeve weights, ticker breakdowns, risk contribution, and glidepath views explain what each part of the allocation is supposed to do.',
+    body: 'Once cleared, Mallard shows the target portfolio built from your profile, risk analysis, capital, and preferences. This section is the map: sleeve weights, ticker breakdowns, risk contribution, and backend-returned horizon data explain what each part of the allocation is supposed to do.',
     page: 'greenlight',
   },
   {

@@ -286,7 +286,17 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert body["optimizer_input"]["capital_on_hand"] == 7500
     assert body["portfolio"]["weights"]["method"] == "erc"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
+    assert abs(sum(body["portfolio"]["weights"]["by_bucket"].values()) - 1.0) < 1e-6
+    assert body["portfolio"]["weights"]["by_bucket"]["gold"] < 0.35
     assert body["portfolio"]["metrics"]["expected_vol"] >= 0
+    etfs = {item["ticker"]: item for item in body["portfolio"]["etfs"]}
+    assert etfs["ESGV"]["name"] == "Vanguard ESG U.S. Stock ETF"
+    assert etfs["ESGV"]["sleeve"] == "us_equity"
+    assert etfs["ESGV"]["bucket"] == "us_total_market"
+    assert etfs["ESGV"]["replacement_for"] == "VTI"
+    assert etfs["ESGV"]["exclusion_reason"] == "fossil_fuels"
+    assert body["bucket_plan"]["buckets"][0]["name"] == "401k employer match"
+    assert body["bucket_plan"]["remaining_annual_surplus_for_taxable"] >= 0
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
@@ -386,6 +396,61 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     tax = tax_response.json()
     assert tax["harvestable"][0]["ticker"] == "BND"
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
+
+
+def test_marginal_federal_rate_picks_last_dollar_bracket():
+    from types import SimpleNamespace
+
+    brackets = [
+        SimpleNamespace(min_income=0.0, rate=0.10),
+        SimpleNamespace(min_income=11000.0, rate=0.12),
+        SimpleNamespace(min_income=44725.0, rate=0.22),
+        SimpleNamespace(min_income=95375.0, rate=0.24),
+    ]
+    federal = SimpleNamespace(standard_deduction=14600.0, brackets=brackets)
+    breakdown = SimpleNamespace(agi=80000.0, tax_rate_bundle=SimpleNamespace(federal=federal))
+    # taxable = 80000 - 14600 = 65400 -> falls in the 22% bracket
+    assert api_v1._marginal_federal_rate(breakdown) == 0.22
+    # malformed breakdown -> None (gate falls back to deterministic default)
+    assert api_v1._marginal_federal_rate(SimpleNamespace()) is None
+
+
+def test_tax_report_rejects_bracket_above_one(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+            "bracket": 1.01,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_tax_report_omitted_bracket_is_back_compatible(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+        },
+    )
+    assert response.status_code == 200
+    loss = response.json()["harvestable"][0]
+    assert loss["estimated_tax_value"] is None
+    assert loss["tax_rate_used"] is None
 
 
 def test_projection_same_explicit_seed_replays_identically(test_app: FastAPI):
@@ -489,6 +554,7 @@ def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: Fast
         weights = body["portfolio"]["weights"]
         assert abs(sum(weights["by_ticker"].values()) - 1.0) < 1e-6
         assert abs(sum(weights["by_sleeve"].values()) - 1.0) < 1e-6
+        assert abs(sum(weights["by_bucket"].values()) - 1.0) < 1e-6
         assert body["portfolio"]["metrics"]["expected_vol"] >= 0
         responses.append(body)
 
@@ -542,13 +608,18 @@ def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_ap
     body = response.json()
     assert abs(body["validation"]["sum_by_ticker"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    assert abs(body["validation"]["sum_risky_bucket"] - (4 / 6)) < 1e-6
-    assert abs(body["validation"]["sum_safe_bucket"] - (2 / 6)) < 1e-6
+    # Risky/safe bucket weights partition the portfolio.
+    assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
+    # Four of six sleeves are fully risky; the bonds sleeve also contributes its
+    # credit-risky buckets (EM debt, bank loans), pushing risky just above 4/6.
+    assert body["validation"]["sum_risky_bucket"] > 4 / 6
+    assert body["validation"]["sum_safe_bucket"] < 2 / 6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["validation"]["warnings"] == ["Input by_sleeve sum was 6.000000; normalized to 1.0."]
     assert abs(sum(body["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_sleeve"].values()) - 1.0) < 1e-6
+    assert abs(sum(body["weights"]["by_bucket"].values()) - 1.0) < 1e-6
     assert body["metrics"]["expected_vol"] >= 0
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
@@ -567,7 +638,7 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
                     "us_equity": 0.4,
                     "intl_equity": 0.2,
                     "bonds": 0.3,
-                    "gold": 0.1,
+                    "real_assets": 0.1,
                 }
             },
         },
@@ -580,12 +651,81 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    assert abs(body["validation"]["sum_risky_bucket"] - 0.7) < 1e-6
-    assert abs(body["validation"]["sum_safe_bucket"] - 0.3) < 1e-6
+    # Equity + real_assets sleeves (0.7) are risky; the bonds sleeve adds its
+    # credit-risky buckets on top, so risky exceeds 0.7 and safe falls below 0.3.
+    assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
+    assert body["validation"]["sum_risky_bucket"] > 0.7
+    assert body["validation"]["sum_safe_bucket"] < 0.3
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["weights"]["by_sleeve"]["tips"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
+
+
+def test_maintenance_rebalance_quarterly_and_reprofile_refresh_active_portfolio(test_app: FastAPI):
+    client = _client(test_app)
+    email = "maintenance-rebalance@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    original_weights = onboard_response.json()["portfolio"]["weights"]["by_ticker"]
+
+    deposit_response = client.post(
+        "/api/v1/funding/mock/deposit",
+        json={"user_email": email, "amount": 2000.0},
+    )
+    assert deposit_response.status_code == 200
+
+    quarterly_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={"user_email": email, "trigger": "quarterly", "fresh_data": False},
+    )
+    assert quarterly_response.status_code == 200
+    quarterly = quarterly_response.json()
+    assert quarterly["trigger"] == "quarterly"
+    assert quarterly["data_source"] == "skipped"
+    assert quarterly["status"] == "greenlight"
+    assert quarterly["action"] in {"none", "steer", "trade"}
+    assert quarterly["portfolio"]["weights"]["by_ticker"]
+    if quarterly["action"] == "trade":
+        assert quarterly["trades"]
+        assert quarterly["fills"]
+    assert quarterly["positions"]["portfolio_value"] == pytest.approx(2000.0)
+
+    stored_after_quarterly = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_quarterly.status_code == 200
+    assert (
+        stored_after_quarterly.json()["portfolio"]["weights"]["by_ticker"]
+        == quarterly["portfolio"]["weights"]["by_ticker"]
+    )
+
+    reprofile_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={
+            "user_email": email,
+            "trigger": "reprofile",
+            "fresh_data": False,
+            "profile_patch": {"esg_exclusions": []},
+        },
+    )
+    assert reprofile_response.status_code == 200
+    reprofile = reprofile_response.json()
+    assert reprofile["trigger"] == "reprofile"
+    assert reprofile["data_source"] == "skipped"
+    assert reprofile["status"] == "greenlight"
+    assert reprofile["action"] in {"none", "trade"}
+    assert reprofile["portfolio"]["weights"]["by_ticker"] != original_weights
+    assert reprofile["positions"]["items"]
+
+    stored_after_reprofile = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_reprofile.status_code == 200
+    stored = stored_after_reprofile.json()
+    assert stored["validated_profile"]["esg_exclusions"] == []
+    assert stored["portfolio"]["weights"]["by_ticker"] == reprofile["portfolio"]["weights"]["by_ticker"]
 
 
 def test_active_onboarding_returns_found_false_when_no_session(test_app: FastAPI):

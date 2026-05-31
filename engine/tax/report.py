@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from data.repository import instruments
 from schemas.models import Positions, TaxReport
+from tax.rates import normalize_bracket, ordinary_loss_offset_cap
 
 REPLACEMENTS = {
     "VTI": "ITOT",
@@ -45,11 +46,18 @@ def _suggested_replacement(ticker: str) -> str:
     return replacement
 
 
-def tax_report(positions: Positions, cost_basis: Mapping[str, float], filing_status: str) -> TaxReport:
+def tax_report(
+    positions: Positions,
+    cost_basis: Mapping[str, float],
+    filing_status: str,
+    bracket: float | None = None,
+) -> TaxReport:
     """Generate a read-only TaxReport per docs/greenlight/05 §2.10."""
 
     harvestable = []
     warnings = []
+    offset_cap = ordinary_loss_offset_cap(filing_status)
+    normalized_bracket = normalize_bracket(bracket)
 
     for position in positions.items:
         basis = cost_basis.get(position.ticker, position.avg_cost * position.shares)
@@ -57,16 +65,18 @@ def tax_report(positions: Positions, cost_basis: Mapping[str, float], filing_sta
             continue
 
         unrealized_loss = basis - position.market_value
-        harvestable.append(
-            {
-                "ticker": position.ticker,
-                "unrealized_loss": unrealized_loss,
-                "note": (
-                    f"{position.ticker} is ${unrealized_loss:,.2f} below basis; "
-                    "review tax-loss harvesting, but do not auto-execute."
-                ),
-            }
-        )
+        harvestable_loss = {
+            "ticker": position.ticker,
+            "unrealized_loss": unrealized_loss,
+            "note": (
+                f"{position.ticker} is ${unrealized_loss:,.2f} below basis; "
+                "review tax-loss harvesting, but do not auto-execute."
+            ),
+        }
+        if normalized_bracket is not None:
+            harvestable_loss["estimated_tax_value"] = min(unrealized_loss, offset_cap) * normalized_bracket
+            harvestable_loss["tax_rate_used"] = normalized_bracket
+        harvestable.append(harvestable_loss)
         warnings.append(
             {
                 "ticker": position.ticker,

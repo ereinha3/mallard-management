@@ -10,6 +10,7 @@ class FakeBrokerClient:
         self.created_accounts: list[object] = []
         self.ach_relationships: list[tuple[str, object]] = []
         self.transfers: list[tuple[str, object]] = []
+        self.journals: list[object] = []
 
     def create_account(self, request: object) -> object:
         self.created_accounts.append(request)
@@ -22,6 +23,10 @@ class FakeBrokerClient:
     def create_transfer_for_account(self, account_id: str, request: object) -> object:
         self.transfers.append((account_id, request))
         return SimpleNamespace(id="deposit-123")
+
+    def create_journal(self, request: object) -> object:
+        self.journals.append(request)
+        return SimpleNamespace(id="journal-123", status="EXECUTED")
 
 
 def test_create_brokerage_account_builds_sandbox_account_request() -> None:
@@ -74,14 +79,40 @@ def test_create_deposit_submits_ach_transfer_request() -> None:
     client = FakeBrokerClient()
     service = BrokerageService(client=client)
 
-    deposit = service.create_deposit("alpaca-acct-123", 250.0)
+    deposit = service.create_deposit("alpaca-acct-123", "ach-123", 250.0)
 
     assert deposit.id == "deposit-123"
     account_id, request = client.transfers[0]
     assert account_id == "alpaca-acct-123"
-    assert request.amount == 250.0
-    assert str(request.direction).lower().endswith("in")
-    assert str(request.timing).lower().endswith("immediate")
+    assert request.amount == "250.0"
+    assert request.relationship_id == "ach-123"
+    assert str(request.direction).upper() == "INCOMING"
+    assert str(request.timing).lower() == "immediate"
+
+
+def test_journal_funds_builds_jnlc_from_firm_account() -> None:
+    from brokerage import BrokerageService
+
+    client = FakeBrokerClient()
+    service = BrokerageService(client=client)
+
+    journal = service.journal_funds("alpaca-acct-123", 1000.0, from_account="firm-sweep-1")
+
+    assert journal.id == "journal-123"
+    request = client.journals[0]
+    assert request.from_account == "firm-sweep-1"
+    assert request.to_account == "alpaca-acct-123"
+    assert request.amount == 1000.0
+    assert str(request.entry_type).upper().endswith("JNLC")
+
+
+def test_journal_funds_requires_firm_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    from brokerage import BrokerageService
+
+    monkeypatch.delenv("BROKER_FIRM_ACCOUNT_ID", raising=False)
+    service = BrokerageService(client=FakeBrokerClient())
+    with pytest.raises(RuntimeError, match="BROKER_FIRM_ACCOUNT_ID"):
+        service.journal_funds("alpaca-acct-123", 1000.0)
 
 
 def test_brokerage_service_raises_cleanly_without_sdk_or_credentials(

@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react'
-import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } from 'lucide-react'
 import IntakeChat from './IntakeChat'
 import PortfolioEditor from './PortfolioEditor'
@@ -10,7 +10,6 @@ import RebalancePanel from './RebalancePanel'
 import { useTour } from '../tour/TourProvider'
 import {
   SLEEVE_ORDER,
-  estimatePortfolioMetrics,
   formatMoney,
   formatPercent,
   getCapital,
@@ -24,17 +23,6 @@ import {
   tickerSleeveMap,
   weightsToAllocation,
 } from './engineData'
-
-const GLIDEPATH = Array.from({ length: 38 }, (_, i) => {
-  const age = 28 + i
-  const yearsToRetire = 65 - age
-  let equity
-  if (yearsToRetire > 15) equity = 80 - (i * 0.3)
-  else if (yearsToRetire > 5) equity = 75 - ((15 - yearsToRetire) * 3.5)
-  else equity = 55 + (5 - yearsToRetire) * 2
-  const clipped = Math.round(Math.max(40, Math.min(80, equity)))
-  return { age, equity: clipped, bonds: 100 - clipped }
-})
 
 function formatMetricPct(decimalValue, pctValue, digits = 1) {
   if (decimalValue != null && Number.isFinite(Number(decimalValue))) return formatPercent(decimalValue, digits)
@@ -80,18 +68,6 @@ const CustomTooltipAlloc = ({ active, payload }) => {
       <div className="font-mono mt-0.5" style={{ color: d.color }}>
         {d.pct.toFixed(1)}%{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}
       </div>
-    </div>
-  )
-}
-
-const CustomTooltipGlide = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
-      <div className="font-mono mb-1" style={{ color: 'var(--text-muted)' }}>Age {label}</div>
-      {payload.map(p => (
-        <div key={p.dataKey} className="font-mono" style={{ color: p.color }}>{p.dataKey}: {p.value}%</div>
-      ))}
     </div>
   )
 }
@@ -199,12 +175,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     : numberOrNull(profile?.capital_on_hand ?? optimizerInput.capital_on_hand)
   const monthlyContrib = getMonthlyContribution(activeResult)
     || numberOrNull(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus ?? profile?.monthly_contribution)
-  const userAge = Number.isFinite(Number(profile?.age)) ? Number(profile.age) : null
   const horizonYears = Number.isFinite(Number(profile?.horizon_years)) ? Number(profile.horizon_years) : null
   const weights = useMemo(() => getSleeveWeights(activeResult), [activeResult])
   const riskDial = inferRiskDialFromWeights(weights)
-  const estimatedMetrics = useMemo(() => estimatePortfolioMetrics(weights, riskDial), [riskDial, weights])
-  const metrics = portfolio?.metrics ?? estimatedMetrics
+  const metrics = portfolio?.metrics ?? null
   const allocation = useMemo(() => (
     portfolio ? weightsToAllocation(weights, portfolio, capital) : []
   ), [capital, portfolio, weights])
@@ -289,7 +263,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const riskContributions = useMemo(() => (
     SLEEVE_ORDER
       .map((sleeve) => {
-        const contribution = Number(metrics.risk_contributions?.[sleeve])
+        const contribution = Number(metrics?.risk_contributions?.[sleeve])
         if (!Number.isFinite(contribution)) return null
         return {
           sleeve,
@@ -299,15 +273,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
         }
       })
       .filter(Boolean)
-  ), [metrics.risk_contributions])
+  ), [metrics?.risk_contributions])
 
-  const chartStartAge = userAge ?? 28
-  const glidepathData = GLIDEPATH.map(p => ({
-    ...p,
-    age: p.age - 28 + chartStartAge,
-  }))
-  const volatilityCount = metricCountConfig(metrics.expected_vol, risk.target_volatility_pct)
-  const lossCount = metricCountConfig(metrics.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)
+  const volatilityCount = metricCountConfig(metrics?.expected_vol, risk.target_volatility_pct)
+  const lossCount = metricCountConfig(metrics?.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)
 
   function handleGuideComplete(newResult) {
     setShowGuide(false)
@@ -323,7 +292,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     onApplied?.(updatedResult)
   }
 
-  if (showRebalance) return <RebalancePanel onboardResult={activeResult} />
+  if (showRebalance) return <RebalancePanel onboardResult={activeResult} userEmail={userEmail} />
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -410,7 +379,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
             >
               <RiskMetric
                 label="Expected Volatility"
-                value={formatMetricPct(metrics.expected_vol, risk.target_volatility_pct)}
+                value={formatMetricPct(metrics?.expected_vol, risk.target_volatility_pct)}
                 countConfig={volatilityCount}
                 reducedMotion={reducedMotion}
                 delay={120}
@@ -418,14 +387,14 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               />
               <RiskMetric
                 label="Est. 1Y Max Loss"
-                value={formatMetricPct(metrics.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)}
+                value={formatMetricPct(metrics?.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)}
                 countConfig={lossCount}
                 reducedMotion={reducedMotion}
                 delay={190}
                 color="var(--ruby)"
               />
               <RiskMetric
-                label="Risk Dial"
+                label="Growth Weight"
                 value={`${Math.round(riskDial * 100)}%`}
                 countConfig={{ value: riskDial * 100, format: v => `${Math.round(v)}%` }}
                 reducedMotion={reducedMotion}
@@ -619,51 +588,28 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-                    Age Glidepath · U-Shaped Bond Tent
+                    Goal Horizon
                   </div>
                   <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    Planning path starting from {userAge != null ? `age ${userAge}` : 'the default chart age'}{horizonYears != null ? ` with a ${horizonYears}-year horizon` : ''}.
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-px" style={{ background: 'var(--green-bright, var(--green))', display: 'inline-block' }} /> Growth
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-px" style={{ background: '#4a72e8', display: 'inline-block' }} /> Defensive
+                    {horizonYears != null
+                      ? `The backend profile returned a ${horizonYears}-year horizon for this portfolio.`
+                      : 'No horizon value was returned by the backend profile.'}
                   </div>
                 </div>
               </div>
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={glidepathData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="age"
-                      tick={{ fill: 'var(--text-muted)', fontFamily: 'DM Mono', fontSize: 11 }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={v => v % 5 === 0 ? v : ''}
-                    />
-                    <YAxis
-                      tick={{ fill: 'var(--text-muted)', fontFamily: 'DM Mono', fontSize: 11 }}
-                      axisLine={false} tickLine={false}
-                      domain={[30, 85]}
-                      tickFormatter={v => `${v}%`}
-                      width={40}
-                    />
-                    <Tooltip content={<CustomTooltipGlide />} />
-                    <ReferenceLine
-                      x={chartStartAge} stroke="rgba(30,184,122,0.5)" strokeDasharray="4 4"
-                      label={{ value: 'Now', position: 'top', fill: 'var(--green)', fontSize: 10, fontFamily: 'DM Mono' }}
-                    />
-                    <ReferenceLine
-                      x={chartStartAge + (horizonYears ?? 37)} stroke="rgba(196,154,44,0.5)" strokeDasharray="4 4"
-                      label={{ value: 'Goal', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
-                    />
-                    <Line type="monotone" dataKey="equity" stroke="var(--green-bright, var(--green))" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="bonds" stroke="#4a72e8" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
-                  </LineChart>
-                </ResponsiveContainer>
+              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+                <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                  <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Horizon</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {horizonYears != null ? `${horizonYears} years` : 'N/A'}
+                  </div>
+                </div>
+                <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                  <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Method</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {methodLabel}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -696,7 +642,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               e.currentTarget.style.color = 'var(--text-primary)'
             }}
           >
-            Fast-forward a quarter → rebalance
+            Rebalance from live positions
             <ArrowRight size={14} />
           </button>
         </div>

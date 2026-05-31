@@ -431,7 +431,7 @@ function HaltScreen({ onFix, gateResult }) {
           }}
         >
           <RefreshCw size={14} />
-          Fast-forward: situation fixed → re-run gate
+          Re-run gate with updated profile
         </button>
       </div>
     </div>
@@ -559,14 +559,14 @@ function GreenScreen({ onContinue, gateResult }) {
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
             {[
-              { step: '1', label: 'Risk profile → γ', note: 'Two-axis: tolerance + capacity' },
-              { step: '2', label: 'ESG-filtered universe', note: 'Excl. fossil fuels, weapons' },
-              { step: '3', label: 'ERC optimizer + glidepath', note: `${capital != null ? `$${capital.toLocaleString()} available capital` : 'Capital not returned'}${monthlyContrib != null && monthlyContrib > 0 ? ` + $${monthlyContrib.toLocaleString()}/mo surplus` : ''}` },
+              { step: 'Risk', label: 'Risk profile', note: 'Tolerance and capacity from backend analysis' },
+              { step: 'Universe', label: 'Filtered universe', note: 'Exclusions returned by the optimizer universe' },
+              { step: 'Capital', label: 'Portfolio sizing', note: `${capital != null ? `$${capital.toLocaleString()} available capital` : 'Capital not returned'}${monthlyContrib != null && monthlyContrib > 0 ? ` + $${monthlyContrib.toLocaleString()}/mo surplus` : ''}` },
             ].map(s => (
               <div key={s.step} className="flex gap-3 items-start">
                 <div
                   className="shrink-0 text-xs font-mono font-semibold flex items-center justify-center rounded-full"
-                  style={{ width: 20, height: 20, background: 'rgba(196,154,44,0.2)', color: 'var(--gold-light)' }}
+                  style={{ minWidth: 20, height: 20, padding: '0 7px', background: 'rgba(196,154,44,0.2)', color: 'var(--gold-light)' }}
                 >
                   {s.step}
                 </div>
