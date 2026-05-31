@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
-from datetime import datetime
+from datetime import date, datetime
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -303,6 +303,43 @@ class PortfolioResponse(BaseModel):
     universe: Universe
     weights: TargetWeights
     metrics: RiskMetrics
+
+
+class BacktestRequest(BaseModel):
+    profile: Optional[UserProfileInput] = None
+    weights: Optional[TargetWeights] = None
+    start: Optional[date] = None
+    end: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _validate_profile_or_weights(self) -> "BacktestRequest":
+        if (self.profile is None) == (self.weights is None):
+            raise ValueError("Provide exactly one of profile or weights")
+        return self
+
+
+class BacktestEquityPoint(BaseModel):
+    date: date
+    value: float
+
+
+class BacktestMetricSet(BaseModel):
+    sharpe: float
+    sortino: float
+    max_drawdown: float
+    calmar: float
+    turnover: float = Field(ge=0)
+
+
+class BacktestStrategyResult(BaseModel):
+    equity_curve: List[BacktestEquityPoint]
+    metrics: BacktestMetricSet
+
+
+class BacktestResponse(BaseModel):
+    equity_curve: List[BacktestEquityPoint]
+    metrics: BacktestMetricSet
+    benchmarks: Dict[Literal["one_over_n", "sixty_forty", "target_date"], BacktestStrategyResult]
 
 
 class ProjectionRequest(BaseModel):

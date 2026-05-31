@@ -4,7 +4,7 @@ import math
 import pytest
 
 from backtest.metrics import calmar, deflated_sharpe, max_drawdown, sortino
-from backtest.run import run_backtest
+from backtest.run import run_backtest, run_backtest_report
 from schemas.constants import TX_COST_BPS
 
 
@@ -69,3 +69,29 @@ def test_run_backtest_writes_contract_json(tmp_path):
         assert -1.0 <= strategy.metrics.max_drawdown <= 0.0
         assert 0.0 <= strategy.metrics.deflated_sharpe <= 1.0
         assert math.isfinite(strategy.metrics.sharpe)
+
+
+def test_run_backtest_report_returns_api_shape_and_benchmark_curves(tmp_path):
+    cache_path = tmp_path / "backtest-api.json"
+    source_path = tmp_path / "backtest-source.json"
+
+    report = run_backtest_report(cache_path=cache_path, source_path=source_path)
+
+    assert cache_path.exists()
+    assert json.loads(cache_path.read_text()) == report
+    assert set(report) == {"equity_curve", "metrics", "benchmarks"}
+    assert set(report["metrics"]) == {"sharpe", "sortino", "max_drawdown", "calmar", "turnover"}
+    assert report["equity_curve"]
+    assert {"date", "value"} <= set(report["equity_curve"][0])
+
+    assert set(report["benchmarks"]) == {"one_over_n", "sixty_forty", "target_date"}
+    for benchmark in report["benchmarks"].values():
+        assert benchmark["equity_curve"]
+        assert set(benchmark["metrics"]) == {
+            "sharpe",
+            "sortino",
+            "max_drawdown",
+            "calmar",
+            "turnover",
+        }
+        assert {"date", "value"} <= set(benchmark["equity_curve"][0])

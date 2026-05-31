@@ -1,10 +1,16 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 
 from data.loaders import load_prices, returns_matrix
 from optimizer.blend import build_target_weights, glide_factor, solve_blend_alpha
-from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions
+from optimizer.erc import (
+    cov_ledoit_wolf,
+    erc_weights,
+    ledoit_wolf_shrinkage_delta,
+    risk_contributions,
+)
 from universe.builder import build_universe
 
 
@@ -29,6 +35,24 @@ def test_cov_ledoit_wolf_returns_labeled_dataframe():
     assert isinstance(cov, pd.DataFrame)
     assert list(cov.index) == list(returns.columns)
     assert list(cov.columns) == list(returns.columns)
+
+
+def test_ledoit_wolf_delta_is_data_derived_and_covariance_is_psd():
+    returns = returns_matrix(["us_equity", "intl_equity", "reits", "gold"])
+    stressed = returns.copy()
+    stressed.iloc[0, 0] *= 5.0
+
+    delta = ledoit_wolf_shrinkage_delta(returns)
+    stressed_delta = ledoit_wolf_shrinkage_delta(stressed)
+    cov = cov_ledoit_wolf(returns)
+    eigenvalues = np.linalg.eigvalsh(cov.to_numpy(dtype=float))
+
+    assert 0.0 < delta < 1.0
+    assert 0.0 < cov.attrs["ledoit_wolf_delta"] < 1.0
+    assert abs(delta - stressed_delta) > 1e-6
+    assert abs(delta - 0.2) > 1e-3
+    assert np.allclose(cov, cov.T, atol=1e-12)
+    assert float(eigenvalues.min()) >= -1e-10
 
 
 def test_erc_risk_contributions_are_equal():

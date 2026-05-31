@@ -49,6 +49,7 @@ from persistence import (  # noqa: E402
 )
 from data.seed import seed_database  # noqa: E402
 from data.loaders import load_prices, returns_matrix  # noqa: E402
+from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
 from llm.elicitation import stream_elicitation  # noqa: E402
@@ -790,6 +791,21 @@ async def recheck(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 async def portfolio(request: api_models.PortfolioRequest) -> api_models.PortfolioResponse:
     """Build canonical engine universe, target weights, and risk metrics for a greenlit profile."""
     return _greenlit_portfolio(request.profile)
+
+
+@router.post("/backtest", response_model=api_models.BacktestResponse, summary="Run cached walk-forward backtest")
+async def backtest(request: api_models.BacktestRequest) -> api_models.BacktestResponse:
+    """Serve the cached walk-forward backtest report for the requested profile or target weights."""
+    try:
+        report = run_backtest_report(
+            profile=request.profile.model_dump(mode="json") if request.profile is not None else None,
+            weights=request.weights.model_dump(mode="json") if request.weights is not None else None,
+            start=request.start,
+            end=request.end,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return api_models.BacktestResponse.model_validate(report)
 
 
 @router.post("/projection", response_model=api_models.Projection, summary="Run Monte Carlo projection")

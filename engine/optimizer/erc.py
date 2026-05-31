@@ -8,12 +8,93 @@ import numpy as np
 import pandas as pd
 
 
+def _finite_return_values(returns: object) -> np.ndarray:
+    values = np.asarray(returns, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("returns must be a 2D matrix")
+    values = values[np.isfinite(values).all(axis=1)]
+    if values.shape[0] < 2:
+        raise ValueError("returns must contain at least two finite observations")
+    return values
+
+
 def _columns(returns: object) -> list[str]:
     values = np.asarray(returns)
     if values.ndim != 2:
         raise ValueError("returns must be a 2D matrix")
     fallback = [f"asset_{idx}" for idx in range(values.shape[1])]
     return list(getattr(returns, "columns", fallback))
+
+
+def _sample_covariance(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    centered = values - values.mean(axis=0, keepdims=True)
+    sample = (centered.T @ centered) / values.shape[0]
+    return np.atleast_2d(sample), centered
+
+
+def _constant_correlation_target(sample: np.ndarray) -> np.ndarray:
+    sample = (np.asarray(sample, dtype=float) + np.asarray(sample, dtype=float).T) / 2.0
+    n_assets = sample.shape[0]
+    var = np.maximum(np.diag(sample).copy(), 0.0)
+    std = np.sqrt(var)
+    denom = np.outer(std, std)
+    target = np.zeros_like(sample)
+    if n_assets == 1:
+        target[0, 0] = var[0]
+        return target
+
+    corr = np.zeros_like(sample)
+    np.divide(sample, denom, out=corr, where=denom > 0)
+    off_diag = ~np.eye(n_assets, dtype=bool)
+    valid = off_diag & (denom > 0)
+    rbar = float(corr[valid].mean()) if np.any(valid) else 0.0
+    rbar = min(1.0, max(-1.0 / (n_assets - 1) + 1e-12, rbar))
+    target = rbar * denom
+    np.fill_diagonal(target, var)
+    return (target + target.T) / 2.0
+
+
+def _target_directional_derivative(sample: np.ndarray, direction: np.ndarray) -> np.ndarray:
+    sample_norm = max(float(np.linalg.norm(sample)), 1.0)
+    direction_norm = max(float(np.linalg.norm(direction)), 1.0)
+    step = 1e-5 * sample_norm / direction_norm
+    plus = _constant_correlation_target(sample + step * direction)
+    minus = _constant_correlation_target(sample - step * direction)
+    return (plus - minus) / (2.0 * step)
+
+
+def _ledoit_wolf_delta_from_centered(centered: np.ndarray, sample: np.ndarray) -> float:
+    n_obs, n_assets = centered.shape
+    if n_assets == 1:
+        return 0.0
+
+    target = _constant_correlation_target(sample)
+    gamma_hat = float(np.sum((target - sample) ** 2))
+    if gamma_hat <= 1e-24:
+        return 0.0
+
+    products = centered[:, :, None] * centered[:, None, :]
+    shocks = products - sample
+    pi_hat = float(np.mean(np.sum(shocks * shocks, axis=(1, 2))))
+
+    rho_terms = []
+    for shock in shocks:
+        target_shock = _target_directional_derivative(sample, shock)
+        rho_terms.append(float(np.sum(target_shock * shock)))
+    rho_hat = float(np.mean(rho_terms)) if rho_terms else 0.0
+
+    kappa_hat = (pi_hat - rho_hat) / gamma_hat
+    return min(1.0, max(0.0, kappa_hat / n_obs))
+
+
+def ledoit_wolf_shrinkage_delta(returns: object) -> float:
+    """Estimate Ledoit-Wolf shrinkage intensity toward a constant-correlation target."""
+
+    values = _finite_return_values(returns)
+    sample, centered = _sample_covariance(values)
+    if sample.shape != (values.shape[1], values.shape[1]):
+        sample = sample.reshape(values.shape[1], values.shape[1])
+    return _ledoit_wolf_delta_from_centered(centered, sample)
 
 
 def cov_ledoit_wolf(returns: object, delta: float | None = None) -> pd.DataFrame:
@@ -23,38 +104,26 @@ def cov_ledoit_wolf(returns: object, delta: float | None = None) -> pd.DataFrame
     docs/greenlight/.codex-tasks/ENV-CONSTRAINTS.md.
     """
 
-    values = np.asarray(returns, dtype=float)
-    if values.ndim != 2:
-        raise ValueError("returns must be a 2D matrix")
-    values = values[np.isfinite(values).all(axis=1)]
-    if values.shape[0] < 2:
-        raise ValueError("returns must contain at least two finite observations")
-
+    values = _finite_return_values(returns)
     labels = _columns(returns)
-    sample = np.atleast_2d(np.cov(values, rowvar=False))
+    sample, centered = _sample_covariance(values)
     if sample.shape != (values.shape[1], values.shape[1]):
         sample = sample.reshape(values.shape[1], values.shape[1])
 
     if values.shape[1] == 1:
         sigma = sample
+        shrinkage = 0.0
     else:
-        var = np.diag(sample).copy()
-        std = np.sqrt(np.maximum(var, 0.0))
-        denom = np.outer(std, std)
-        corr = np.zeros_like(sample)
-        np.divide(sample, denom, out=corr, where=denom > 0)
-        np.fill_diagonal(corr, 1.0)
-        n_assets = values.shape[1]
-        rbar = (float(corr.sum()) - n_assets) / (n_assets * (n_assets - 1))
-        target = rbar * denom
-        np.fill_diagonal(target, var)
-        shrinkage = 0.2 if delta is None else float(delta)
+        target = _constant_correlation_target(sample)
+        shrinkage = _ledoit_wolf_delta_from_centered(centered, sample) if delta is None else float(delta)
         shrinkage = min(1.0, max(0.0, shrinkage))
         sigma = (1.0 - shrinkage) * sample + shrinkage * target
 
     sigma = (sigma + sigma.T) / 2.0
     sigma = sigma + np.eye(values.shape[1]) * 1e-12
-    return pd.DataFrame(sigma, index=labels, columns=labels)
+    frame = pd.DataFrame(sigma, index=labels, columns=labels)
+    frame.attrs["ledoit_wolf_delta"] = float(shrinkage)
+    return frame
 
 
 def erc_weights(returns: object) -> dict[str, float]:

@@ -19,6 +19,8 @@ from schemas.constants import TX_COST_BPS
 from schemas.models import BacktestMetrics, BacktestResult, BacktestStrategy
 
 STRATEGY_NAMES = ("greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo")
+BACKTEST_REPORT_BENCHMARKS = ("one_over_n", "sixty_forty", "target_date")
+BACKTEST_REPORT_METRICS = ("sharpe", "sortino", "max_drawdown", "calmar", "turnover")
 WINDOW_MONTHS = 36
 PERIODS_PER_YEAR = 12
 REBALANCE_MONTHS = {"monthly": 1, "quarterly": 3}
@@ -263,6 +265,62 @@ def run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(result.model_dump(mode="json"), indent=2) + "\n")
     return result
+
+
+def _strategy_report(strategy: BacktestStrategy) -> dict[str, Any]:
+    payload = strategy.model_dump(mode="json")
+    return {
+        "equity_curve": payload["equity_curve"],
+        "metrics": {
+            key: payload["metrics"][key]
+            for key in BACKTEST_REPORT_METRICS
+        },
+    }
+
+
+def _load_or_build_backtest_result(source_path: Path | str | None) -> BacktestResult:
+    if source_path is not None:
+        path = Path(source_path)
+        if path.exists():
+            return BacktestResult.model_validate(json.loads(path.read_text()))
+    return run_backtest(output_path=source_path)
+
+
+def run_backtest_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Return the API-facing backtest payload, cached as JSON for fast serving."""
+
+    if args:
+        raise TypeError("run_backtest_report accepts keyword arguments only")
+    cache_path_arg = kwargs.pop("cache_path", DATA_DIR / "backtest_api.json")
+    source_path = kwargs.pop("source_path", DATA_DIR / "backtest.json")
+    force = bool(kwargs.pop("force", False))
+    # Accepted for the POST contract. The MVP serves a precomputed walk-forward report.
+    kwargs.pop("profile", None)
+    kwargs.pop("weights", None)
+    kwargs.pop("start", None)
+    kwargs.pop("end", None)
+    if kwargs:
+        unknown = ", ".join(sorted(kwargs))
+        raise TypeError(f"unexpected keyword argument(s): {unknown}")
+
+    cache_path = Path(cache_path_arg)
+    if not force and cache_path.exists():
+        return json.loads(cache_path.read_text())
+
+    result = _load_or_build_backtest_result(source_path)
+    primary = _strategy_report(result.strategies["greenlight_erc"])
+    report = {
+        "equity_curve": primary["equity_curve"],
+        "metrics": primary["metrics"],
+        "benchmarks": {
+            name: _strategy_report(result.strategies[name])
+            for name in BACKTEST_REPORT_BENCHMARKS
+        },
+    }
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(report, indent=2) + "\n")
+    return report
 
 
 def build_parser() -> argparse.ArgumentParser:

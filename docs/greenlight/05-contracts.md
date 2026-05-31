@@ -128,6 +128,46 @@ Request = { "profile": UserProfileInput }
 Response = PortfolioResponse
 ```
 
+#### Backtest
+
+`POST /backtest`
+
+```json
+Request = {
+  "profile": "UserProfileInput|null",
+  "weights": "TargetWeights|null",
+  "start": "YYYY-MM-DD|null",
+  "end": "YYYY-MM-DD|null"
+}
+
+Response = {
+  "equity_curve": [{ "date": "YYYY-MM-DD", "value": "number" }],
+  "metrics": {
+    "sharpe": "number",
+    "sortino": "number",
+    "max_drawdown": "number",
+    "calmar": "number",
+    "turnover": "number"
+  },
+  "benchmarks": {
+    "one_over_n": {
+      "equity_curve": [{ "date": "YYYY-MM-DD", "value": "number" }],
+      "metrics": { "sharpe": "number", "sortino": "number", "max_drawdown": "number", "calmar": "number", "turnover": "number" }
+    },
+    "sixty_forty": {
+      "equity_curve": [{ "date": "YYYY-MM-DD", "value": "number" }],
+      "metrics": { "sharpe": "number", "sortino": "number", "max_drawdown": "number", "calmar": "number", "turnover": "number" }
+    },
+    "target_date": {
+      "equity_curve": [{ "date": "YYYY-MM-DD", "value": "number" }],
+      "metrics": { "sharpe": "number", "sortino": "number", "max_drawdown": "number", "calmar": "number", "turnover": "number" }
+    }
+  }
+}
+```
+
+Exactly one of `profile` or `weights` is required. The MVP backend may serve a precomputed/cached walk-forward JSON artifact.
+
 `POST /projection`
 
 ```json
@@ -278,10 +318,13 @@ Backend team does not edit frontend for this backend-only module. Frontend team 
 
 ```js
 postPortfolio(profile)   // POST `${BASE}/api/v1/portfolio` with body { profile }
+postBacktest(input)      // POST `${BASE}/api/v1/backtest` with body { profile | weights, start?, end? }
 postProjection(input)    // POST `${BASE}/api/v1/projection` with body input
 postRebalance(input)     // POST `${BASE}/api/v1/rebalance` with body input
 postTaxReport(input)     // POST `${BASE}/api/v1/tax/report` with body input
 ```
+
+Frontend team must add `BacktestPanel.jsx` with a curve overlay for the strategy and benchmarks plus a metrics comparison table. Backend-only Module F does not implement that panel.
 
 ---
 
