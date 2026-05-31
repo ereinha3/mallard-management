@@ -62,15 +62,19 @@ class _BrokerSDK:
     agreement: Any
     create_ach_relationship_request: Any
     create_ach_transfer_request: Any
+    create_journal_request: Any
+    journal_entry_cash: Any
 
 
 def _load_broker_sdk() -> _BrokerSDK:
     try:
         from alpaca.broker.client import BrokerClient
+        from alpaca.broker.enums import JournalEntryType
         from alpaca.broker.requests import (
             CreateACHRelationshipRequest,
             CreateACHTransferRequest,
             CreateAccountRequest,
+            CreateJournalRequest,
         )
         try:
             from alpaca.broker.models import Agreement, Contact, Disclosures, Identity
@@ -91,6 +95,8 @@ def _load_broker_sdk() -> _BrokerSDK:
         agreement=Agreement,
         create_ach_relationship_request=CreateACHRelationshipRequest,
         create_ach_transfer_request=CreateACHTransferRequest,
+        create_journal_request=CreateJournalRequest,
+        journal_entry_cash=JournalEntryType.CASH,
     )
 
 
@@ -151,6 +157,28 @@ class BrokerageService:
         )
         return self._client.create_transfer_for_account(account_id, request)
 
+    def journal_funds(self, to_account: str, amount: float, from_account: str | None = None) -> Any:
+        """Instantly fund a user account by journaling cash (JNLC) from the firm
+        sweep account. Bypasses async ACH settlement for sandbox/demo trading.
+
+        from_account defaults to BROKER_FIRM_ACCOUNT_ID (the pre-funded firm sweep
+        account, obtained from the Broker dashboard — Alpaca does not expose it via
+        the API). Sandbox caps: $1,000/user, $100,000 total by default.
+        """
+        firm = from_account or os.environ.get("BROKER_FIRM_ACCOUNT_ID")
+        if not firm:
+            raise RuntimeError(
+                "BROKER_FIRM_ACCOUNT_ID (firm sweep account) is required to journal "
+                "instant funds. Find it in the Broker dashboard's Accounts view."
+            )
+        request = self._create_journal_request(
+            from_account=firm,
+            to_account=to_account,
+            entry_type=self._journal_entry_cash(),
+            amount=float(amount),
+        )
+        return self._client.create_journal(request)
+
     def _model(self, name: str, payload: Mapping[str, Any]) -> Any:
         if self._sdk is None:
             return _Request(**dict(payload))
@@ -171,6 +199,16 @@ class BrokerageService:
         if self._sdk is None:
             return _Request(**kwargs)
         return self._sdk.create_ach_transfer_request(**kwargs)
+
+    def _create_journal_request(self, **kwargs: Any) -> Any:
+        if self._sdk is None:
+            return _Request(**kwargs)
+        return self._sdk.create_journal_request(**kwargs)
+
+    def _journal_entry_cash(self) -> Any:
+        if self._sdk is None:
+            return "JNLC"
+        return self._sdk.journal_entry_cash
 
     def _bank_account_type(self, account_type: str) -> Any:
         return account_type

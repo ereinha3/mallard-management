@@ -79,10 +79,16 @@ def main() -> int:
     except Exception as exc:
         check("create ACH deposit", False, str(exc))
 
-    # ACH deposits settle asynchronously in sandbox (just like real ACH), so buying
-    # power may be $0 for a while. Poll briefly; execute the buy if funds settle,
-    # otherwise report the trade as DEFERRED (settlement-gated, NOT a failure) — the
-    # execution path itself is covered by the offline simulator tests.
+    # ACH settles asynchronously in sandbox (like real ACH). For instant buying
+    # power, journal cash (JNLC) from the firm sweep account when BROKER_FIRM_ACCOUNT_ID
+    # is set; otherwise fall back to polling the ACH deposit, then DEFER if unsettled.
+    if os.environ.get("BROKER_FIRM_ACCOUNT_ID"):
+        try:
+            service.journal_funds(account_id, 1000.0)
+            check("journal instant funds (JNLC)", True, "firm -> user $1000")
+        except Exception as exc:
+            check("journal instant funds (JNLC)", False, str(exc))
+
     broker = AlpacaBrokerAPI(account_id)
     funded_cash = 0.0
     for _ in range(6):
