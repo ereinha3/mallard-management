@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -27,6 +28,7 @@ if str(_ENGINE_DIR) not in sys.path:
     sys.path.append(str(_ENGINE_DIR))
 
 import models as api_models  # noqa: E402
+import persistence  # noqa: E402
 from config import (  # noqa: E402
     EF_MONTHS,
     EXPECTED_AFTER_TAX_MARKET_RETURN,
@@ -2050,12 +2052,65 @@ async def portfolio_analyze_weights(
     )
 
 
+def _price_dataset_version() -> str:
+    """Coarse version token for the price data: greenlight.db mtime (int seconds).
+
+    Changes whenever the data ingest rewrites the DB, so a refresh invalidates
+    every cached projection automatically. Returns '0' if the path is unknown.
+    """
+    from engine.data import db as engine_db
+    url = getattr(engine_db, "DEFAULT_DB_URL", "")
+    url = os.environ.get("GREENLIGHT_DB_URL", url)
+    if url.startswith("sqlite:///"):
+        path = url[len("sqlite:///"):]
+        try:
+            return str(int(os.path.getmtime(path)))
+        except OSError:
+            return "0"
+    return "0"
+
+
+def _projection_cache_key(request: "api_models.ProjectionRequest", price_version: str) -> str:
+    """Stable hash of the inputs that fully determine the projection output."""
+    payload = {
+        "weights": {k: round(float(v), 8) for k, v in sorted(request.weights.by_ticker.items())},
+        "horizon_years": int(request.horizon_years),
+        "capital_on_hand": round(float(request.capital_on_hand), 2),
+        "monthly_contribution": round(float(request.monthly_contribution), 2),
+        "goal_target": round(float(request.goal_target), 2),
+        "generator": request.generator,
+        "n_paths": int(request.n_paths),
+        "price_version": price_version,
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 @router.post("/projection", response_model=api_models.Projection, summary="Run Monte Carlo projection")
 async def projection(request: api_models.ProjectionRequest) -> api_models.Projection:
-    """Project goal success from target weights and cached engine return data."""
+    """Project goal success from target weights and cached engine return data.
+
+    Read-through cached: identical inputs (no explicit seed) return the stored
+    result instantly with a deterministic seed, so the dashboard never recomputes
+    or jitters. Explicit-seed callers (what-if) always compute fresh.
+    """
+    cache_key = None
+    if request.seed is None:
+        price_version = _price_dataset_version()
+        cache_key = _projection_cache_key(request, price_version)
+        db = persistence.get_session()
+        try:
+            cached = persistence.get_cached_projection(db, cache_key)
+        finally:
+            db.close()
+        if cached is not None:
+            return api_models.Projection.model_validate(cached)
+        seed = int(cache_key[:8], 16) % (2**31)
+    else:
+        seed = request.seed
+
     try:
         weights = EngineTargetWeights.model_validate(request.weights.model_dump())
-        seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         projection_result = project(
             weights=weights.by_ticker,
             returns=_ticker_monthly_returns(weights.by_ticker),
@@ -2069,7 +2124,16 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_models.Projection.model_validate({**projection_result.model_dump(), "seed": seed})
+
+    result = {**projection_result.model_dump(), "seed": seed}
+    if cache_key is not None:
+        db = persistence.get_session()
+        try:
+            persistence.put_cached_projection(db, cache_key, json.dumps(result))
+            db.commit()
+        finally:
+            db.close()
+    return api_models.Projection.model_validate(result)
 
 
 @router.post("/rebalance", response_model=api_models.RebalanceDecision, summary="Decide rebalance action")

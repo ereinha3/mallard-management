@@ -376,6 +376,20 @@ class Event(Base):
     )
 
 
+class ProjectionCache(Base):
+    """Read-through cache for Monte Carlo projections, keyed by an input hash.
+
+    cache_key = SHA-256 of (by_ticker weights, horizon, capital, contribution,
+    goal, generator, n_paths) + the price-dataset version (greenlight.db mtime).
+    """
+
+    __tablename__ = "projection_cache"
+
+    cache_key: Mapped[str] = mapped_column(String, primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 def _db_url() -> str:
     return os.environ.get("MALLARD_DB_URL", DEFAULT_DB_URL)
 
@@ -517,6 +531,24 @@ def log_event(
     event = Event(user_email=user_email, type=event_type, payload=payload_json)
     db.add(event)
     return event
+
+
+def get_cached_projection(db: Session, cache_key: str) -> dict | None:
+    """Return the cached projection dict for cache_key, or None on a miss."""
+    row = db.get(ProjectionCache, cache_key)
+    if row is None:
+        return None
+    return json.loads(row.result_json)
+
+
+def put_cached_projection(db: Session, cache_key: str, result_json: str) -> None:
+    """Insert or overwrite the cached projection for cache_key (caller commits)."""
+    row = db.get(ProjectionCache, cache_key)
+    if row is None:
+        db.add(ProjectionCache(cache_key=cache_key, result_json=result_json))
+    else:
+        row.result_json = result_json
+        row.created_at = utc_now()
 
 
 def list_events(db: Session, email: str, limit: int = 100) -> list[Event]:
