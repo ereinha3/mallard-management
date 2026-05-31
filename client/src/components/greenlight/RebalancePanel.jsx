@@ -336,16 +336,16 @@ export default function RebalancePanel({ onboardResult }) {
   useEffect(() => {
     let cancelled = false
 
-    if (!hasWeights) {
-      setLoading(false)
-      setServiceUnavailable(false)
-      setError(null)
-      setRebalanceResponse(null)
-      setTaxReportResponse(null)
-      return
-    }
-
     async function fetchAnalysis() {
+      if (!hasWeights) {
+        setLoading(false)
+        setServiceUnavailable(false)
+        setError(null)
+        setRebalanceResponse(null)
+        setTaxReportResponse(null)
+        return
+      }
+
       setLoading(true)
       setServiceUnavailable(false)
       setError(null)

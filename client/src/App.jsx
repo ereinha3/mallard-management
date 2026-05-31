@@ -24,6 +24,7 @@ const AUTH_STORAGE_KEY = 'mallard.auth'
 
 export default function App() {
   const [user, setUser] = useState(null)
+  const [authenticatedThisSession, setAuthenticatedThisSession] = useState(false)
   const [taxProfileDone, setTaxProfileDone] = useState(false)
   const [taxProfile, setTaxProfile] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
@@ -58,32 +59,43 @@ export default function App() {
     return () => window.clearTimeout(timeout)
   }, [askMallardOpen])
 
-  // When the user (re)appears, restore their state from the backend:
+  // After an in-memory auth event, restore the signed-in user's state from the backend:
   //  1. a completed profile -> go straight to the dashboard, OR
   //  2. an interrupted onboarding -> resume the elicitation chat from the DB.
   useEffect(() => {
-    if (user && !onboardResult) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLoadingProfile(true)
-      getProfile(user.email).then(profile => {
-        if (profile && profile.status !== 'no_profile') {
-          setOnboardResult(profile)
-          setTaxProfileDone(true)
-          setOnboardingDone(true)
-          return null
+    if (!authenticatedThisSession || !user?.email || onboardResult) return undefined
+
+    let cancelled = false
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingProfile(true)
+    setResumeSession(null)
+
+    getProfile(user.email).then(profile => {
+      if (cancelled) return null
+      if (profile && profile.status !== 'no_profile') {
+        setOnboardResult(profile)
+        setTaxProfileDone(true)
+        setOnboardingDone(true)
+        return null
+      }
+      // No finished profile — check for an in-progress onboarding to resume.
+      return getActiveOnboarding(user.email).then(resume => {
+        if (!cancelled && resume && resume.found && resume.session) {
+          setResumeSession(resume.session)
         }
-        // No finished profile — check for an in-progress onboarding to resume.
-        return getActiveOnboarding(user.email).then(resume => {
-          if (resume && resume.found && resume.session) {
-            setResumeSession(resume.session)
-          }
-        })
-      }).finally(() => {
+      })
+    }).finally(() => {
+      if (!cancelled) {
         // Set last, so OnboardingChat only mounts once resumeSession is known.
         setLoadingProfile(false)
-      })
+      }
+    })
+
+    return () => {
+      cancelled = true
     }
-  }, [user, onboardResult])
+  }, [authenticatedThisSession, user?.email, onboardResult])
 
   useEffect(() => {
     if (topoPhase !== 'exit') return undefined
@@ -104,6 +116,7 @@ export default function App() {
       // ignore
     }
     setAskMallardOpen(false)
+    setAuthenticatedThisSession(false)
     setUser(null)
     setTaxProfile(null)
     setTaxProfileDone(false)
@@ -292,19 +305,27 @@ export default function App() {
   let screen
 
   // Stage 1: not logged in
-  if (!user) {
+  if (!authenticatedThisSession || !user) {
     screen = (
       <AuthScreen
         onAuth={(u) => {
           setTopoPhase('exit')
+          setLoadingProfile(true)
+          setResumeSession(null)
+          setOnboardResult(null)
+          setOnboardingDone(false)
+          setAuthenticatedThisSession(true)
           setUser(u)
         }}
         onDevSkip={() => {
           // Developer shortcut: bypass login + onboarding, land in the app with demo data
           setTopoPhase('exit')
+          setLoadingProfile(false)
+          setResumeSession(null)
           setOnboardResult(DUMMY_ONBOARD_RESULT)
           setTaxProfileDone(true)
           setOnboardingDone(true)
+          setAuthenticatedThisSession(true)
           setUser(DUMMY_USER)
         }}
       />

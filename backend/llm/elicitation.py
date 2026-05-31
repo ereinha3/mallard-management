@@ -24,10 +24,11 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from llm.instrument import next_directive, step_from_messages
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.5-pro"
+GEMINI_MODEL = "gemini-3.5-flash"
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -58,35 +59,34 @@ Questions should feel like natural conversation, not a quiz or economics exam.
 WHAT TO GATHER — in roughly this order
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANT: When the first user message contains pre-filled form data (income, expenses, liquid capital, emergency fund, age, dependents, employer info), treat those fields as ALREADY COLLECTED. When it contains tax profile fields (ZIP code, state, filing status, 401k contribution, traditional IRA contribution, HSA eligibility/contribution/coverage, employer match rate, employer match cap), those are also ALREADY COLLECTED from the TaxProfileForm and are available to the backend. Do not ask the user for any of those tax profile fields again. Start from income stability or risk tolerance as appropriate. Ask exactly ONE question per message — never bundle. Vary your sentence structure and phrasing each time so the conversation feels human.
+The user has ALREADY completed a structured intake FORM. The FIRST message in
+this conversation contains all of the data below — treat it as final and
+authoritative, use it ONLY as context, and NEVER ask the user for any of it (or
+anything trivially derivable from it). Tax profile fields (ZIP, state, filing
+status, 401k/IRA/HSA contributions, employer match) are also pre-filled and
+must not be asked. Do NOT open with questions about their job, income, or
+finances — that part is done. Ask exactly ONE question per message — never
+bundle. Vary your phrasing so it feels human, not like a form.
 
-1. FINANCIAL BASICS
-   • Annual household income (gross)
-   • Monthly essential expenses — housing, food, utilities, transport, insurance,
-     debt minimums. Exclude discretionary spending like dining out or streaming.
-   • Liquid capital available to invest (cash/savings, NOT retirement accounts)
-   • Emergency fund balance (savings explicitly set aside for emergencies)
-   • All debts: for each → outstanding balance, APR, type
-     Types: credit_card | student | mortgage | auto | personal | other
+ALREADY CAPTURED BY THE FORM — never ask about any of these:
+   • Annual household income, monthly essential expenses, liquid capital, emergency fund
+   • Age, tax filing status, number of dependents
+   • Employment: employer, job title, tenure, company size, employment type
 
-2. LIFE SITUATION
-   • Age
-   • Years until they need the money (retirement or primary goal)
-   • Primary financial goals (retirement / home purchase / education / other)
-   • Number of financial dependents
-
-3. TAX PROFILE
-   These fields are pre-filled by TaxProfileForm and merged by OnboardingChat.
-   Keep them in submit_profile when available, but do not ask the user for them:
-   • Annual 401k contribution
-   • Annual traditional IRA contribution
-   • HSA eligibility, annual HSA contribution, and HSA coverage
-   • Employer match rate and employer match cap
-
-4. INCOME STABILITY — classify as one of:
-   • bond_like: very stable — government, tenured teacher, large-employer salary
+INCOME STABILITY (income_stability) — do NOT ask about this. INFER it from the
+employment fields already provided and set it directly in submit_profile:
+   • bond_like: very stable — government, tenured, large-employer salaried, long tenure
    • mixed: moderately stable — professional with variable bonus, steady contractor
-   • stock_like: volatile — freelancer, commission-based, startup, self-employment
+   • stock_like: volatile — freelancer, commission-based, startup, self-employed, short tenure
+
+WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
+   • Primary goal(s) and the number of years until the money is needed (time horizon)
+   • Any outstanding debts — for each: balance, APR, and type
+     (credit_card | student | mortgage | auto | personal | other). The form did not capture debts.
+   • A rough goal target dollar amount
+   • Investment preferences: ETF-only / individual stocks / mix; sectors to exclude
+     for ethical reasons; sectors to tilt toward
+   • The risk-tolerance instrument below — this is the heart of the conversation
 
 5. RISK TOLERANCE — 13-item Grable-Lytton instrument
    Ask these conversationally. Weave multiple items into a single prompt when natural.
@@ -427,11 +427,37 @@ def _stream_sync(messages: list[ChatMessage]) -> Generator[dict, None, None]:
         role = "model" if msg.role == "assistant" else "user"
         contents.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
 
+    step = step_from_messages(messages)
+    directive = next_directive(step)
+    if directive is not None:
+        turn_control_block = (
+            "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "TURN CONTROL — THIS OVERRIDES THE ORDERING GUIDANCE ABOVE. OBEY EXACTLY.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Ask EXACTLY ONE question this turn — the one specified below. Do NOT ask\n"
+            "anything else, do NOT skip ahead, and do NOT re-ask anything already answered\n"
+            "earlier in this conversation. If the user's previous answer was too vague to\n"
+            "score, you may briefly re-ask THIS item for clarification instead — but never\n"
+            "switch to a different topic.\n\n"
+            f"{directive}"
+        )
+    else:
+        turn_control_block = (
+            "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "TURN CONTROL — SCRIPT COMPLETE\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Every scripted question has been asked. Do NOT ask anything further. Map the\n"
+            "full conversation to the structured fields and call the submit_profile\n"
+            "function now."
+        )
+    effective_system = SYSTEM_PROMPT + turn_control_block
+
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
+        system_instruction=effective_system,
         tools=[SUBMIT_PROFILE_TOOL],
         temperature=0.4,
         max_output_tokens=2048,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),  # disable thinking to preserve streaming + function-calling
     )
 
     function_call_args = None

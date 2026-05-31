@@ -224,40 +224,40 @@ export default function Dashboard({ onboardResult }) {
   useEffect(() => {
     let cancelled = false
 
-    if (!portfolio?.weights) {
-      setProjection(null)
-      setProjectionError(null)
-      setProjectionLoading(false)
-      return () => { cancelled = true }
-    }
+    async function loadProjection() {
+      if (!portfolio?.weights) {
+        setProjection(null)
+        setProjectionError(null)
+        setProjectionLoading(false)
+        return
+      }
 
-    setProjectionLoading(true)
-    setProjectionError(null)
-    import('../api/greenlightClient')
-      .then((client) => {
+      setProjectionLoading(true)
+      setProjectionError(null)
+      try {
+        const client = await import('../api/greenlightClient')
         const postProjection = client.postProjection
         if (typeof postProjection !== 'function') {
           throw new Error('Projection endpoint wrapper is not available.')
         }
-        return postProjection({
+        const response = await postProjection({
           weights: portfolio.weights,
           ...getProjectionInputs(onboardResult, profile),
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
-      })
-      .then((response) => {
         if (!cancelled) setProjection(response)
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           setProjection(null)
           setProjectionError(error?.message ?? 'Projection could not be loaded.')
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setProjectionLoading(false)
-      })
+      }
+    }
+
+    loadProjection()
 
     return () => { cancelled = true }
   }, [onboardResult, portfolio, profile])
