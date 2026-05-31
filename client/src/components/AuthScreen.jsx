@@ -10,7 +10,7 @@ const VALUE_PROPS = [
 ]
 
 let _uid = 0
-function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false }) {
+function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false, maxLength }) {
   const [id] = useState(() => `f-${++_uid}`)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -29,6 +29,7 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}
+          maxLength={maxLength}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-err` : undefined}
           style={{
@@ -213,6 +214,7 @@ function SignUpForm({ onAuth }) {
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
     if (!form.address.trim()) e.address = 'Street address is required'
+    else if (!/^\d+\s+[a-zA-Z]/.test(form.address.trim())) e.address = 'Enter a valid street address (e.g. 123 Main St)'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -257,9 +259,9 @@ function SignUpForm({ onAuth }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
-          placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" />
+          placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" maxLength={14} />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
-          placeholder="94105" error={errors.zip} autoComplete="postal-code" />
+          placeholder="94105" error={errors.zip} autoComplete="postal-code" maxLength={10} />
       </div>
 
       <Field label="Street Address" value={form.address} onChange={set('address')}
