@@ -46,25 +46,52 @@ function EditableField({ label, value, onChange, type = 'text', autoComplete }) 
   )
 }
 
-export default function SettingsView({ user: signedInUser, onLogout, onNavigate, onUserUpdated }) {
-  const user = signedInUser ?? {}
-  const [accountForm, setAccountForm] = useState({
+function accountFormFromUser(user) {
+  return {
     name: user.name ?? '',
     phone: user.phone ?? '',
     address: user.address ?? '',
     zip_code: user.zip_code ?? user.zip ?? '',
-  })
+  }
+}
+
+function readStoredUser() {
+  try {
+    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : {}
+  } catch {
+    return {}
+  }
+}
+
+export default function SettingsView({ user: signedInUser, onLogout, onNavigate, onUserUpdated }) {
+  const user = signedInUser ?? {}
+  const userName = user.name ?? ''
+  const userPhone = user.phone ?? ''
+  const userAddress = user.address ?? ''
+  const userZip = user.zip_code ?? user.zip ?? ''
+  const [accountForm, setAccountForm] = useState(() => accountFormFromUser(user))
   const { theme, setTheme } = useTheme()
   const { startTour } = useTour()
 
   useEffect(() => {
-    setAccountForm({
-      name: user.name ?? '',
-      phone: user.phone ?? '',
-      address: user.address ?? '',
-      zip_code: user.zip_code ?? user.zip ?? '',
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setAccountForm({
+          name: userName,
+          phone: userPhone,
+          address: userAddress,
+          zip_code: userZip,
+        })
+      }
     })
-  }, [user.name, user.phone, user.address, user.zip_code, user.zip])
+
+    return () => {
+      cancelled = true
+    }
+  }, [userName, userPhone, userAddress, userZip])
 
   function handleReplayTour() {
     startTour({ onNavigate })
@@ -88,13 +115,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
   }
 
   function handleSaveAccount() {
-    let storedUser = {}
-    try {
-      const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
-      storedUser = stored ? JSON.parse(stored) : {}
-    } catch {
-      storedUser = {}
-    }
+    const storedUser = readStoredUser()
 
     const updatedUser = {
       ...user,
