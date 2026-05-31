@@ -398,6 +398,23 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
 
 
+def test_marginal_federal_rate_picks_last_dollar_bracket():
+    from types import SimpleNamespace
+
+    brackets = [
+        SimpleNamespace(min_income=0.0, rate=0.10),
+        SimpleNamespace(min_income=11000.0, rate=0.12),
+        SimpleNamespace(min_income=44725.0, rate=0.22),
+        SimpleNamespace(min_income=95375.0, rate=0.24),
+    ]
+    federal = SimpleNamespace(standard_deduction=14600.0, brackets=brackets)
+    breakdown = SimpleNamespace(agi=80000.0, tax_rate_bundle=SimpleNamespace(federal=federal))
+    # taxable = 80000 - 14600 = 65400 -> falls in the 22% bracket
+    assert api_v1._marginal_federal_rate(breakdown) == 0.22
+    # malformed breakdown -> None (gate falls back to deterministic default)
+    assert api_v1._marginal_federal_rate(SimpleNamespace()) is None
+
+
 def test_tax_report_rejects_bracket_above_one(test_app: FastAPI):
     client = _client(test_app)
     response = client.post(
