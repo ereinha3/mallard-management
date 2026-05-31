@@ -45,7 +45,7 @@ def test_data_routes_read_from_seeded_db():
     assert buckets.status_code == 200
     assert prices.status_code == 200
     assert any(row["ticker"] == "VTI" for row in instruments.json())
-    assert any(row["bucket"] == "us_equity" for row in buckets.json())
+    assert any(row["bucket"] == "us_total_market" for row in buckets.json())
     assert prices.json()[0]["ticker"] == "VTI"
 
 

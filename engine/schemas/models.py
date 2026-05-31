@@ -154,6 +154,7 @@ class GateResult(ContractModel):
 class ExcludedTicker(ContractModel):
     ticker: str
     reason: str
+    replacement: str | None = None
 
 
 class Universe(ContractModel):

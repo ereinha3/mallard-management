@@ -57,7 +57,7 @@ from persistence import (  # noqa: E402
 from brokerage import BrokerageService, get_broker_client as _get_broker_client  # noqa: E402
 from broker_factory import get_broker  # noqa: E402
 from data.seed import seed_database  # noqa: E402
-from data.loaders import load_prices, returns_matrix  # noqa: E402
+from data.loaders import load_prices, returns_matrix, ticker_metadata  # noqa: E402
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
@@ -578,6 +578,51 @@ def _build_universe(validated: Any) -> Any:
     return universe
 
 
+def _portfolio_etfs(universe: Any, weights: Any) -> list[api_models.PortfolioETF]:
+    metadata = ticker_metadata()
+    replacements = {
+        str(item.replacement): item
+        for item in getattr(universe, "excluded", [])
+        if getattr(item, "replacement", None)
+    }
+    etfs: list[api_models.PortfolioETF] = []
+    for ticker, weight in sorted(weights.by_ticker.items()):
+        if weight <= 0.0:
+            continue
+        meta = metadata.get(str(ticker), {})
+        replacement = replacements.get(str(ticker))
+        sleeve = str(meta.get("sleeve") or "")
+        if not sleeve:
+            sleeve = next(
+                (
+                    str(sleeve_name)
+                    for sleeve_name, sleeve_tickers in universe.sleeves.items()
+                    if ticker in sleeve_tickers
+                ),
+                "",
+            )
+        etfs.append(
+            api_models.PortfolioETF(
+                ticker=str(ticker),
+                name=str(meta.get("name") or ticker),
+                sleeve=sleeve,
+                weight=float(weight),
+                replacement_for=None if replacement is None else str(replacement.ticker),
+                exclusion_reason=None if replacement is None else str(replacement.reason),
+            )
+        )
+    return etfs
+
+
+def _portfolio_response(universe: Any, weights: Any) -> api_models.PortfolioResponse:
+    return api_models.PortfolioResponse(
+        universe=api_models.Universe.model_validate(universe.model_dump()),
+        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
+        metrics=_compute_risk_metrics(universe, weights),
+        etfs=_portfolio_etfs(universe, weights),
+    )
+
+
 def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioResponse:
     universe = _build_universe(validated)
     weights = build_target_weights(
@@ -585,11 +630,7 @@ def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioR
         universe,
         load_prices(),
     )
-    return api_models.PortfolioResponse(
-        universe=api_models.Universe.model_validate(universe.model_dump()),
-        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
-        metrics=_compute_risk_metrics(universe, weights),
-    )
+    return _portfolio_response(universe, weights)
 
 
 def _target_weights_from_sleeves(
@@ -636,11 +677,7 @@ def _build_alternative_portfolio(validated: Any, method: str) -> api_models.Port
         raise HTTPException(status_code=400, detail=f"Unknown portfolio method: {method}")
 
     weights = _target_weights_from_sleeves(universe, sleeve_weights, method)
-    return api_models.PortfolioResponse(
-        universe=api_models.Universe.model_validate(universe.model_dump()),
-        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
-        metrics=_compute_risk_metrics(universe, weights),
-    )
+    return _portfolio_response(universe, weights)
 
 
 def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_models.PortfolioResponse:
@@ -650,11 +687,7 @@ def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_mod
         universe,
         load_prices(),
     )
-    return api_models.PortfolioResponse(
-        universe=api_models.Universe.model_validate(universe.model_dump()),
-        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
-        metrics=_compute_risk_metrics(universe, weights),
-    )
+    return _portfolio_response(universe, weights)
 
 
 def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
@@ -964,10 +997,71 @@ def _ticker_monthly_returns(weights: dict[str, float]) -> pd.DataFrame:
     tickers = [ticker for ticker, weight in weights.items() if weight > 0]
     prices = load_prices().pivot(index="date", columns="ticker", values="adj_close").sort_index()
     prices.index = pd.to_datetime(prices.index)
+    monthly = prices.resample("ME").last().pct_change().dropna(how="all")
     missing = sorted(set(tickers) - set(prices.columns))
     if missing:
-        raise ValueError(f"No cached prices available for ticker(s): {', '.join(missing)}")
-    return prices[tickers].resample("ME").last().pct_change().dropna(how="all")
+        metadata = ticker_metadata()
+        sleeve_by_ticker = {
+            ticker: str(meta.get("sleeve") or "")
+            for ticker, meta in metadata.items()
+        }
+        if monthly.empty:
+            raise ValueError(f"No cached prices available for ticker(s): {', '.join(missing)}")
+        for ticker in missing:
+            sleeve = sleeve_by_ticker.get(ticker, "")
+            proxies = [
+                column
+                for column in monthly.columns
+                if sleeve and sleeve_by_ticker.get(str(column), "") == sleeve
+            ]
+            if not proxies:
+                proxies = list(monthly.columns)
+            monthly[ticker] = monthly[proxies].mean(axis=1)
+    return monthly[tickers].dropna(how="all")
+
+
+def _price_backed_weights(weights: EngineTargetWeights) -> EngineTargetWeights:
+    prices = load_prices()
+    priced = set(prices["ticker"].dropna().astype(str))
+    metadata = ticker_metadata()
+    sleeve_by_ticker = {
+        ticker: str(meta.get("sleeve") or "")
+        for ticker, meta in metadata.items()
+    }
+    by_ticker: dict[str, float] = {}
+    for sleeve, sleeve_weight in weights.by_sleeve.items():
+        sleeve_tickers = [
+            ticker
+            for ticker, ticker_weight in weights.by_ticker.items()
+            if ticker_weight > 0.0
+            and ticker in priced
+            and sleeve_by_ticker.get(str(ticker), "") == str(sleeve)
+        ]
+        if not sleeve_tickers:
+            sleeve_tickers = [
+                ticker
+                for ticker in sorted(priced)
+                if sleeve_by_ticker.get(str(ticker), "") == str(sleeve)
+            ]
+        if not sleeve_tickers:
+            continue
+        raw = {ticker: float(weights.by_ticker.get(ticker, 0.0)) for ticker in sleeve_tickers}
+        total = sum(raw.values())
+        if total <= 0.0:
+            raw = {ticker: 1.0 for ticker in sleeve_tickers}
+            total = sum(raw.values())
+        for ticker, ticker_weight in raw.items():
+            by_ticker[ticker] = by_ticker.get(ticker, 0.0) + float(sleeve_weight) * ticker_weight / total
+
+    total = sum(by_ticker.values())
+    if total <= 0.0:
+        return weights
+    return EngineTargetWeights(
+        by_ticker={ticker: weight / total for ticker, weight in by_ticker.items()},
+        by_sleeve=weights.by_sleeve,
+        blend_alpha=weights.blend_alpha,
+        method=weights.method,
+    )
 
 
 async def get_db():
@@ -1366,11 +1460,7 @@ async def portfolio_reoptimize(
             universe,
             load_prices(),
         )
-        portfolio_result = api_models.PortfolioResponse(
-            universe=api_models.Universe.model_validate(universe.model_dump()),
-            weights=api_models.TargetWeights.model_validate(weights.model_dump()),
-            metrics=_compute_risk_metrics(universe, weights),
-        )
+        portfolio_result = _portfolio_response(universe, weights)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1445,7 +1535,7 @@ async def rebalance(request: api_models.RebalanceRequest) -> api_models.Rebalanc
     try:
         _ensure_engine_data()
         positions = EnginePositions.model_validate(request.positions.model_dump())
-        weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+        weights = _price_backed_weights(EngineTargetWeights.model_validate(request.weights.model_dump()))
         decision = decide_rebalance(positions, weights)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

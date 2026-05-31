@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from data.db import InstrumentMeta, MacroSeries, Price, get_session
 from data.ingest.fred_source import fetch_series
-from data.ingest.refresh import refresh
+from data.ingest.refresh import DEFAULT_TICKERS_FROM, refresh
 from data.ingest.yfinance_source import fetch_prices
 
 
@@ -42,6 +42,10 @@ def test_fred_source_uses_injected_opener_without_network():
 
     assert result["value"].tolist() == [5.25, 5.20]
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2024-01-01", "2024-01-03"]
+
+
+def test_refresh_defaults_to_classification_csv():
+    assert DEFAULT_TICKERS_FROM.name == "classification.csv"
 
 
 def test_refresh_upserts_fixture_dataframes_idempotently(tmp_path):
@@ -88,4 +92,3 @@ def test_refresh_upserts_fixture_dataframes_idempotently(tmp_path):
         aaa_meta = session.get(InstrumentMeta, {"ticker": "AAA", "as_of": pd.Timestamp("2024-01-03").date()})
         assert aaa_meta is not None
         assert aaa_meta.avg_dollar_volume == 16000.0
-

@@ -26,11 +26,21 @@ def test_load_universe_is_db_backed_and_preserves_esg_substitutions():
     assert abs(sum(universe.market_weights.values()) - 1.0) < 1e-9
 
 
+def test_load_universe_uses_full_classification_source():
+    universe = load_universe(["none"])
+
+    assert len(universe.tickers) == 61
+    assert {"VOO", "XLK", "XLF", "AGG", "SGOL", "VNQI"}.issubset(set(universe.tickers))
+    assert {"XLK", "VGT"}.issubset(set(universe.sleeves["us_equity"]))
+    assert set(universe.risky_sleeves) == {"us_equity", "intl_equity", "reits", "gold"}
+    assert set(universe.safe_sleeves) == {"bonds", "tips"}
+    assert abs(sum(universe.market_weights.values()) - 1.0) < 1e-9
+
+
 def test_repository_ticker_mappings_include_alternates():
     sleeves = repository.ticker_to_sleeve()
     buckets = repository.ticker_to_bucket()
 
     assert sleeves["VTI"] == "us_equity"
     assert sleeves["ESGV"] == "us_equity"
-    assert buckets["BND"] == "bonds"
-
+    assert buckets["BND"] == "us_aggregate"
