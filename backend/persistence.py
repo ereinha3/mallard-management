@@ -89,6 +89,7 @@ class InvestmentAccount(Base):
     cash_available: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cash_pending: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     broker_provider: Mapped[str] = mapped_column(String, nullable=False, default="simulator")
+    alpaca_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class FundingTransaction(Base):
@@ -127,6 +128,21 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _ensure_additive_columns(engine)
+
+
+def _ensure_additive_columns(db_engine: Engine) -> None:
+    if db_engine.dialect.name != "sqlite":
+        return
+    with db_engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(investment_accounts)")
+        }
+        if "alpaca_account_id" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE investment_accounts ADD COLUMN alpaca_account_id VARCHAR"
+            )
 
 
 def get_session() -> Session:
@@ -287,6 +303,12 @@ def add_mock_deposit(db: Session, email: str, amount: float) -> FundingTransacti
 def update_investment_account_cash(db: Session, email: str, cash_available: float) -> InvestmentAccount:
     account = get_or_create_investment_account(db, email)
     account.cash_available = max(0.0, float(cash_available))
+    return account
+
+
+def set_alpaca_account_id(db: Session, email: str, account_id: str) -> InvestmentAccount:
+    account = get_or_create_investment_account(db, email)
+    account.alpaca_account_id = account_id
     return account
 
 

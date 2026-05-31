@@ -106,6 +106,33 @@ def test_mock_deposit_creates_account_and_increments_cash(test_app: FastAPI):
     assert account["broker_provider"] == "simulator"
 
 
+def test_brokerage_account_route_persists_alpaca_account_id(
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from api import v1 as api_v1
+
+    class FakeBrokerClient:
+        def create_account(self, request: object) -> object:
+            assert request.contact.email_address == "brokerage-route@example.com"
+            return type("Account", (), {"id": "alpaca-acct-route"})()
+
+    monkeypatch.setattr(api_v1, "get_broker_client", lambda: FakeBrokerClient())
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/brokerage/account",
+        json={"user_email": "brokerage-route@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["alpaca_account_id"] == "alpaca-acct-route"
+
+    account_response = client.get("/api/v1/funding/account/brokerage-route@example.com")
+    assert account_response.status_code == 200
+    assert account_response.json()["alpaca_account_id"] == "alpaca-acct-route"
+
+
 def test_execution_preview_sizes_buys_against_available_cash(test_app: FastAPI):
     client = _client(test_app)
     email = "execution-preview@example.com"
@@ -146,6 +173,67 @@ def test_execution_submit_via_simulator_returns_fills_and_positions(test_app: Fa
     positions_response = client.get(f"/api/v1/positions/{email}")
     assert positions_response.status_code == 200
     assert positions_response.json() == positions
+
+
+def test_rebalance_submit_executes_sell_and_buy_trades(test_app: FastAPI):
+    client = _client(test_app)
+    email = "rebalance-submit-trade@example.com"
+    client.post("/api/v1/funding/mock/deposit", json={"user_email": email, "amount": 1000.0})
+    initial = client.post(
+        "/api/v1/execution/submit",
+        json={"user_email": email, "weights": _weights()},
+    )
+    assert initial.status_code == 200
+
+    response = client.post(
+        "/api/v1/execution/rebalance/submit",
+        json={
+            "user_email": email,
+            "weights": {
+                "by_ticker": {"VTI": 0.4, "BND": 0.6},
+                "by_sleeve": {"us_equity": 0.4, "bonds": 0.6},
+                "blend_alpha": 0.4,
+                "method": "erc",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "trade"
+    assert {(trade["ticker"], trade["side"]) for trade in body["trades"]} == {
+        ("VTI", "sell"),
+        ("BND", "buy"),
+    }
+    assert [fill["ticker"] for fill in body["fills"]] == ["VTI", "BND"]
+    positions = body["positions"]
+    by_ticker = {item["ticker"]: item for item in positions["items"]}
+    assert by_ticker["VTI"]["market_value"] == pytest.approx(400.0)
+    assert by_ticker["BND"]["market_value"] == pytest.approx(600.0)
+    assert positions["portfolio_value"] == pytest.approx(1000.0)
+
+
+def test_rebalance_submit_returns_balanced_decision_without_trades(test_app: FastAPI):
+    client = _client(test_app)
+    email = "rebalance-submit-none@example.com"
+    client.post("/api/v1/funding/mock/deposit", json={"user_email": email, "amount": 1000.0})
+    initial = client.post(
+        "/api/v1/execution/submit",
+        json={"user_email": email, "weights": _weights()},
+    )
+    assert initial.status_code == 200
+
+    response = client.post(
+        "/api/v1/execution/rebalance/submit",
+        json={"user_email": email, "weights": _weights()},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "none"
+    assert body["trades"] == []
+    assert body["fills"] == []
+    assert body["positions"] == initial.json()["positions"]
 
 
 def test_alpaca_adapter_raises_cleanly_without_sdk_or_credentials(monkeypatch: pytest.MonkeyPatch):
