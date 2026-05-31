@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import GreenlightFlow from './components/greenlight/GreenlightFlow'
 import AuthScreen from './components/AuthScreen'
+import TaxProfileForm from './components/TaxProfileForm'
 import OnboardingChat from './components/OnboardingChat'
 import AdvisorChat from './components/AdvisorChat'
 import AccountsTab from './components/AccountsTab'
@@ -21,6 +22,8 @@ const AUTH_LOCAL_STORAGE_KEYS = []
 
 export default function App() {
   const [user, setUser] = useState(null)
+  const [taxProfileDone, setTaxProfileDone] = useState(false)
+  const [taxProfile, setTaxProfile] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [onboardResult, setOnboardResult] = useState(null)
   const [activePage, setActivePage] = useState('dashboard')
@@ -49,6 +52,7 @@ export default function App() {
       getProfile(user.email).then(profile => {
         if (profile && profile.status !== 'no_profile') {
           setOnboardResult(profile)
+          setTaxProfileDone(true)
           setOnboardingDone(true)
         }
       }).finally(() => {
@@ -61,6 +65,8 @@ export default function App() {
     AUTH_LOCAL_STORAGE_KEYS.forEach(key => window.localStorage.removeItem(key))
     setAskMallardOpen(false)
     setUser(null)
+    setTaxProfile(null)
+    setTaxProfileDone(false)
     setOnboardResult(null)
     setOnboardingDone(false)
     setActivePage('dashboard')
@@ -76,6 +82,7 @@ export default function App() {
         onDevSkip={() => {
           // Developer shortcut: bypass login + onboarding, land in the app with demo data
           setOnboardResult(DUMMY_ONBOARD_RESULT)
+          setTaxProfileDone(true)
           setOnboardingDone(true)
           setUser(DUMMY_USER)
         }}
@@ -95,11 +102,27 @@ export default function App() {
     )
   }
 
+  if (!taxProfileDone) {
+    const handleTaxProfileComplete = (profile) => {
+      setTaxProfile(profile)
+      setTaxProfileDone(true)
+    }
+
+    return (
+      <TaxProfileForm
+        user={user}
+        onComplete={handleTaxProfileComplete}
+        onSubmit={handleTaxProfileComplete}
+      />
+    )
+  }
+
   // Stage 2: new user goes through Mallard AI onboarding
   if (!onboardingDone) {
     return (
       <OnboardingChat
         user={user}
+        taxProfile={taxProfile}
         onComplete={(result) => {
           setOnboardResult(result)
           setOnboardingDone(true)

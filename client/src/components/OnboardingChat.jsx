@@ -178,7 +178,30 @@ function UserBubble({ text }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function OnboardingChat({ user, onComplete }) {
+const TAX_PROFILE_FIELDS = [
+  'zip_code',
+  'state',
+  'pretax_401k',
+  'pretax_ira',
+  'pretax_hsa',
+  'employer_match_rate',
+  'employer_match_cap_pct',
+  'has_hsa_eligible_plan',
+  'hsa_coverage',
+]
+
+function getTaxProfilePayload(taxProfile) {
+  if (!taxProfile) return {}
+
+  return TAX_PROFILE_FIELDS.reduce((payload, field) => {
+    if (taxProfile[field] !== undefined) {
+      payload[field] = taxProfile[field]
+    }
+    return payload
+  }, {})
+}
+
+export default function OnboardingChat({ user, taxProfile, onComplete }) {
 
   const [step, setStep] = useState('form') // 'form' | 'chat'
 
@@ -216,7 +239,10 @@ export default function OnboardingChat({ user, onComplete }) {
     ;(async () => {
       setBuilding(true)
       try {
-        const result = await postOnboard(profile, user?.email)
+        const result = await postOnboard(
+          { ...profile, ...getTaxProfilePayload(taxProfile) },
+          user?.email,
+        )
         setOnboardResult(result)
         // Give the building screen 1.8s to animate, then complete
         await new Promise(r => setTimeout(r, 1800))
@@ -228,7 +254,7 @@ export default function OnboardingChat({ user, onComplete }) {
         onComplete(null)
       }
     })()
-  }, [profile, user?.email]) // eslint-disable-line
+  }, [profile, taxProfile, user?.email]) // eslint-disable-line
 
   const callBackend = useCallback((msgList) => {
     abortRef.current = false
