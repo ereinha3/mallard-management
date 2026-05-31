@@ -1,5 +1,5 @@
 # start-dev.ps1
-# Starts the Mallard Management / Greenlight dev servers in separate windows.
+# Starts the Mallard Management / Mallard Management dev servers in separate windows.
 #
 # Usage (from repo root, in PowerShell):
 #   .\start-dev.ps1
@@ -14,14 +14,14 @@ $root = $PSScriptRoot
 
 # 1. Python FastAPI backend (port 8000)
 Start-Process powershell -ArgumentList "-NoExit", "-Command", @"
-  Write-Host '=== Greenlight Gate API (FastAPI :8000) ===' -ForegroundColor Green
+  Write-Host '=== Mallard Management API (FastAPI :8000) ===' -ForegroundColor Green
   Set-Location '$root\backend'
   python -m uvicorn main:app --reload --port 8000
 "@
 
 # 2. Vite React frontend (port 5173)
 Start-Process powershell -ArgumentList "-NoExit", "-Command", @"
-  Write-Host '=== Greenlight Frontend (Vite :5173) ===' -ForegroundColor Yellow
+  Write-Host '=== Mallard Management Frontend (Vite :5173) ===' -ForegroundColor Yellow
   Set-Location '$root\client'
   npm run dev
 "@
