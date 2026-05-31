@@ -322,6 +322,7 @@ export default function App() {
     screen = (
       <TaxProfileForm
         user={user}
+        zip={user?.zip}
         onComplete={(profile) => {
           setTaxProfile(profile)
           setTaxProfileDone(true)

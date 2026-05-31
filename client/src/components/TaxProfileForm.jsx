@@ -233,7 +233,6 @@ const controlStyle = {
 }
 
 const initialForm = {
-  zipCode: '',
   state: '',
   filingStatus: '',
   annual401k: '',
@@ -245,7 +244,7 @@ const initialForm = {
   hsaCoverage: 'self',
 }
 
-export default function TaxProfileForm({ onComplete }) {
+export default function TaxProfileForm({ onComplete, zip }) {
   const [form, setForm] = useState(initialForm)
   const [errors, setErrors] = useState({})
 
@@ -278,7 +277,7 @@ export default function TaxProfileForm({ onComplete }) {
     }
 
     onComplete({
-      zip_code: form.zipCode.trim() || null,
+      zip_code: zip?.trim() || null,
       state: form.state.trim() || null,
       filing_status: form.filingStatus,
       pre_tax_contributions_annual: {
@@ -440,14 +439,6 @@ export default function TaxProfileForm({ onComplete }) {
 
           <Section title="Location & Filing" icon={<MapPin size={15} aria-hidden="true" />}>
             <div className="tax-profile-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field
-                label="ZIP Code"
-                value={form.zipCode}
-                onChange={set('zipCode')}
-                placeholder="94105"
-                inputMode="numeric"
-                autoComplete="postal-code"
-              />
               <Field
                 label="State"
                 value={form.state}

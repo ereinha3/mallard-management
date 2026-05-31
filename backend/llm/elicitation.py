@@ -78,9 +78,6 @@ IMPORTANT: When the first user message contains pre-filled form data (income, ex
 3. TAX PROFILE
    These fields are pre-filled by TaxProfileForm and merged by OnboardingChat.
    Keep them in submit_profile when available, but do not ask the user for them:
-   • ZIP code
-   • State
-   • Tax filing status
    • Annual 401k contribution
    • Annual traditional IRA contribution
    • HSA eligibility, annual HSA contribution, and HSA coverage
