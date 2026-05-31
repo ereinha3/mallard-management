@@ -133,8 +133,11 @@ export default function IntakeForm({ onSubmit }) {
     setEmploymentErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
+    const { nonLiquidSavings, ...financialPayload } = financialData
+
     onSubmit({
-      ...financialData,
+      ...financialPayload,
+      non_liquid_savings: nonLiquidSavings,
       ...parsedEmploymentValues,
     })
   }

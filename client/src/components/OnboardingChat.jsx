@@ -180,6 +180,7 @@ function UserBubble({ text }) {
 
 const TAX_PROFILE_FIELDS = [
   'zip_code',
+  'home_value',
   'state',
   'filing_status',
   'pretax_401k',
@@ -217,6 +218,7 @@ function getTaxProfilePayload(taxProfile) {
   const contributions = taxProfile.pre_tax_contributions_annual ?? {}
   const normalized = {
     zip_code: taxProfile.zip_code,
+    home_value: taxProfile.home_value,
     state: taxProfile.state,
     filing_status: normalizeFilingStatus(taxProfile.filing_status),
     pretax_401k: contributions.traditional_401k,
@@ -241,6 +243,7 @@ function formatTaxProfileSeed(taxProfile) {
   const parts = []
 
   if (payload.zip_code) parts.push(`ZIP code is ${payload.zip_code}`)
+  if (payload.home_value != null) parts.push(`home value is $${payload.home_value}`)
   if (payload.state) parts.push(`state is ${payload.state}`)
   if (payload.filing_status) parts.push(`filing status is ${payload.filing_status}`)
   if (payload.pretax_401k != null) parts.push(`annual 401k contribution is $${payload.pretax_401k}`)
@@ -391,6 +394,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
       monthlyExpenses: data.expenses,
       liquidCapital: data.liquidCapital,
       emergencyFund: data.emergencyFund,
+      nonLiquidSavings: data.non_liquid_savings,
       age: data.age,
       dependents: data.dependents,
       employerCompany: data.employerCompany,
@@ -401,7 +405,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
     }
     setStep('chat')
 
-    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, non-liquid savings are $${capturedFields.nonLiquidSavings}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)

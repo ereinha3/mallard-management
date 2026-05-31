@@ -92,6 +92,12 @@ class UserProfileInput(BaseModel):
     monthly_expenses: float = Field(gt=0, description="Total monthly essential expenses")
     capital_on_hand: float = Field(ge=0, description="Liquid capital available to invest")
     emergency_fund: float = Field(ge=0, description="Current emergency fund balance")
+    home_value: Optional[float] = Field(default=0.0, ge=0, description="Estimated current home value")
+    non_liquid_savings: Optional[float] = Field(
+        default=0.0,
+        ge=0,
+        description="Non-liquid savings: stocks, ETFs, brokerage accounts",
+    )
     debts: List[DebtItem] = Field(default_factory=list)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────

@@ -244,7 +244,7 @@ const initialForm = {
   hsaCoverage: 'self',
 }
 
-export default function TaxProfileForm({ onComplete, zip }) {
+export default function TaxProfileForm({ onComplete, zip, homeValue }) {
   const [form, setForm] = useState(initialForm)
   const [errors, setErrors] = useState({})
 
@@ -278,6 +278,7 @@ export default function TaxProfileForm({ onComplete, zip }) {
 
     onComplete({
       zip_code: zip?.trim() || null,
+      home_value: homeValue ?? null,
       state: form.state.trim() || null,
       filing_status: form.filingStatus,
       pre_tax_contributions_annual: {

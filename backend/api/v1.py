@@ -140,6 +140,8 @@ def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUser
         "employer_match_cap_pct",
         "has_hsa_eligible_plan",
         "hsa_coverage",
+        "home_value",
+        "non_liquid_savings",
     }
     payload = profile_input.model_dump(exclude=tax_fields)
     payload["goals"] = [_normalize_goal(goal) for goal in payload.get("goals") or ["general_wealth"]]
@@ -194,6 +196,8 @@ def _to_api_validated(
     payload["employer_match_cap_pct"] = source.employer_match_cap_pct
     payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
     payload["hsa_coverage"] = source.hsa_coverage
+    payload["home_value"] = source.home_value
+    payload["non_liquid_savings"] = source.non_liquid_savings
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -220,6 +224,8 @@ def _to_api_validated_from_profile(
     payload["employer_match_cap_pct"] = source.employer_match_cap_pct
     payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
     payload["hsa_coverage"] = source.hsa_coverage
+    payload["home_value"] = source.home_value
+    payload["non_liquid_savings"] = source.non_liquid_savings
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -402,7 +408,14 @@ def _compute_financial_analysis(
         debt_to_income_ratio=round(total_debt / profile.household_income, 3)
         if profile.household_income > 0
         else 0.0,
-        net_worth_estimate=round(profile.capital_on_hand - total_debt, 2),
+        net_worth_estimate=round(
+            profile.capital_on_hand
+            + profile.emergency_fund
+            + (profile.non_liquid_savings or 0.0)
+            + (profile.home_value or 0.0)
+            - total_debt,
+            2,
+        ),
         emergency_fund_months=profile.emergency_fund_months,
         emergency_fund_target_months=float(EF_MONTHS),
         emergency_fund_pct_complete=round(ef_pct, 1),
