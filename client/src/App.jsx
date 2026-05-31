@@ -151,7 +151,7 @@ export default function App() {
       )}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
       {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
-      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} onNavigate={setActivePage} />}
+      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} onNavigate={setActivePage} onUserUpdated={setUser} />}
 
       {!PAGES_WITH_CONTENT.includes(activePage) && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: 'transparent' }}>

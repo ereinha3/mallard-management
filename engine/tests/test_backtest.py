@@ -4,8 +4,14 @@ import math
 import pytest
 
 from backtest.metrics import calmar, deflated_sharpe, max_drawdown, sortino
-from backtest.run import run_backtest, run_backtest_report
-from schemas.constants import TX_COST_BPS
+from backtest.run import (
+    GREENLIGHT_DIAGNOSTIC_KEYS,
+    _greenlight_risk_profile,
+    _summarize_greenlight_diagnostics,
+    run_backtest,
+    run_backtest_report,
+)
+from schemas.constants import GAMMA_MAX, GAMMA_MIN, TX_COST_BPS
 
 
 def test_drawdown_sortino_and_calmar_on_known_vectors():
@@ -43,12 +49,54 @@ def test_deflated_sharpe_matches_contract_formula_known_vector():
     )
 
 
-def test_run_backtest_writes_contract_json(tmp_path):
+def test_greenlight_backtest_profile_carries_moderate_gamma_band():
+    profile = _greenlight_risk_profile(elapsed_months=0)
+
+    assert profile.target_vol_band.mid == pytest.approx(0.145)
+    assert hasattr(profile, "gamma_band")
+    assert profile.gamma_band.aggressive == pytest.approx(GAMMA_MIN)
+    assert GAMMA_MIN < profile.gamma_band.mid < GAMMA_MAX
+    assert profile.gamma_band.mid != pytest.approx(GAMMA_MAX)
+    assert profile.gamma_band.conservative == pytest.approx(GAMMA_MAX)
+    assert profile.gamma_band.aggressive <= profile.gamma_band.mid <= profile.gamma_band.conservative
+
+
+def test_greenlight_diagnostics_summary_shape_and_finiteness():
+    samples = [
+        {
+            "blend_alpha": 0.35,
+            "risky_weight_share": 0.30,
+            "safe_weight_share": 0.70,
+            "realized_risky_vol": 0.18,
+            "realized_safe_vol": 0.04,
+        },
+        {
+            "blend_alpha": 0.45,
+            "risky_weight_share": 0.42,
+            "safe_weight_share": 0.58,
+            "realized_risky_vol": 0.16,
+            "realized_safe_vol": 0.03,
+        },
+    ]
+
+    summary = _summarize_greenlight_diagnostics(samples)
+
+    assert summary["rebalance_count"] == 2
+    assert set(summary) == {"rebalance_count"} | {f"mean_{key}" for key in GREENLIGHT_DIAGNOSTIC_KEYS}
+    for value in summary.values():
+        assert math.isfinite(value)
+    assert summary["mean_blend_alpha"] == pytest.approx(0.40)
+    assert summary["mean_risky_weight_share"] == pytest.approx(0.36)
+
+
+def test_run_backtest_writes_contract_json(tmp_path, capsys):
     output_path = tmp_path / "backtest.json"
 
     result = run_backtest(output_path=output_path)
+    captured = capsys.readouterr()
 
     assert output_path.exists()
+    assert "greenlight_erc diagnostics:" in captured.out
     raw = json.loads(output_path.read_text())
     assert raw["config"]["window_months"] == 36
     assert raw["config"]["rebalance"] == "quarterly"

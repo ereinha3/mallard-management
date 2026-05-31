@@ -29,17 +29,24 @@ def test_load_universe_is_db_backed_and_preserves_esg_substitutions():
 def test_load_universe_uses_full_classification_source():
     universe = load_universe(["none"])
 
-    assert len(universe.tickers) == 94
+    assert len(universe.tickers) == 95
     assert {"VOO", "XLK", "XLF", "AGG", "SGOL", "VNQI"}.issubset(set(universe.tickers))
     assert {"XLK", "VGT"}.issubset(set(universe.sleeves["us_equity"]))
-    assert len(universe.buckets) == 54
+    assert len(universe.buckets) == 55
     assert set(universe.buckets["gold"]) == {"GLD", "SGOL"}
-    assert set(universe.risky_sleeves) == {"us_equity", "intl_equity", "reits", "gold", "real_assets"}
-    assert set(universe.safe_sleeves) == {"bonds", "tips"}
-    assert len(universe.risky_buckets) == 42
-    assert len(universe.safe_buckets) == 12
+    # Sharpe-audit remediation: only genuine cash/short-duration is the safe
+    # (CAL risk-free) leg; reclassified bonds (core_bonds/credit/duration_hedge/
+    # inflation) are now risky diversifiers.
+    assert set(universe.risky_sleeves) == {
+        "us_equity", "intl_equity", "reits", "real_assets",
+        "core_bonds", "credit", "duration_hedge", "inflation",
+    }
+    assert set(universe.safe_sleeves) == {"cash_like"}
+    assert len(universe.risky_buckets) == 53
+    assert len(universe.safe_buckets) == 2
     assert "gold" in universe.risky_buckets
-    assert "us_aggregate" in universe.safe_buckets
+    assert set(universe.safe_buckets) == {"us_cash", "us_treasury_short"}
+    assert "us_aggregate" in universe.risky_buckets
     assert abs(sum(universe.market_weights.values()) - 1.0) < 1e-9
     assert abs(sum(universe.bucket_market_weights.values()) - 1.0) < 1e-9
 

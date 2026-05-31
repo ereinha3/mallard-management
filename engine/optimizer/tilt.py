@@ -1,4 +1,4 @@
-"""Momentum and volatility tilt for risky-sleeve ERC weights."""
+"""Risk-adjusted momentum tilt for risky-sleeve ERC weights."""
 
 from __future__ import annotations
 
@@ -8,6 +8,10 @@ import numpy as np
 import pandas as pd
 
 from schemas.constants import GAMMA_MAX, GAMMA_MIN, TILT_LAMBDA, TILT_LOOKBACK_MONTHS
+
+
+BUCKET_TILT_MAX_WEIGHT = 0.20
+_VOL_EPSILON = 1e-8
 
 
 def _periods_per_year(index: object) -> float:
@@ -72,22 +76,70 @@ def _volatility(frame: pd.DataFrame, periods_per_year: float) -> np.ndarray:
     return np.std(values, axis=0, ddof=ddof) * np.sqrt(periods_per_year)
 
 
-def _cap_low_vol_boosts(base: np.ndarray, tilted: np.ndarray, z_vol: np.ndarray) -> np.ndarray:
-    """Prevent momentum alone from increasing below-average-volatility sleeves."""
+def _risk_adjusted_momentum(momentum: np.ndarray, volatility: np.ndarray) -> np.ndarray:
+    positive_vol = volatility[np.isfinite(volatility) & (volatility > _VOL_EPSILON)]
+    if positive_vol.size:
+        vol_floor = max(float(np.percentile(positive_vol, 25)) * 0.5, _VOL_EPSILON)
+    else:
+        vol_floor = 1.0
+    denominator = np.maximum(np.nan_to_num(volatility, nan=0.0, posinf=0.0, neginf=0.0), vol_floor)
+    return np.nan_to_num(momentum / denominator, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _cap_unrewarded_boosts(base: np.ndarray, tilted: np.ndarray, momentum: np.ndarray) -> np.ndarray:
+    """Do not increase buckets whose own trend is non-positive."""
 
     capped = tilted.copy()
-    low_vol_boost = (z_vol < 0.0) & (capped > base)
-    if not np.any(low_vol_boost):
+    unrewarded_boost = (momentum <= 0.0) & (capped > base)
+    if not np.any(unrewarded_boost):
         return capped
 
-    excess = float(np.sum(capped[low_vol_boost] - base[low_vol_boost]))
-    capped[low_vol_boost] = base[low_vol_boost]
-    receivers = (~low_vol_boost) & (z_vol > 0.0)
+    excess = float(np.sum(capped[unrewarded_boost] - base[unrewarded_boost]))
+    capped[unrewarded_boost] = base[unrewarded_boost]
+    receivers = (~unrewarded_boost) & (momentum > 0.0)
     if excess > 0.0 and np.any(receivers):
         receiver_total = float(np.sum(capped[receivers]))
         if receiver_total > 0.0:
             capped[receivers] += excess * capped[receivers] / receiver_total
     return capped
+
+
+def _normalize_array(values: np.ndarray) -> np.ndarray:
+    cleaned = np.maximum(np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
+    total = float(np.sum(cleaned))
+    if total <= 0.0 or not np.isfinite(total):
+        return np.full_like(cleaned, 1.0 / len(cleaned), dtype=float) if len(cleaned) else cleaned
+    return cleaned / total
+
+
+def _cap_bucket_weights(weights: np.ndarray, cap: float = BUCKET_TILT_MAX_WEIGHT) -> np.ndarray:
+    """Cap normalized bucket weights when the cap is feasible for the universe size."""
+
+    capped = _normalize_array(weights)
+    if len(capped) == 0 or cap <= 0.0 or cap >= 1.0 or len(capped) * cap < 1.0 - 1e-12:
+        return capped
+
+    fixed = np.zeros(len(capped), dtype=bool)
+    for _ in range(len(capped)):
+        over_cap = (~fixed) & (capped > cap)
+        if not np.any(over_cap):
+            break
+
+        excess = float(np.sum(capped[over_cap] - cap))
+        capped[over_cap] = cap
+        fixed[over_cap] = True
+
+        receivers = ~fixed
+        if excess <= 0.0 or not np.any(receivers):
+            break
+
+        capacity = np.maximum(cap - capped[receivers], 0.0)
+        capacity_total = float(np.sum(capacity))
+        if capacity_total <= 1e-12:
+            break
+        capped[receivers] += excess * capacity / capacity_total
+
+    return _normalize_array(np.minimum(capped, cap))
 
 
 def momentum_vol_tilt(
@@ -98,7 +150,7 @@ def momentum_vol_tilt(
     lookback_months: int = TILT_LOOKBACK_MONTHS,
     lam: float = TILT_LAMBDA,
 ) -> dict[str, float]:
-    """Tilt ERC risky-sleeve weights by gamma-scaled momentum and volatility."""
+    """Tilt ERC risky-sleeve weights by gamma-scaled risk-adjusted momentum."""
 
     columns = list(erc_weights)
     if not columns:
@@ -110,11 +162,16 @@ def momentum_vol_tilt(
 
     frame = _as_return_frame(sleeve_returns, columns)
     periods_per_year = _periods_per_year(frame.index)
-    z_vol = _zscore(_volatility(frame, periods_per_year))
-    signal = _zscore(_momentum(frame, lookback_months, periods_per_year)) + z_vol
+    momentum = _momentum(frame, lookback_months, periods_per_year)
+    volatility = _volatility(frame, periods_per_year)
+    risk_adjusted = _risk_adjusted_momentum(momentum, volatility)
+    signal = _zscore(risk_adjusted)
+    if np.all(np.abs(signal) <= 1e-12):
+        return {key: float(value) for key, value in erc_weights.items()}
     multiplier = np.exp(np.clip(tilt_strength * float(lam) * signal, -50.0, 50.0))
 
     base = np.asarray([max(float(erc_weights[column]), 0.0) for column in columns], dtype=float)
     tilted = np.nan_to_num(base * multiplier, nan=0.0, posinf=0.0, neginf=0.0)
-    tilted = _cap_low_vol_boosts(base, tilted, z_vol)
+    tilted = _cap_unrewarded_boosts(base, tilted, momentum)
+    tilted = _cap_bucket_weights(tilted)
     return _normalize(dict(zip(columns, (float(value) for value in tilted), strict=True)))

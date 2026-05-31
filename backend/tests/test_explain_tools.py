@@ -93,7 +93,7 @@ def test_explain_portfolio_returns_weights_risk_and_exclusions(stored_email: str
 
     result = explain_portfolio(stored_email)
 
-    assert result["method"] == "erc"
+    assert result["method"] == "strategic"
     assert abs(sum(result["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert result["blend"]["blend_alpha"] >= 0
     assert result["expected_vol"] >= 0

@@ -1775,7 +1775,13 @@ async def portfolio_reoptimize(
     try:
         validated, _ = _greenlit_engine_context(request.profile)
         universe = _build_universe(validated)
-        optimizer_target_vol = _optimizer_target_vol_for_dial(universe, request.risk_dial)
+        # The strategic allocator maps target_vol in [0.05, 0.18] -> glidepath
+        # score s in [0, 1]. Drive the user's risk dial directly across that band
+        # so the slider actually slides the equity/bond/cash mix (conservative ->
+        # aggressive), rather than onto the much narrower empirical safe/risky
+        # frontier (which collapsed most of the dial range to the conservative end).
+        dial = max(0.0, min(1.0, float(request.risk_dial)))
+        optimizer_target_vol = 0.05 + dial * (0.18 - 0.05)
         weights = build_target_weights(
             _risk_profile_with_target_vol(validated, optimizer_target_vol),
             universe,
