@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "concurrently -n \"API,Next,Vite\" -c \"green,cyan,yellow\" \"cd backend && python -m uvicorn main:app --reload --port 8000\" \"next dev --port 3000\" \"cd client && npm run dev\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -29,6 +30,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "jest": "^30.4.2",
