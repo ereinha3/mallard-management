@@ -403,6 +403,17 @@ class BrokerageDepositOut(BaseModel):
     status: Optional[str] = None
 
 
+class BrokerageJournalRequest(BaseModel):
+    user_email: str
+    amount: float = Field(gt=0)
+
+
+class BrokerageJournalOut(BaseModel):
+    id: Optional[str] = None
+    status: Optional[str] = None
+    cash_available: float = Field(ge=0)
+
+
 class FundingTransactionOut(BaseModel):
     id: int
     user_email: str

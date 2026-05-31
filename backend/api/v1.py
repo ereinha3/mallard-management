@@ -79,6 +79,7 @@ from schemas.models import (  # noqa: E402
     TargetWeights as EngineTargetWeights,
     UserProfile as EngineUserProfile,
 )
+from schemas import constants as engine_constants  # noqa: E402
 from sizing.sizer import size_orders  # noqa: E402
 from tax.rates import (  # noqa: E402
     expected_after_tax_market_return,
@@ -1457,6 +1458,35 @@ async def brokerage_deposit(
     )
 
 
+@router.post("/brokerage/journal", response_model=api_models.BrokerageJournalOut)
+async def brokerage_journal(
+    request: api_models.BrokerageJournalRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageJournalOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    if not account.alpaca_account_id:
+        raise HTTPException(status_code=400, detail="No alpaca_account_id stored for user.")
+
+    try:
+        service = BrokerageService(client=get_broker_client())
+        journal = service.journal_funds(account.alpaca_account_id, request.amount)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated_account = update_investment_account_cash(
+        db,
+        request.user_email,
+        account.cash_available + request.amount,
+    )
+    db.commit()
+    db.refresh(updated_account)
+    return api_models.BrokerageJournalOut(
+        id=getattr(journal, "id", None),
+        status=getattr(journal, "status", None),
+        cash_available=updated_account.cash_available,
+    )
+
+
 @router.post("/execution/preview", response_model=api_models.OrderPlanOut)
 async def execution_preview(
     request: api_models.ExecutionRequest,
@@ -1983,6 +2013,11 @@ async def chat_transcript(session_id: str, db: Session = Depends(get_db)) -> dic
 @router.get("/config", summary="Gate thresholds and market assumptions")
 async def get_config() -> dict:
     """Canonical constants exposed so the frontend can display the parameter panel."""
+    gl_constants = {
+        name.lower(): value
+        for name, value in vars(engine_constants).items()
+        if name.startswith("GL_")
+    }
     return {
         "gate": {
             "emergency_fund_months_required": EF_MONTHS,
@@ -1993,6 +2028,13 @@ async def get_config() -> dict:
             "expected_market_return": EXPECTED_MARKET_RETURN,
             "ltcg_rate": LTCG_RATE,
             "expected_after_tax_market_return": EXPECTED_AFTER_TAX_MARKET_RETURN,
+        },
+        "risk_model": {
+            **gl_constants,
+            "gamma_min": engine_constants.GAMMA_MIN,
+            "gamma_max": engine_constants.GAMMA_MAX,
+            "sr_ref": engine_constants.SR_REF,
+            "capacity_weights": engine_constants.CAPACITY_WEIGHTS,
         },
     }
 

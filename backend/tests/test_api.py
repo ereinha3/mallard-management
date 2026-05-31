@@ -308,6 +308,14 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert body["gate"]["emergency_fund_months_required"] == constants.EF_MONTHS
     assert body["gate"]["high_apr_threshold"] == constants.HIGH_APR
     assert body["market_assumptions"]["expected_market_return"] == constants.EXPECTED_MARKET_RETURN
+    risk_model = body["risk_model"]
+    for name in dir(constants):
+        if name.startswith("GL_"):
+            assert risk_model[name.lower()] == getattr(constants, name)
+    assert risk_model["gamma_min"] == constants.GAMMA_MIN
+    assert risk_model["gamma_max"] == constants.GAMMA_MAX
+    assert risk_model["sr_ref"] == constants.SR_REF
+    assert risk_model["capacity_weights"] == constants.CAPACITY_WEIGHTS
     paths = {route.path for route in test_app.routes}
     assert "/api/v1/chat" in paths
     assert "/api/v1/advisor/chat" in paths
