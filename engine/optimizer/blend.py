@@ -21,6 +21,34 @@ from optimizer.erc import cov_ledoit_wolf, erc_weights
 from optimizer.tilt import momentum_vol_tilt
 
 
+SATELLITE_BUCKET_CAP = 0.04
+
+_CORE_RISKY_SLEEVES = frozenset({"us_equity", "intl_equity"})
+_CORE_BUCKET_EXACT = frozenset(
+    {
+        "us_equity",
+        "intl_equity",
+        "us_total_market",
+        "us_large_blend",
+        "intl_developed",
+        "intl_emerging",
+        "international_developed",
+        "international_emerging",
+        "developed_markets",
+        "emerging_markets",
+        "em_equity",
+    }
+)
+_CORE_BUCKET_MARKERS = (
+    "total_market",
+    "large_blend",
+    "broad_market",
+    "broad_developed",
+    "broad_emerging",
+    "global_equity",
+)
+
+
 def solve_blend_alpha(
     sigma_risky: float,
     sigma_safe: float,
@@ -176,6 +204,60 @@ def _normalized(weights: Mapping[str, float]) -> dict[str, float]:
     return {key: float(value / total) for key, value in weights.items()}
 
 
+def _is_core_risky_bucket(
+    bucket: str,
+    bucket_sleeves: Mapping[str, str],
+) -> bool:
+    bucket_key = str(bucket)
+    sleeve = str(bucket_sleeves.get(bucket_key, bucket_key))
+    if sleeve not in _CORE_RISKY_SLEEVES:
+        return False
+
+    normalized_bucket = bucket_key.lower()
+    return (
+        normalized_bucket in _CORE_BUCKET_EXACT
+        or any(marker in normalized_bucket for marker in _CORE_BUCKET_MARKERS)
+    )
+
+
+def _satellite_capped_risky_weights(
+    risky_weights: Mapping[str, float],
+    universe: Any,
+) -> dict[str, float]:
+    weights = _normalized(
+        {str(bucket): max(float(weight), 0.0) for bucket, weight in risky_weights.items()}
+    )
+    bucket_sleeves = _bucket_to_sleeve(universe)
+    core_buckets = [
+        bucket for bucket in weights if _is_core_risky_bucket(bucket, bucket_sleeves)
+    ]
+    satellite_buckets = [bucket for bucket in weights if bucket not in core_buckets]
+    if not core_buckets or not satellite_buckets:
+        return weights
+
+    capped = dict(weights)
+    excess = 0.0
+    for bucket in satellite_buckets:
+        weight = capped[bucket]
+        if weight > SATELLITE_BUCKET_CAP:
+            capped[bucket] = SATELLITE_BUCKET_CAP
+            excess += weight - SATELLITE_BUCKET_CAP
+
+    if excess <= 0.0:
+        return weights
+
+    core_total = sum(capped[bucket] for bucket in core_buckets)
+    if core_total > 0.0:
+        for bucket in core_buckets:
+            capped[bucket] += excess * capped[bucket] / core_total
+    else:
+        equal_add = excess / len(core_buckets)
+        for bucket in core_buckets:
+            capped[bucket] += equal_add
+
+    return _normalized(capped)
+
+
 def _safe_bucket_weights(universe: Any) -> dict[str, float]:
     safe_buckets = list(getattr(universe, "safe_buckets", []) or [])
     if not safe_buckets:
@@ -255,6 +337,7 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
         lookback_months=TILT_LOOKBACK_MONTHS,
         lam=TILT_LAMBDA,
     )
+    risky_weights = _satellite_capped_risky_weights(risky_weights, universe)
     safe_weights = {
         bucket: weight
         for bucket, weight in _safe_bucket_weights(universe).items()

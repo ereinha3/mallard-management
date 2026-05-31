@@ -15,7 +15,7 @@ import pandas as pd
 from backtest.metrics import calmar, deflated_sharpe, max_drawdown, sortino
 from data.loaders import DATA_DIR, load_prices, load_universe
 from optimizer import build_target_weights, cov_ledoit_wolf
-from schemas.constants import TX_COST_BPS
+from schemas.constants import GAMMA_MAX, GAMMA_MIN, TX_COST_BPS
 from schemas.models import BacktestMetrics, BacktestResult, BacktestStrategy
 
 STRATEGY_NAMES = ("greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo")
@@ -28,6 +28,15 @@ BACKTEST_REPORT_METRICS = ("sharpe", "sortino", "max_drawdown", "calmar", "turno
 WINDOW_MONTHS = 36
 PERIODS_PER_YEAR = 12
 REBALANCE_MONTHS = {"monthly": 1, "quarterly": 3}
+GREENLIGHT_TARGET_VOL_MID = 0.145
+GREENLIGHT_GAMMA_MID = (GAMMA_MIN + GAMMA_MAX) / 2.0
+GREENLIGHT_DIAGNOSTIC_KEYS = (
+    "blend_alpha",
+    "risky_weight_share",
+    "safe_weight_share",
+    "realized_risky_vol",
+    "realized_safe_vol",
+)
 
 
 def _monthly_price_frame(prices: Any | None = None) -> pd.DataFrame:
@@ -95,21 +104,118 @@ def _naive_mvo_weights(window_returns: pd.DataFrame, columns: pd.Index) -> pd.Se
     return pd.Series(raw / raw.sum(), index=columns, dtype=float)
 
 
+def _greenlight_risk_profile(elapsed_months: int) -> SimpleNamespace:
+    elapsed_years = int(elapsed_months // 12)
+    return SimpleNamespace(
+        target_vol_band=SimpleNamespace(mid=GREENLIGHT_TARGET_VOL_MID),
+        gamma_band=SimpleNamespace(
+            aggressive=GAMMA_MIN,
+            mid=GREENLIGHT_GAMMA_MID,
+            conservative=GAMMA_MAX,
+        ),
+        age=28 + elapsed_years,
+        horizon_years=max(1, 37 - elapsed_years),
+    )
+
+
+def _group_tickers(universe: Any, buckets: list[str], sleeves: list[str]) -> set[str]:
+    tickers: set[str] = set()
+    universe_buckets = getattr(universe, "buckets", {}) or {}
+    for bucket in buckets:
+        tickers.update(str(ticker) for ticker in universe_buckets.get(bucket, []))
+    if tickers:
+        return tickers
+
+    universe_sleeves = getattr(universe, "sleeves", {}) or {}
+    for sleeve in sleeves:
+        tickers.update(str(ticker) for ticker in universe_sleeves.get(sleeve, []))
+    return tickers
+
+
+def _annualized_group_vol(
+    window_returns: pd.DataFrame,
+    weights: Mapping[str, float],
+    group_tickers: set[str],
+) -> float:
+    group_weights = {
+        ticker: float(weight)
+        for ticker, weight in weights.items()
+        if ticker in group_tickers and ticker in window_returns.columns and np.isfinite(weight)
+    }
+    total = float(sum(group_weights.values()))
+    if total <= 0.0:
+        return 0.0
+
+    normalized = pd.Series(
+        {ticker: weight / total for ticker, weight in group_weights.items()},
+        dtype=float,
+    )
+    values = window_returns[list(normalized.index)].fillna(0.0).dot(normalized)
+    if values.size <= 1:
+        return 0.0
+    return _finite(float(values.std(ddof=1) * np.sqrt(PERIODS_PER_YEAR)))
+
+
+def _greenlight_target_diagnostics(
+    universe: Any,
+    target: Any,
+    window_returns: pd.DataFrame,
+) -> dict[str, float]:
+    risky_buckets = [str(bucket) for bucket in getattr(universe, "risky_buckets", [])]
+    safe_buckets = [str(bucket) for bucket in getattr(universe, "safe_buckets", [])]
+    risky_sleeves = [str(sleeve) for sleeve in getattr(universe, "risky_sleeves", [])]
+    safe_sleeves = [str(sleeve) for sleeve in getattr(universe, "safe_sleeves", [])]
+
+    by_bucket = {str(bucket): float(weight) for bucket, weight in getattr(target, "by_bucket", {}).items()}
+    if by_bucket:
+        risky_share = sum(weight for bucket, weight in by_bucket.items() if bucket in risky_buckets)
+        safe_share = sum(weight for bucket, weight in by_bucket.items() if bucket in safe_buckets)
+    else:
+        by_sleeve = {str(sleeve): float(weight) for sleeve, weight in getattr(target, "by_sleeve", {}).items()}
+        risky_share = sum(weight for sleeve, weight in by_sleeve.items() if sleeve in risky_sleeves)
+        safe_share = sum(weight for sleeve, weight in by_sleeve.items() if sleeve in safe_sleeves)
+
+    risky_tickers = _group_tickers(universe, risky_buckets, risky_sleeves)
+    safe_tickers = _group_tickers(universe, safe_buckets, safe_sleeves)
+    by_ticker = {str(ticker): float(weight) for ticker, weight in target.by_ticker.items()}
+    return {
+        "blend_alpha": _finite(float(target.blend_alpha)),
+        "risky_weight_share": _finite(float(risky_share)),
+        "safe_weight_share": _finite(float(safe_share)),
+        "realized_risky_vol": _annualized_group_vol(window_returns, by_ticker, risky_tickers),
+        "realized_safe_vol": _annualized_group_vol(window_returns, by_ticker, safe_tickers),
+    }
+
+
+def _summarize_greenlight_diagnostics(samples: list[dict[str, float]]) -> dict[str, float]:
+    summary: dict[str, float] = {"rebalance_count": float(len(samples))}
+    for key in GREENLIGHT_DIAGNOSTIC_KEYS:
+        values = np.asarray([sample[key] for sample in samples if np.isfinite(sample.get(key, np.nan))], dtype=float)
+        summary[f"mean_{key}"] = _finite(float(values.mean())) if values.size else 0.0
+    return summary
+
+
+def _print_greenlight_diagnostics(samples: list[dict[str, float]]) -> None:
+    summary = _summarize_greenlight_diagnostics(samples)
+    fields = ", ".join(
+        f"{key}={value:.6f}" if key != "rebalance_count" else f"{key}={int(value)}"
+        for key, value in summary.items()
+    )
+    print(f"greenlight_erc diagnostics: {fields}")
+
+
 def _greenlight_erc_weights(
     universe: Any,
     price_window: pd.DataFrame,
     window_returns: pd.DataFrame,
     columns: pd.Index,
     elapsed_months: int,
+    diagnostics: list[dict[str, float]] | None = None,
 ) -> pd.Series:
-    _ = window_returns
-    elapsed_years = int(elapsed_months // 12)
-    risk_profile = SimpleNamespace(
-        target_vol_band=SimpleNamespace(mid=0.145),
-        age=28 + elapsed_years,
-        horizon_years=max(1, 37 - elapsed_years),
-    )
+    risk_profile = _greenlight_risk_profile(elapsed_months)
     target = build_target_weights(risk_profile, universe, price_window)
+    if diagnostics is not None:
+        diagnostics.append(_greenlight_target_diagnostics(universe, target, window_returns))
     return _normalize(target.by_ticker, columns)
 
 
@@ -120,9 +226,17 @@ def _walk_forward_target(
     window_returns: pd.DataFrame,
     columns: pd.Index,
     elapsed_months: int,
+    diagnostics: list[dict[str, float]] | None = None,
 ) -> pd.Series:
     if name == "greenlight_erc":
-        return _greenlight_erc_weights(universe, price_window, window_returns, columns, elapsed_months)
+        return _greenlight_erc_weights(
+            universe,
+            price_window,
+            window_returns,
+            columns,
+            elapsed_months,
+            diagnostics=diagnostics,
+        )
     if name == "one_over_n":
         return pd.Series(1.0 / len(columns), index=columns, dtype=float)
     if name == "sixty_forty":
@@ -175,6 +289,7 @@ def _walk_forward_strategy_result(
     tx_rate = tx_cost_bps / 10_000.0
     invested = False
     loop_start = window_months if start_idx is None else max(window_months, start_idx)
+    diagnostics: list[dict[str, float]] | None = [] if name == "greenlight_erc" else None
 
     for idx in range(loop_start, len(returns)):
         period_start = value
@@ -193,6 +308,7 @@ def _walk_forward_strategy_result(
                 window_returns,
                 pd.Index(available),
                 elapsed_months,
+                diagnostics=diagnostics,
             )
             target = pd.Series(0.0, index=columns, dtype=float)
             target.loc[target_avail.index] = target_avail.to_numpy(dtype=float)
@@ -222,7 +338,10 @@ def _walk_forward_strategy_result(
         equity_values.append(value)
         return_values.append(value / period_start - 1.0)
 
-    return _strategy_from_curves(dates, equity_values, return_values, turnover_values)
+    strategy = _strategy_from_curves(dates, equity_values, return_values, turnover_values)
+    if diagnostics is not None:
+        _print_greenlight_diagnostics(diagnostics)
+    return strategy
 
 
 def _strategy_from_curves(

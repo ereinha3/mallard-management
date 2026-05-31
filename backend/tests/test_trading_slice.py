@@ -75,7 +75,7 @@ def greenlight_db(monkeypatch: pytest.MonkeyPatch, seeded_db_url: str) -> None:
 def _weights() -> dict:
     return {
         "by_ticker": {"VTI": 0.6, "BND": 0.4},
-        "by_sleeve": {"us_equity": 0.6, "bonds": 0.4},
+        "by_sleeve": {"us_equity": 0.6, "core_bonds": 0.4},
         "blend_alpha": 0.6,
         "method": "erc",
     }
@@ -191,7 +191,7 @@ def test_rebalance_submit_executes_sell_and_buy_trades(test_app: FastAPI):
             "user_email": email,
             "weights": {
                 "by_ticker": {"VTI": 0.4, "BND": 0.6},
-                "by_sleeve": {"us_equity": 0.4, "bonds": 0.6},
+                "by_sleeve": {"us_equity": 0.4, "core_bonds": 0.6},
                 "blend_alpha": 0.4,
                 "method": "erc",
             },

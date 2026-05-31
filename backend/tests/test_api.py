@@ -365,7 +365,7 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
             },
             "weights": {
                 "by_ticker": {"VTI": 0.5, "BND": 0.5},
-                "by_sleeve": {"us_equity": 0.5, "bonds": 0.5},
+                "by_sleeve": {"us_equity": 0.5, "core_bonds": 0.5},
                 "blend_alpha": 0.5,
                 "method": "erc",
             },
@@ -559,7 +559,7 @@ def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_ap
     assert body["validation"]["sum_safe_bucket"] < 2 / 6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
-    assert body["validation"]["warnings"] == ["Input by_sleeve sum was 6.000000; normalized to 1.0."]
+    assert body["validation"]["warnings"] == ["Input by_sleeve sum was 9.000000; normalized to 1.0."]
     assert abs(sum(body["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_sleeve"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_bucket"].values()) - 1.0) < 1e-6
@@ -580,7 +580,7 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
                 "by_sleeve": {
                     "us_equity": 0.4,
                     "intl_equity": 0.2,
-                    "bonds": 0.3,
+                    "cash_like": 0.3,
                     "real_assets": 0.1,
                 }
             },
@@ -594,14 +594,14 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    # Equity + real_assets sleeves (0.7) are risky; the bonds sleeve adds its
-    # credit-risky buckets on top, so risky exceeds 0.7 and safe falls below 0.3.
+    # Equity + real_assets sleeves (0.7) are risky; cash_like (0.3) is the only
+    # safe leg, so the risky/safe bucket split is 0.7 / 0.3.
     assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
-    assert body["validation"]["sum_risky_bucket"] > 0.7
-    assert body["validation"]["sum_safe_bucket"] < 0.3
+    assert abs(body["validation"]["sum_risky_bucket"] - 0.7) < 1e-6
+    assert abs(body["validation"]["sum_safe_bucket"] - 0.3) < 1e-6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
-    assert body["weights"]["by_sleeve"]["tips"] == 0.0
+    assert body["weights"]["by_sleeve"]["core_bonds"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
 
 
