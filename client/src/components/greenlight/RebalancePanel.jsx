@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRight, Info, TrendingDown } from 'lucide-react'
 
-const SLEEVES = [
+const ILLUSTRATIVE_SLEEVES = [
   { label: 'US Equity',   ticker: 'VTI',  target: 38, current: 44, color: '#ddb84a' },
   { label: 'Intl Equity', ticker: 'VXUS', target: 20, current: 18, color: '#4a72e8' },
   { label: 'Bonds',       ticker: 'BND',  target: 18, current: 15, color: '#6b7280' },
@@ -9,7 +9,7 @@ const SLEEVES = [
   { label: 'REITs',       ticker: 'USRT', target: 8,  current: 7,  color: '#8b5cf6' },
 ]
 
-const TAX_FLAGS = [
+const ILLUSTRATIVE_TAX_FLAGS = [
   {
     ticker: 'BND',
     label: 'Bonds (BND)',
@@ -24,7 +24,6 @@ const TAX_FLAGS = [
 function DriftBar({ sleeve }) {
   const drift = sleeve.current - sleeve.target
   const breached = Math.abs(drift) > 5
-  const driftPct = Math.min(Math.abs(drift) / 10, 1)
 
   return (
     <div
@@ -114,7 +113,7 @@ function DriftBar({ sleeve }) {
   )
 }
 
-function RebalancePlan() {
+function RebalancePlan({ monthlyContrib }) {
   return (
     <div
       className="rounded-2xl p-5"
@@ -137,13 +136,13 @@ function RebalancePlan() {
           </div>
           <div className="flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--ruby)' }}>
-              Corrective Trade: Band Breached
+              Illustrative Corrective Trade
             </div>
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              Sell <span className="font-mono">$450 VTI</span> → Buy <span className="font-mono">$225 BND + $225 VXUS</span>
+              Example: sell an overweight sleeve and buy underweight sleeves
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              VTI drifted +6pp above band. Minimal trade to correct. One Alpaca paper order pair.
+              Mallard does not have live brokerage holdings yet, so this is not your real drift or a real trade.
             </div>
           </div>
         </div>
@@ -164,10 +163,12 @@ function RebalancePlan() {
               Contribution Steer: Within Band
             </div>
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> → <span className="font-mono">BND 50% · SCHP 30% · USRT 20%</span>
+              {monthlyContrib != null && monthlyContrib > 0
+                ? <>Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> can be steered toward underweight target sleeves.</>
+                : 'No positive monthly contribution was returned by the analysis.'}
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Bonds, TIPS, REITs are slightly underweight but within the band. Steer contributions toward them. No trade, no fee, no taxable event.
+              Target sleeves can come from optimizer output when available; live underweights require brokerage holdings.
             </div>
           </div>
         </div>
@@ -185,11 +186,11 @@ function TaxPanel() {
       <div className="flex items-center gap-2 mb-4">
         <TrendingDown size={13} style={{ color: 'var(--ruby)' }} />
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-          Tax-Loss Harvest Flags · Read-Only
+          Tax-Loss Harvest Flags · Illustrative Only
         </div>
       </div>
 
-      {TAX_FLAGS.map(flag => (
+      {ILLUSTRATIVE_TAX_FLAGS.map(flag => (
         <div
           key={flag.ticker}
           className="rounded-xl p-4 mb-3"
@@ -243,8 +244,10 @@ function TaxPanel() {
 }
 
 export default function RebalancePanel({ onboardResult }) {
-  const profile = onboardResult?.profile ?? onboardResult ?? {}
-  const monthlyContrib = profile?.monthly_savings ?? profile?.monthly_contribution ?? 600
+  const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
+  const optimizerInput = onboardResult?.optimizer_input ?? {}
+  const monthly = Number(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus)
+  const monthlyContrib = Number.isFinite(monthly) && monthly > 0 ? monthly : null
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -253,29 +256,29 @@ export default function RebalancePanel({ onboardResult }) {
         {/* Header */}
         <div className="anim-fade-up">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-            Q2 2026 → Q3 2026 · Drift-Band Rebalance
+            Illustrative Drift-Band Rebalance
           </div>
           <div
             className="font-display font-semibold"
             style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}
           >
-            Fast-forwarded one quarter. Checking drift against ±5pp bands.
+            Live holdings are not connected, so drift and tax lots below are examples, not personal positions.
           </div>
         </div>
 
         {/* Drift bars */}
         <div className="anim-fade-up d100">
           <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-            Sleeve Drift · Current vs Target (±5pp band)
+            Sleeve Drift Example · Current vs Target (±5pp band)
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            {SLEEVES.map(s => <DriftBar key={s.ticker} sleeve={s} />)}
+            {ILLUSTRATIVE_SLEEVES.map(s => <DriftBar key={s.ticker} sleeve={s} />)}
           </div>
         </div>
 
         {/* Two-column: plan + tax */}
         <div className="grid gap-5 anim-fade-up d200" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <RebalancePlan />
+          <RebalancePlan monthlyContrib={monthlyContrib} />
           <TaxPanel />
         </div>
 
@@ -288,7 +291,7 @@ export default function RebalancePanel({ onboardResult }) {
           <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <strong style={{ color: 'var(--text-secondary)' }}>Rebalancing policy:</strong> Drift-band (±5pp), not calendar-forced.
             Positions within band are corrected by steering the next contribution toward underweight sleeves. No trade, no transaction cost, no taxable event.
-            Only band breaches trigger an actual order. This minimizes fees and tax drag versus periodic forced rebalancing.
+            Only band breaches would trigger an order after live holdings are connected. The displayed positions and tax lots are illustrative.
           </div>
         </div>
       </div>

@@ -1,0 +1,15 @@
+/* Global styles for the Next.js finance-engine app.
+   The Mallard UI is served by the Vite client (client/); this file exists
+   so pages/_app.tsx can import it and the API routes can boot. */
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}

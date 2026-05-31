@@ -114,6 +114,7 @@ export default function IntakeChat({ onComplete }) {
     setStreamingText('')
     setError(null)
     let accumulated = ''
+    let committed = false
 
     streamChat({
       messages: msgList,
@@ -122,6 +123,8 @@ export default function IntakeChat({ onComplete }) {
         setStreamingText(accumulated)
       },
       onProfileReady: async (profileData) => {
+        if (committed) return
+        committed = true
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
         }
@@ -144,6 +147,8 @@ export default function IntakeChat({ onComplete }) {
         setError(msg)
       },
       onDone: () => {
+        if (committed) return
+        committed = true
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
         }
@@ -155,6 +160,7 @@ export default function IntakeChat({ onComplete }) {
 
   useEffect(() => {
     const seed = [{ role: 'user', content: "Hi, I'd like to check whether I'm ready to start investing." }]
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(seed)
     callBackend(seed)
   }, []) // eslint-disable-line

@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:all": "concurrently -n \"API,Next,Vite\" -c \"green,cyan,yellow\" \"cd backend && python -m uvicorn main:app --reload --port 8000\" \"next dev --port 3000\" \"cd client && npm run dev\"",
+    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "dev:frontend": "cd client && npm run dev",
+    "dev:all": "concurrently -n \"API,Next,Vite\" -c \"green,cyan,yellow\" \"npm run dev:backend\" \"npm run dev\" \"npm run dev:frontend\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

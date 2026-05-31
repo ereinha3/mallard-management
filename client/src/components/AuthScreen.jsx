@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
+import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
   { num: '01', text: 'Tells you not to invest when that is the right answer.' },
@@ -149,12 +150,23 @@ function SignInForm({ onAuth }) {
     if (Object.keys(e).length) { setErrors(e); return }
     setErrors({})
     setLoading(true)
-    await new Promise(r => setTimeout(r, 700))
-    onAuth({ email, isNewUser: false })
+    try {
+      const user = await login({ email, password })
+      onAuth({ ...user, isNewUser: false })
+    } catch (err) {
+      setErrors({ form: err.message })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {errors.form && (
+        <div role="alert" style={{ padding: '10px 12px', background: 'rgba(217,64,64,0.1)', border: '1px solid var(--ruby)', borderRadius: 8, color: 'var(--ruby)', fontSize: 13 }}>
+          {errors.form}
+        </div>
+      )}
       <Field label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)}
         placeholder="you@example.com" error={errors.email} autoComplete="email" />
       <PwField label="Password" value={password} onChange={e => setPassword(e.target.value)}
@@ -172,7 +184,7 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '', phone: '', address: '', zip: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
@@ -186,10 +198,6 @@ function SignUpForm({ onAuth }) {
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
-    if (!form.phone.trim())   e.phone   = 'Phone number is required'
-    if (!form.address.trim()) e.address = 'Street address is required'
-    if (!form.zip.trim())     e.zip     = 'ZIP code is required'
-    else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP'
     return e
   }
 
@@ -199,12 +207,23 @@ function SignUpForm({ onAuth }) {
     if (Object.keys(e).length) { setErrors(e); return }
     setErrors({})
     setLoading(true)
-    await new Promise(r => setTimeout(r, 800))
-    onAuth({ name: form.name, email: form.email, phone: form.phone, address: form.address, zip: form.zip, isNewUser: true })
+    try {
+      const user = await register({ email: form.email, password: form.password, name: form.name })
+      onAuth({ ...user, isNewUser: true })
+    } catch (err) {
+      setErrors({ form: err.message })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+      {errors.form && (
+        <div role="alert" style={{ padding: '10px 12px', background: 'rgba(217,64,64,0.1)', border: '1px solid var(--ruby)', borderRadius: 8, color: 'var(--ruby)', fontSize: 13 }}>
+          {errors.form}
+        </div>
+      )}
       <Field label="Full Name" value={form.name} onChange={set('name')}
         placeholder="Jane Smith" error={errors.name} autoComplete="name" />
 
@@ -216,16 +235,6 @@ function SignUpForm({ onAuth }) {
           placeholder="Min. 8 chars" error={errors.password} autoComplete="new-password" />
         <PwField label="Confirm Password" value={form.confirm} onChange={set('confirm')}
           placeholder="Repeat password" error={errors.confirm} autoComplete="new-password" />
-      </div>
-
-      <Field label="Phone Number" type="tel" value={form.phone} onChange={set('phone')}
-        placeholder="(555) 000-0000" error={errors.phone} autoComplete="tel" />
-
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-        <Field label="Street Address" value={form.address} onChange={set('address')}
-          placeholder="123 Main St" error={errors.address} autoComplete="street-address" />
-        <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
-          placeholder="94105" error={errors.zip} autoComplete="postal-code" />
       </div>
 
       <SubmitBtn loading={loading} label="Create Account" />
@@ -243,12 +252,12 @@ export default function AuthScreen({ onAuth }) {
 
       {/* Left brand panel */}
       <div style={{
-        width: '40%', minWidth: 380,
+        width: '48%', minWidth: 480,
         position: 'relative',
         background: 'var(--bg-surface)',
         borderRight: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        padding: '44px 52px',
+        padding: '60px 72px',
         overflow: 'hidden',
       }}>
         {/* Vertical gold rule */}
@@ -260,66 +269,111 @@ export default function AuthScreen({ onAuth }) {
 
         {/* Geometric grid */}
         <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.038, pointerEvents: 'none' }}
-          viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
+          viewBox="0 0 500 900" preserveAspectRatio="xMidYMid slice">
           {Array.from({ length: 14 }, (_, i) => (
-            <line key={`h${i}`} x1="0" y1={i * 68} x2="400" y2={i * 68} stroke="#b08010" strokeWidth="0.5" />
+            <line key={`h${i}`} x1="0" y1={i * 68} x2="500" y2={i * 68} stroke="#b08010" strokeWidth="0.5" />
           ))}
-          {Array.from({ length: 7 }, (_, i) => (
+          {Array.from({ length: 9 }, (_, i) => (
             <line key={`v${i}`} x1={i * 68} y1="0" x2={i * 68} y2="900" stroke="#b08010" strokeWidth="0.5" />
           ))}
-          <circle cx="200" cy="450" r="200" fill="none" stroke="#b08010" strokeWidth="0.5" />
-          <circle cx="200" cy="450" r="130" fill="none" stroke="#b08010" strokeWidth="0.5" />
+          <circle cx="250" cy="450" r="250" fill="none" stroke="#b08010" strokeWidth="0.5" />
+          <circle cx="250" cy="450" r="160" fill="none" stroke="#b08010" strokeWidth="0.5" />
         </svg>
 
         {/* Glow */}
         <div style={{
-          position: 'absolute', bottom: '-60px', left: '-60px',
-          width: 400, height: 400, borderRadius: '50%',
+          position: 'absolute', bottom: '-80px', left: '-80px',
+          width: 500, height: 500, borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(176,128,16,0.11) 0%, rgba(176,128,16,0.04) 50%, transparent 70%)',
-          filter: 'blur(60px)', pointerEvents: 'none',
+          filter: 'blur(80px)', pointerEvents: 'none',
         }} />
 
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
+        {/* Logo Section */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, position: 'relative', zIndex: 1 }}>
           <div style={{
-            width: 38, height: 38, borderRadius: 9,
-            background: 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
+            width: 48, height: 48, borderRadius: 13,
+            background: 'linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 50%, #8c640d 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 6px 24px rgba(176, 128, 16, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.4)',
+            position: 'relative'
           }}>
-            <Feather size={18} color="#070604" />
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: 13,
+              background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)',
+              pointerEvents: 'none'
+            }} />
+            <Feather size={24} color="#070604" strokeWidth={2.5} />
           </div>
-          <div>
-            <div style={{ fontFamily: 'Playfair Display, serif', fontWeight: 600, fontSize: 17, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ 
+              fontFamily: 'Playfair Display, serif', 
+              fontWeight: 700, 
+              fontSize: 22, 
+              color: 'var(--text-primary)', 
+              letterSpacing: '-0.01em', 
+              lineHeight: 1.1 
+            }}>
               Mallard
             </div>
-            <div style={{ fontSize: 9.5, letterSpacing: '0.16em', color: 'var(--gold-light)', fontFamily: 'JetBrains Mono, monospace' }}>
-              WEALTH
+            <div style={{ 
+              fontSize: 10, 
+              fontWeight: 700,
+              letterSpacing: '0.28em', 
+              color: 'var(--gold-light)', 
+              fontFamily: 'JetBrains Mono, monospace',
+              opacity: 0.9,
+              marginTop: 2
+            }}>
+              MANAGEMENT
             </div>
           </div>
         </div>
 
         {/* Hero copy */}
-        <div style={{ position: 'relative', zIndex: 1 }}>
+        <div style={{ position: 'relative', zIndex: 1, marginTop: 60 }}>
           <div style={{
             fontFamily: 'Playfair Display, serif',
-            fontSize: 50, fontWeight: 600,
-            lineHeight: 1.09, letterSpacing: '-0.03em',
+            fontSize: 72, fontWeight: 600,
+            lineHeight: 1.02, letterSpacing: '-0.045em',
             color: 'var(--text-primary)',
-            marginBottom: 36,
+            marginBottom: 52,
           }}>
-            The advisor<br />
-            with the spine<br />
-            to tell you<br />
-            <em style={{ color: 'var(--gold-light)', fontStyle: 'italic' }}>not yet.</em>
+            Fly to<br />
+            financial<br />
+            <span style={{ 
+              color: 'var(--gold-light)', 
+              position: 'relative',
+              display: 'inline-block'
+            }}>
+              freedom!
+              <svg style={{ position: 'absolute', bottom: -12, left: 0, width: '100%', height: 16, opacity: 0.7 }} viewBox="0 0 100 12" preserveAspectRatio="none">
+                <path d="M0,10 Q50,0 100,10" fill="none" stroke="var(--gold)" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+            </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
             {VALUE_PROPS.map(vp => (
-              <div key={vp.num} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--gold)', letterSpacing: '0.06em', marginTop: 2, flexShrink: 0 }}>
+              <div key={vp.num} style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+                <div style={{ 
+                  width: 32, height: 32, borderRadius: '50%', 
+                  background: 'rgba(176, 128, 16, 0.08)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--gold)',
+                  border: '1px solid rgba(176, 128, 16, 0.15)',
+                  flexShrink: 0
+                }}>
                   {vp.num}
+                </div>
+                <span style={{ 
+                  fontSize: 16, 
+                  color: 'var(--text-secondary)', 
+                  lineHeight: 1.5,
+                  fontWeight: 450,
+                  maxWidth: '85%'
+                }}>
+                  {vp.text}
                 </span>
-                <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border-bright)', flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55 }}>{vp.text}</span>
               </div>
             ))}
           </div>
@@ -327,8 +381,8 @@ export default function AuthScreen({ onAuth }) {
 
         {/* Footer */}
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ height: 1, background: 'var(--border)', marginBottom: 18 }} />
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ height: 1, background: 'var(--border)', marginBottom: 20 }} />
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
             Demonstration only. Not financial advice.<br />Not a registered investment adviser.
           </div>
         </div>
@@ -406,9 +460,21 @@ export default function AuthScreen({ onAuth }) {
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         input::placeholder { color: var(--text-muted); opacity: 1; }
+        
+        /* Prevent browser autofill from turning fields white/blue */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus, 
+        input:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 100px var(--bg-elevated) inset !important;
+          -webkit-text-fill-color: var(--text-primary) !important;
+          transition: background-color 5000s ease-in-out 0s;
+          caret-color: var(--text-primary);
+        }
+
         input:-webkit-autofill {
-          -webkit-box-shadow: 0 0 0 100px var(--bg-elevated) inset;
-          -webkit-text-fill-color: var(--text-primary);
+          -webkit-box-shadow: 0 0 0 100px var(--bg-elevated) inset !important;
+          -webkit-text-fill-color: var(--text-primary) !important;
         }
       `}</style>
     </div>

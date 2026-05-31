@@ -2,26 +2,37 @@
 # Run from repo root: .\start-dev.ps1
 
 $root = $PSScriptRoot
+Set-Location $root
 
-# 1. Python FastAPI backend — port 8000
-Start-Process powershell -ArgumentList @(
-  "-NoExit", "-Command",
-  "Set-Location '$root\backend'; Write-Host '=== FastAPI :8000 ===' -ForegroundColor Green; python -m uvicorn main:app --reload --port 8000"
-)
+$ports = 3000, 8000, 5173
+$conflicts = @()
 
-# 2. Next.js finance-engine — port 3000
-Start-Process powershell -ArgumentList @(
-  "-NoExit", "-Command",
-  "Set-Location '$root'; Write-Host '=== Next.js :3000 ===' -ForegroundColor Cyan; npm run dev"
-)
+# Check for existing processes on the required ports
+foreach ($port in $ports) {
+    if (Get-Command lsof -ErrorAction SilentlyContinue) {
+        $pid = lsof -ti :$port
+        if ($pid) { $conflicts += $port }
+    }
+}
 
-# 3. Vite frontend — port 5173
-Start-Process powershell -ArgumentList @(
-  "-NoExit", "-Command",
-  "Set-Location '$root\client'; Write-Host '=== Vite :5173 ===' -ForegroundColor Yellow; npm run dev"
-)
+if ($conflicts.Count -gt 0) {
+    Write-Host "❌ Warning: Ports $($conflicts -join ', ') are already in use." -ForegroundColor Yellow
+    Write-Host "Closing existing instances to prevent 'piling up'..." -ForegroundColor Gray
+    foreach ($port in $conflicts) {
+        $pid = lsof -ti :$port
+        if ($pid) {
+            if ($IsWindows) {
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            } else {
+                kill -9 $pid
+            }
+        }
+    }
+    Start-Sleep -Seconds 1
+}
 
+Write-Host "🚀 Starting all dev servers (Next.js, FastAPI, Vite) in this window..." -ForegroundColor Cyan
+Write-Host "Tip: Press Ctrl+C once to stop ALL servers at once." -ForegroundColor Gray
 Write-Host ""
-Write-Host "Servers starting — wait 5 seconds then open:" -ForegroundColor White
-Write-Host "  http://localhost:5173  (app)" -ForegroundColor Yellow
-Write-Host "  http://localhost:8000/docs  (FastAPI explorer)" -ForegroundColor Green
+
+npm run dev:all

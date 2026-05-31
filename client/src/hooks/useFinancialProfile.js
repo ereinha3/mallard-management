@@ -15,6 +15,7 @@ export function useFinancialProfile(profileInput) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const profileInputKey = JSON.stringify(profileInput);
 
   const load = useCallback(async () => {
     if (!profileInput) return;
@@ -28,11 +29,13 @@ export function useFinancialProfile(profileInput) {
     } finally {
       setLoading(false);
     }
-  }, [JSON.stringify(profileInput)]); // re-fetch when input changes
+  }, [profileInput]);
 
   useEffect(() => {
+    void profileInputKey;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [load]);
+  }, [load, profileInputKey]); // re-fetch when input changes
 
   return { data, loading, error, refresh: load };
 }
