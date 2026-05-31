@@ -112,9 +112,6 @@ class UserProfileInput(BaseModel):
         ge=0,
         description="Non-liquid savings: stocks, ETFs, brokerage accounts",
     )
-    balance_401k: Optional[float] = Field(default=0.0, ge=0, description="Current 401(k) account balance")
-    ira_balance: Optional[float] = Field(default=0.0, ge=0, description="Current IRA account balance")
-    hsa_balance: Optional[float] = Field(default=0.0, ge=0, description="Current HSA account balance")
     debts: List[DebtItem] = Field(default_factory=list)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -607,32 +604,6 @@ class UpdateProfileRequest(BaseModel):
 class ProjectionRequest(BaseModel):
     weights: TargetWeights
     horizon_years: int = Field(ge=1)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _sanitize_weights(cls, data: Any) -> Any:
-        # Be tolerant of caller-supplied weight maps that carry null/None entries
-        # (e.g. a UI that enumerates universe sleeve members and leaves unheld
-        # tickers as null). Drop the null entries and renormalize by_ticker so the
-        # projection runs on a valid, fully-invested portfolio instead of 422-ing.
-        if isinstance(data, dict) and isinstance(data.get("weights"), dict):
-            weights = data["weights"]
-            for key in ("by_ticker", "by_sleeve", "by_bucket"):
-                mapping = weights.get(key)
-                if isinstance(mapping, dict):
-                    cleaned = {
-                        str(k): float(v)
-                        for k, v in mapping.items()
-                        if isinstance(v, (int, float)) and not isinstance(v, bool)
-                    }
-                    # Renormalize each map to sum to 1.0 so the downstream engine
-                    # TargetWeights sum validators accept the null-stripped portfolio.
-                    total = sum(cleaned.values())
-                    if total > 0:
-                        cleaned = {k: v / total for k, v in cleaned.items()}
-                    weights[key] = cleaned
-        return data
-
     monthly_contribution: float = Field(ge=0)
     capital_on_hand: float = Field(ge=0)
     goal_target: float = Field(ge=0)
