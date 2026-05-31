@@ -49,10 +49,12 @@ from persistence import (  # noqa: E402
     get_session,
     get_user,
     list_sessions,
+    set_alpaca_account_id,
     update_investment_account_cash,
     upsert_profile,
     verify_password,
 )
+from brokerage import BrokerageService, get_broker_client as _get_broker_client  # noqa: E402
 from broker_factory import get_broker  # noqa: E402
 from data.seed import seed_database  # noqa: E402
 from data.loaders import load_prices, returns_matrix  # noqa: E402
@@ -89,6 +91,10 @@ _RISK_LABELS = [
     (float("inf"), "Conservative"),
 ]
 _WEIGHT_TOLERANCE = 1e-6
+
+
+def get_broker_client() -> Any:
+    return _get_broker_client()
 
 
 def _ensure_engine_data() -> None:
@@ -982,6 +988,7 @@ def _investment_account_out(account: InvestmentAccount) -> api_models.Investment
         cash_available=account.cash_available,
         cash_pending=account.cash_pending,
         broker_provider=account.broker_provider,
+        alpaca_account_id=account.alpaca_account_id,
     )
 
 
@@ -1124,6 +1131,74 @@ async def funding_account(
     db.commit()
     db.refresh(account)
     return _investment_account_out(account)
+
+
+@router.post("/brokerage/account", response_model=api_models.BrokerageAccountOut)
+async def brokerage_account(
+    request: api_models.BrokerageAccountRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageAccountOut:
+    try:
+        service = BrokerageService(client=get_broker_client())
+        account_id = service.create_brokerage_account({"email_address": request.user_email})
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    account = set_alpaca_account_id(db, request.user_email, account_id)
+    db.commit()
+    db.refresh(account)
+    return api_models.BrokerageAccountOut(
+        user_email=account.user_email,
+        alpaca_account_id=account.alpaca_account_id or account_id,
+    )
+
+
+@router.post(
+    "/brokerage/ach-relationship",
+    response_model=api_models.BrokerageACHRelationshipOut,
+)
+async def brokerage_ach_relationship(
+    request: api_models.BrokerageACHRelationshipRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageACHRelationshipOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    if not account.alpaca_account_id:
+        raise HTTPException(status_code=400, detail="No alpaca_account_id stored for user.")
+
+    try:
+        service = BrokerageService(client=get_broker_client())
+        relationship = service.create_ach_relationship(
+            account.alpaca_account_id,
+            request.model_dump(exclude={"user_email"}),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return api_models.BrokerageACHRelationshipOut(
+        id=getattr(relationship, "id", None),
+        status=getattr(relationship, "status", None),
+    )
+
+
+@router.post("/brokerage/deposit", response_model=api_models.BrokerageDepositOut)
+async def brokerage_deposit(
+    request: api_models.BrokerageDepositRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageDepositOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    if not account.alpaca_account_id:
+        raise HTTPException(status_code=400, detail="No alpaca_account_id stored for user.")
+
+    try:
+        service = BrokerageService(client=get_broker_client())
+        deposit = service.create_deposit(account.alpaca_account_id, request.amount)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return api_models.BrokerageDepositOut(
+        id=getattr(deposit, "id", None),
+        status=getattr(deposit, "status", None),
+    )
 
 
 @router.post("/execution/preview", response_model=api_models.OrderPlanOut)

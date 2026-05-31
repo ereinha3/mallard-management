@@ -106,6 +106,33 @@ def test_mock_deposit_creates_account_and_increments_cash(test_app: FastAPI):
     assert account["broker_provider"] == "simulator"
 
 
+def test_brokerage_account_route_persists_alpaca_account_id(
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from api import v1 as api_v1
+
+    class FakeBrokerClient:
+        def create_account(self, request: object) -> object:
+            assert request.contact.email_address == "brokerage-route@example.com"
+            return type("Account", (), {"id": "alpaca-acct-route"})()
+
+    monkeypatch.setattr(api_v1, "get_broker_client", lambda: FakeBrokerClient())
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/brokerage/account",
+        json={"user_email": "brokerage-route@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["alpaca_account_id"] == "alpaca-acct-route"
+
+    account_response = client.get("/api/v1/funding/account/brokerage-route@example.com")
+    assert account_response.status_code == 200
+    assert account_response.json()["alpaca_account_id"] == "alpaca-acct-route"
+
+
 def test_execution_preview_sizes_buys_against_available_cash(test_app: FastAPI):
     client = _client(test_app)
     email = "execution-preview@example.com"
