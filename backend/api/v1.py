@@ -60,7 +60,7 @@ from persistence import (  # noqa: E402
 from brokerage import BrokerageService, get_broker_client as _get_broker_client  # noqa: E402
 from broker_factory import get_broker  # noqa: E402
 from data.seed import seed_database  # noqa: E402
-from data.loaders import load_prices, returns_matrix, ticker_metadata  # noqa: E402
+from data.loaders import DATA_DIR, load_prices, returns_matrix, ticker_metadata  # noqa: E402
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
@@ -101,6 +101,8 @@ _RISK_LABELS = [
     (float("inf"), "Conservative"),
 ]
 _WEIGHT_TOLERANCE = 1e-6
+_BACKTEST_PRIMARY_STRATEGY = "greenlight_erc"
+_BACKTEST_BENCHMARK_STRATEGIES = ("one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy")
 
 
 def get_broker_client() -> Any:
@@ -157,6 +159,68 @@ def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUser
         for key, value in payload.get("confidence", {}).items()
     }
     return EngineUserProfile.model_validate(payload)
+
+
+def _safe_mapping_get(source: Any, key: str, default: Any = None) -> Any:
+    if isinstance(source, Mapping):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _load_cached_backtest_strategies() -> Mapping[str, Any]:
+    path = DATA_DIR / "backtest.json"
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    strategies = _safe_mapping_get(payload, "strategies", {})
+    return strategies if isinstance(strategies, Mapping) else {}
+
+
+def _enrich_backtest_strategy(report_strategy: Any, full_strategy: Any | None) -> dict[str, Any]:
+    strategy = dict(report_strategy) if isinstance(report_strategy, Mapping) else {}
+    full_strategy = full_strategy or {}
+
+    equity_curve = _safe_mapping_get(strategy, "equity_curve")
+    if equity_curve is None:
+        equity_curve = _safe_mapping_get(full_strategy, "equity_curve", [])
+    strategy["equity_curve"] = equity_curve
+
+    drawdown_curve = _safe_mapping_get(strategy, "drawdown_curve")
+    if drawdown_curve is None:
+        drawdown_curve = _safe_mapping_get(full_strategy, "drawdown_curve")
+    strategy["drawdown_curve"] = drawdown_curve
+
+    metrics = dict(_safe_mapping_get(strategy, "metrics", {}) or {})
+    full_metrics = _safe_mapping_get(full_strategy, "metrics", {}) or {}
+    if not metrics and isinstance(full_metrics, Mapping):
+        metrics = dict(full_metrics)
+    for key in ("cagr", "deflated_sharpe"):
+        if key not in metrics:
+            metrics[key] = _safe_mapping_get(full_metrics, key)
+    strategy["metrics"] = metrics
+    return strategy
+
+
+def _enrich_backtest_report(report: Any) -> dict[str, Any]:
+    payload = dict(report) if isinstance(report, Mapping) else {}
+    strategies = _load_cached_backtest_strategies()
+    primary = _safe_mapping_get(strategies, _BACKTEST_PRIMARY_STRATEGY)
+    enriched_primary = _enrich_backtest_strategy(payload, primary)
+    payload["equity_curve"] = enriched_primary["equity_curve"]
+    payload["drawdown_curve"] = enriched_primary["drawdown_curve"]
+    payload["metrics"] = enriched_primary["metrics"]
+
+    existing_benchmarks = _safe_mapping_get(payload, "benchmarks", {}) or {}
+    benchmarks = {}
+    for name in _BACKTEST_BENCHMARK_STRATEGIES:
+        report_benchmark = _safe_mapping_get(existing_benchmarks, name)
+        full_benchmark = _safe_mapping_get(strategies, name)
+        if report_benchmark is None and full_benchmark is None:
+            continue
+        benchmarks[name] = _enrich_backtest_strategy(report_benchmark or {}, full_benchmark)
+    payload["benchmarks"] = benchmarks
+    return payload
 
 
 def _validation_clarifications(exc: ValidationError) -> list[api_models.ClarificationRequest]:
@@ -1760,7 +1824,7 @@ async def backtest(request: api_models.BacktestRequest) -> api_models.BacktestRe
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_models.BacktestResponse.model_validate(report)
+    return api_models.BacktestResponse.model_validate(_enrich_backtest_report(report))
 
 
 @router.post(
