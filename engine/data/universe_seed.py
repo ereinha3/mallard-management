@@ -120,20 +120,30 @@ ALTERNATES: list[dict] = [
 ]
 
 
+# Benchmark-only series. role='benchmark' keeps these OUT of the investable
+# universe (data/loaders.py filters to role in {risky, safe}), but they are
+# still seeded into the price DB so the backtest can score the strategy against
+# them. SPY is the canonical "did you beat the S&P 500?" yardstick and trades
+# back to 1993, covering the full backtest window.
+BENCHMARKS: list[dict] = [
+    {'ticker': 'SPY', 'name': 'SPDR S&P 500 ETF Trust', 'asset_class': 'equity', 'bucket': 'sp500', 'region': 'us', 'size': 'large', 'style': 'blend', 'underlying_index': 'S&P 500', 'issuer': 'SSGA', 'quote_type': 'ETF', 'sleeve': 'benchmark', 'role': 'benchmark', 'market_weight': None, 'fossil_fuels': None, 'weapons': None, 'tobacco': None, 'gambling': None, 'inception': '1993-01-29'},
+]
+
+
 def _to_record(row: dict) -> dict:
     rec = {k: v for k, v in row.items() if k != 'inception'}
     return rec
 
 
 def instrument_rows() -> list[dict]:
-    """Instrument rows (primaries + ESG alternates), without inception."""
-    return [_to_record(r) for r in (*UNIVERSE, *ALTERNATES)]
+    """Instrument rows (primaries + ESG alternates + benchmarks), no inception."""
+    return [_to_record(r) for r in (*UNIVERSE, *ALTERNATES, *BENCHMARKS)]
 
 
 def inception_dates() -> dict[str, date]:
     """Ticker -> inception date for InstrumentMeta."""
     out: dict[str, date] = {}
-    for r in (*UNIVERSE, *ALTERNATES):
+    for r in (*UNIVERSE, *ALTERNATES, *BENCHMARKS):
         if r.get('inception'):
             y, m, d = (int(x) for x in r['inception'].split('-'))
             out[r['ticker']] = date(y, m, d)
@@ -141,6 +151,6 @@ def inception_dates() -> dict[str, date]:
 
 
 def tickers() -> list[str]:
-    """All tickers needing price history."""
-    return [r['ticker'] for r in (*UNIVERSE, *ALTERNATES)]
+    """All tickers needing price history (investable + benchmarks)."""
+    return [r['ticker'] for r in (*UNIVERSE, *ALTERNATES, *BENCHMARKS)]
 

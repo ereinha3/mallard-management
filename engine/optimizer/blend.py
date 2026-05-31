@@ -142,7 +142,11 @@ def _group_returns(
             continue
         fallback = sleeve_matrix.get(bucket_sleeves.get(str(group), ""))
         if fallback is None:
-            raise KeyError(f"No cached prices available for group {group!r}")
+            # No priced tickers for this group in the given window (e.g. a fund
+            # that had not yet listed in a historical backtest window). Skip it
+            # rather than failing; callers filter risky/safe buckets to the
+            # groups actually present.
+            continue
         matrix[group] = fallback
 
     return matrix.dropna(how="any")

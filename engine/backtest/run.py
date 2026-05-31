@@ -19,7 +19,11 @@ from schemas.constants import TX_COST_BPS
 from schemas.models import BacktestMetrics, BacktestResult, BacktestStrategy
 
 STRATEGY_NAMES = ("greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo")
-BACKTEST_REPORT_BENCHMARKS = ("one_over_n", "sixty_forty", "target_date")
+# Single-ticker buy-and-hold benchmarks: strategy name -> ticker. These are
+# scored against the strategy but are NOT part of the investable universe (the
+# ticker carries role='benchmark' in the seed, so the optimizer never sees it).
+PRICE_BENCHMARKS = {"spy": "SPY"}
+BACKTEST_REPORT_BENCHMARKS = ("one_over_n", "sixty_forty", "target_date", "spy")
 BACKTEST_REPORT_METRICS = ("sharpe", "sortino", "max_drawdown", "calmar", "turnover")
 WINDOW_MONTHS = 36
 PERIODS_PER_YEAR = 12
@@ -134,6 +138,23 @@ def _finite(value: float) -> float:
     return float(value) if np.isfinite(value) else 0.0
 
 
+def _first_investable_index(
+    returns: pd.DataFrame,
+    window_months: int,
+    risky_tickers: set[str],
+    safe_tickers: set[str],
+) -> int:
+    """First index whose trailing window has both a risky and a safe instrument."""
+
+    columns = list(returns.columns)
+    for idx in range(window_months, len(returns)):
+        window = returns.iloc[idx - window_months : idx]
+        available = {col for col in columns if bool(window[col].notna().all())}
+        if available & risky_tickers and available & safe_tickers:
+            return idx
+    return window_months
+
+
 def _walk_forward_strategy_result(
     name: str,
     universe: Any,
@@ -142,6 +163,7 @@ def _walk_forward_strategy_result(
     window_months: int,
     rebalance_step: int,
     tx_cost_bps: float,
+    start_idx: int | None = None,
 ) -> BacktestStrategy:
     columns = returns.columns
     current = pd.Series(0.0, index=columns, dtype=float)
@@ -151,27 +173,39 @@ def _walk_forward_strategy_result(
     turnover_values: list[float] = []
     dates = []
     tx_rate = tx_cost_bps / 10_000.0
+    invested = False
+    loop_start = window_months if start_idx is None else max(window_months, start_idx)
 
-    for idx in range(window_months, len(returns)):
+    for idx in range(loop_start, len(returns)):
         period_start = value
-        elapsed_months = idx - window_months
-        if elapsed_months % rebalance_step == 0:
-            window_returns = returns.iloc[idx - window_months : idx]
-            price_window = prices.iloc[idx - window_months : idx + 1][columns]
-            target = _walk_forward_target(
+        elapsed_months = idx - loop_start
+        window_returns_full = returns.iloc[idx - window_months : idx]
+        # Investable assets at this date: those with a complete trailing window
+        # (newer funds phase in as they accumulate history).
+        available = [col for col in columns if bool(window_returns_full[col].notna().all())]
+        if elapsed_months % rebalance_step == 0 and available:
+            window_returns = window_returns_full[available]
+            price_window = prices.iloc[idx - window_months : idx + 1][available]
+            target_avail = _walk_forward_target(
                 name,
                 universe,
                 price_window,
                 window_returns,
-                columns,
+                pd.Index(available),
                 elapsed_months,
             )
+            target = pd.Series(0.0, index=columns, dtype=float)
+            target.loc[target_avail.index] = target_avail.to_numpy(dtype=float)
             gross_turnover = float((target - current).abs().sum())
             value *= max(0.0, 1.0 - tx_rate * gross_turnover)
             turnover_values.append(gross_turnover / 2.0)
             current = target
+            invested = True
 
-        asset_returns = returns.iloc[idx]
+        if not invested:
+            continue
+
+        asset_returns = returns.iloc[idx].fillna(0.0)
         portfolio_return = float((current * asset_returns).sum())
         value *= 1.0 + portfolio_return
         if value <= 0.0:
@@ -180,11 +214,24 @@ def _walk_forward_strategy_result(
         denominator = 1.0 + portfolio_return
         if denominator > 0.0:
             current = current * (1.0 + asset_returns) / denominator
-            current = current / current.sum()
+            total = float(current.sum())
+            if total > 0.0:
+                current = current / total
 
         dates.append(returns.index[idx].to_timestamp().date())
         equity_values.append(value)
         return_values.append(value / period_start - 1.0)
+
+    return _strategy_from_curves(dates, equity_values, return_values, turnover_values)
+
+
+def _strategy_from_curves(
+    dates: list[Any],
+    equity_values: list[float],
+    return_values: list[float],
+    turnover_values: list[float],
+) -> BacktestStrategy:
+    """Assemble a BacktestStrategy (curves + metrics) from raw monthly series."""
 
     equity = np.asarray(equity_values, dtype=float)
     values = np.asarray(return_values, dtype=float)
@@ -214,6 +261,46 @@ def _walk_forward_strategy_result(
     )
 
 
+def _buy_and_hold_result(
+    ticker: str,
+    monthly_prices: pd.DataFrame,
+    returns_index: pd.Index,
+    loop_start: int,
+    tx_cost_bps: float,
+) -> BacktestStrategy | None:
+    """Buy-and-hold a single benchmark ticker, aligned to the strategy grid.
+
+    Holding 100% of one instrument and "rebalancing" to 100% is a no-op, so the
+    only cost is the initial purchase. Returns are aligned to ``returns_index``
+    and the curve starts at ``loop_start`` so it overlays the walk-forward
+    strategies exactly. Returns None if the ticker has no price history covering
+    the window.
+    """
+
+    if ticker not in monthly_prices.columns:
+        return None
+    series = monthly_prices[ticker].reindex(returns_index.union(monthly_prices.index)).sort_index()
+    bench_returns = series.pct_change().reindex(returns_index)
+    if bench_returns.iloc[loop_start:].notna().sum() == 0:
+        return None
+
+    tx_rate = tx_cost_bps / 10_000.0
+    value = 10_000.0 * max(0.0, 1.0 - tx_rate)  # one-time entry cost on a full buy
+    dates: list[Any] = []
+    equity_values: list[float] = []
+    return_values: list[float] = []
+    for idx in range(loop_start, len(returns_index)):
+        period_start = value
+        month_return = float(bench_returns.iloc[idx]) if np.isfinite(bench_returns.iloc[idx]) else 0.0
+        value *= 1.0 + month_return
+        dates.append(returns_index[idx].to_timestamp().date())
+        equity_values.append(value)
+        return_values.append(value / period_start - 1.0)
+
+    turnover_values = [0.5]  # single entry trade (one-sided turnover)
+    return _strategy_from_curves(dates, equity_values, return_values, turnover_values)
+
+
 def run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
     """Run the offline backtest and write a static BacktestResult artifact."""
 
@@ -233,14 +320,26 @@ def run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
         raise ValueError("rebalance must be 'monthly' or 'quarterly'")
 
     universe = load_universe(["none"])
-    prices = _monthly_price_frame(prices_arg)
-    columns = [ticker for ticker in universe.tickers if ticker in prices.columns]
-    prices = prices[columns].dropna(how="any")
-    returns = prices.pct_change().dropna(how="any")
+    monthly = _monthly_price_frame(prices_arg)
+    columns = [ticker for ticker in universe.tickers if ticker in monthly.columns]
+    # Keep the full ragged panel (newer funds have leading NaNs). The walk-forward
+    # selects, at each rebalance, the assets with a complete trailing window, so
+    # the investable universe expands as funds list — no common-interval collapse.
+    prices = monthly[columns].dropna(how="all")
+    returns = prices.pct_change().dropna(how="all")
     if len(returns) <= window_months:
         raise ValueError("cached prices did not produce any monthly returns")
 
-    strategies = {
+    # Start the backtest once a full trailing window contains at least one risky
+    # and one safe instrument (the CAL blend needs both); older funds anchor the
+    # early years, newer ones phase in. All strategies share this start so their
+    # equity curves align.
+    risky_tickers = {t for b in universe.risky_buckets for t in universe.buckets.get(b, [])}
+    safe_tickers = {t for b in universe.safe_buckets for t in universe.buckets.get(b, [])}
+    start_idx = _first_investable_index(returns, window_months, risky_tickers, safe_tickers)
+    loop_start = max(window_months, start_idx)
+
+    strategies: dict[str, BacktestStrategy] = {
         name: _walk_forward_strategy_result(
             name=name,
             universe=universe,
@@ -249,9 +348,17 @@ def run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
             window_months=window_months,
             rebalance_step=REBALANCE_MONTHS[rebalance],
             tx_cost_bps=tx_cost_bps,
+            start_idx=start_idx,
         )
         for name in STRATEGY_NAMES
     }
+    # Single-ticker buy-and-hold benchmarks (e.g. SPY) scored over the same grid.
+    for bench_name, bench_ticker in PRICE_BENCHMARKS.items():
+        bench = _buy_and_hold_result(
+            bench_ticker, monthly, returns.index, loop_start, tx_cost_bps
+        )
+        if bench is not None:
+            strategies[bench_name] = bench
     first_curve = next(iter(strategies.values())).equity_curve
     result = BacktestResult(
         strategies=strategies,

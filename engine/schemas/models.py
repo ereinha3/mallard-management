@@ -294,7 +294,9 @@ class TaxReport(ContractModel):
     after_tax_notes: list[str]
 
 
-StrategyName = Literal["greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo"]
+StrategyName = Literal[
+    "greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy"
+]
 
 
 class EquityCurvePoint(ContractModel):
