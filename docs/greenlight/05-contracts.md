@@ -124,9 +124,14 @@ Request body is `UserProfileInput`. Optional query: `user_email`.
 `POST /portfolio`
 
 ```json
-Request = { "profile": UserProfileInput }
+Request = {
+  "profile": UserProfileInput,
+  "method": "erc|black_litterman|cvar|null"
+}
 Response = PortfolioResponse
 ```
+
+`method` is optional. Omit it, pass `null`, or pass `"erc"` to use the default ERC + CAL path. `"black_litterman"` and `"cvar"` are backend-only stretch optimizers that preserve the same `PortfolioResponse` shape and set `weights.method` to the selected method.
 
 #### Backtest
 
@@ -317,7 +322,7 @@ Both chat endpoints use `Content-Type: text/event-stream`. Each event frame is `
 Backend team does not edit frontend for this backend-only module. Frontend team must add these wrappers to `client/src/api/greenlightClient.js`, using the existing host-relative `BASE` and fetch/error pattern:
 
 ```js
-postPortfolio(profile)   // POST `${BASE}/api/v1/portfolio` with body { profile }
+postPortfolio(profile, method?)   // POST `${BASE}/api/v1/portfolio` with body { profile, method? }
 postBacktest(input)      // POST `${BASE}/api/v1/backtest` with body { profile | weights, start?, end? }
 postProjection(input)    // POST `${BASE}/api/v1/projection` with body input
 postRebalance(input)     // POST `${BASE}/api/v1/rebalance` with body input
@@ -325,6 +330,8 @@ postTaxReport(input)     // POST `${BASE}/api/v1/tax/report` with body input
 ```
 
 Frontend team must add `BacktestPanel.jsx` with a curve overlay for the strategy and benchmarks plus a metrics comparison table. Backend-only Module F does not implement that panel.
+
+Future frontend note: `PortfolioView` can add an ERC / Black-Litterman / CVaR optimizer toggle by sending the optional `method` field to `postPortfolio`. The default visible choice should remain ERC until the alternatives graduate from stretch status; this backend module does not implement UI.
 
 ---
 
