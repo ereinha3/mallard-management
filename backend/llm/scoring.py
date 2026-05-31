@@ -406,33 +406,42 @@ def score_answer(item, answer: str, history: list) -> object | None:
 
 def render_question(item, history: list) -> Generator[str, None, None]:
     client = _client()
-    contents = _contents_from_messages(history)
-    contents.append(
-        types.Content(
-            role="user",
-            parts=[
-                types.Part(
-                    text=(
-                        "Ask the next Mallard Management intake question now.\n\n"
-                        f"Item key: {_item_key(item)}\n"
-                        f"Question source: {_item_question(item)}\n"
-                        f"Rubric, for your private guidance only: {_item_rubric(item)}"
-                    )
-                )
-            ],
-        )
+
+    # Only the user's most recent answer is provided, purely for a natural lead-in.
+    # We deliberately do NOT replay the whole transcript here — doing so lets the
+    # model free-wheel and invent off-script questions (e.g. asking about 401k).
+    last_user = ""
+    for message in reversed(history):
+        role, content = _message_role_content(message)
+        if role == "user":
+            last_user = content or ""
+            break
+
+    instruction = (
+        "Ask ONLY the question below, rephrased warmly and conversationally as your entire "
+        "reply. You may add at most one short, friendly lead-in clause reacting to the user's "
+        "last message. Do NOT add, merge, substitute, or invent any other question, and do NOT "
+        "ask about anything not contained in this exact question. Never show numbered options, "
+        "letter choices, or scale anchors.\n\n"
+        f"THE ONE QUESTION TO ASK: {_item_question(item)}"
     )
+    contents: list[Any] = []
+    if last_user:
+        contents.append(
+            types.Content(role="user", parts=[types.Part(text=f"(The user's last message was: {last_user})")])
+        )
+    contents.append(types.Content(role="user", parts=[types.Part(text=instruction)]))
 
     system_instruction = (
-        "You are Mallard Management's intake specialist. Ask exactly one warm, "
-        "conversational question in your own words for the provided item. Do not "
-        "show numbered options, letter choices, or scale anchors. Do not ask for "
-        "anything already answered in the conversation history."
+        "You are Mallard Management's intake specialist. You are handed EXACTLY ONE question to "
+        "ask this turn. Your only job is to ask that single question, conversationally and warmly, "
+        "in your own words. Never invent or substitute a different question. Never ask about any "
+        "topic outside the given question. Never show numbered options, letter choices, or scale anchors."
     )
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.4,
-        max_output_tokens=512,
+        max_output_tokens=300,
         thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
 
