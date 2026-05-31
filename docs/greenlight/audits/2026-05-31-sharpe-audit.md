@@ -66,6 +66,35 @@ files in the main tree, **do not run git, do not commit, and add new tests in NE
 files** (flag any needed change to a shared existing test to the orchestrator).
 Orchestrator validates + commits per module.
 
+### ⚠️ Wave 1 — OUTCOME (landed 2026-05-31, commit 3e33c4e)
+
+All five modules integrated; engine 83 + backend 64 green. The **CAL-collapse bug
+is genuinely fixed** (safe-sleeve vol 21% → 0.86%, mean blend α 0.03 → 0.34, risky
+share 3% → 34%). **But greenlight Sharpe did NOT improve** — backtest:
+
+| | CAGR | Sharpe | maxDD | Calmar |
+|---|---|---|---|---|
+| greenlight_erc (post-Wave-1) | 2.8% | **0.685** | −22.8% | 0.12 |
+| SPY | 11.2% | 0.779 | −50.8% | 0.22 |
+
+Why the Sharpe gap persists (evidence): risk-parity ERC **overweights the
+now-risky bonds** — 44% of the risky-sleeve budget is core_bonds/credit/
+duration/inflation, because risk parity piles dollar weight into low-vol assets.
+Wave 1 *relocated* the bond-heaviness from the CAL leg into the ERC sleeve rather
+than removing it. The worse maxDD (−22.8% vs the old −14.3%) is because the old
+number was a bug artifact (95%-bonds was barely invested); the portfolio is now
+genuinely invested with time-varying equity exposure that caught 2008.
+
+**The real Sharpe lever is the OBJECTIVE (audit findings #3/#8), not the safe
+sleeve.** C2's satellite cap doesn't touch bonds. Options for the next increment:
+(A) keep bonds OUT of the equity risk-parity — run ERC over equity/real-asset
+risky buckets only, with a capped bond *diversifier* allocation, so equity drives
+the risky-sleeve Sharpe; (B) Sharpe-aware tilt / Black-Litterman overlay; (C)
+max-diversification or HRP instead of pure ERC. Recommendation: A (fastest,
+directly addresses the bond-overweight) ± a light Sharpe-aware tilt.
+
+---
+
 ### ✅ Wave 0 — FROZEN CONTRACT (landed 2026-05-31)
 
 This is the stable contract Wave-1 agents code against. **Do not change these
