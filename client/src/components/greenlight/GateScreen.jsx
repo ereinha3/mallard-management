@@ -18,10 +18,8 @@ function AnimatedNumber({ target, prefix = '$', duration = 1200 }) {
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-/** Pull the user's financial profile out of the onboard response.
- *  Ethan's backend may nest it under .profile or return it flat. */
 function getProfile(gateResult) {
-  return gateResult?.profile ?? gateResult ?? {}
+  return gateResult?.validated_profile ?? gateResult?.profile ?? gateResult ?? {}
 }
 
 /** High-APR debts are those above 8% APR (the market-return threshold). */
@@ -41,18 +39,31 @@ function getLowAprDebts(profile) {
 /** Derive halt reasons from the gate_result checks or infer from profile. */
 function getHaltReasons(gateResult) {
   const profile = getProfile(gateResult)
+  const gate = gateResult?.gate_result ?? {}
   const checks = gateResult?.gate_result?.checks ?? {}
+  const efMath = gate?.math?.emergency_fund
+  const debtMath = gate?.math?.debt
 
-  const monthlyExpenses = profile?.monthly_expenses ?? 3200
-  const efRequired = monthlyExpenses * 3
-  const efCurrent = profile?.emergency_fund ?? 0
+  const monthlyExpenses = profile?.monthly_expenses ?? efMath?.monthly_expenses ?? 3200
+  const efRequired = profile?.required_emergency_fund ?? efMath?.target_balance ?? monthlyExpenses * 3
+  const efCurrent = profile?.emergency_fund ?? efMath?.current_balance ?? 0
   const efShortfall = Math.max(0, efRequired - efCurrent)
-  const efFailed = checks?.emergency_fund?.passed === false || efCurrent < efRequired
+  const efFailed = gate?.failed_check === 'emergency_fund'
+    || checks?.emergency_fund?.passed === false
+    || (!gate?.failed_check && efCurrent < efRequired)
 
-  const highAprDebts = getHighAprDebts(profile)
-  const debtFailed = checks?.high_apr_debt?.passed === false || highAprDebts.length > 0
+  const gateDebt = debtMath ? {
+    balance: debtMath.debt_balance,
+    apr: debtMath.apr,
+    kind: debtMath.debt_kind,
+    label: debtMath.debt_kind?.replace(/_/g, ' '),
+  } : null
+  const highAprDebts = gateDebt ? [gateDebt, ...getHighAprDebts(profile)] : getHighAprDebts(profile)
+  const debtFailed = gate?.failed_check === 'high_interest_debt'
+    || checks?.high_apr_debt?.passed === false
+    || highAprDebts.length > 0
 
-  const marketReturn = checks?.high_apr_debt?.market_return_after_tax ?? 0.064
+  const marketReturn = debtMath?.expected_after_tax_market_return ?? checks?.high_apr_debt?.market_return_after_tax ?? 0.064
   const highAprThreshold = 8
 
   return {
@@ -132,7 +143,7 @@ function HaltScreen({ onFix, gateResult }) {
         {/* Headline */}
         <div
           className="font-display font-semibold mb-2"
-          style={{ fontSize: 56, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text-primary)' }}
+          style={{ fontSize: 56, lineHeight: 1, letterSpacing: 0, color: 'var(--text-primary)' }}
         >
           Not yet.
         </div>
@@ -354,11 +365,11 @@ function GreenScreen({ onContinue, gateResult }) {
   const profile = getProfile(gateResult)
   const monthlyExpenses = profile?.monthly_expenses ?? 3200
   const efAmount = profile?.emergency_fund ?? 10000
-  const monthsCovered = monthlyExpenses > 0
+  const monthsCovered = profile?.emergency_fund_months ?? (monthlyExpenses > 0
     ? Math.round((efAmount / monthlyExpenses) * 10) / 10
-    : 3.1
+    : 3.1)
   const capital = profile?.capital_on_hand ?? profile?.capital ?? 7500
-  const monthlyContrib = profile?.monthly_savings ?? profile?.monthly_contribution ?? 600
+  const monthlyContrib = profile?.monthly_surplus ?? profile?.monthly_savings ?? profile?.monthly_contribution ?? 600
 
   const lowAprDebts = getLowAprDebts(profile)
 
@@ -428,7 +439,7 @@ function GreenScreen({ onContinue, gateResult }) {
         {/* Headline */}
         <div
           className="font-display font-semibold mb-2"
-          style={{ fontSize: 56, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text-primary)' }}
+          style={{ fontSize: 56, lineHeight: 1, letterSpacing: 0, color: 'var(--text-primary)' }}
         >
           You're cleared.
         </div>

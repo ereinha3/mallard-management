@@ -1,5 +1,49 @@
 const BASE = import.meta.env.VITE_GREENLIGHT_URL ?? 'http://localhost:8000'
 
+async function jsonOrThrow(res, label) {
+  if (res.ok) return res.json()
+
+  const payload = await res.json().catch(() => null)
+  const detail = payload?.detail ?? payload?.error?.message ?? payload?.error
+  const message = typeof detail === 'string'
+    ? detail
+    : detail
+    ? JSON.stringify(detail)
+    : await res.text().catch(() => res.statusText)
+  throw new Error(`${label} error ${res.status}: ${message}`)
+}
+
+function profileFromInput(input) {
+  return input?.profile
+    ?? input?.validated_profile
+    ?? input?.onboard?.validated_profile
+    ?? input
+}
+
+function projectionInputFromSnapshot(snapshot, portfolio) {
+  const profile = profileFromInput(snapshot) ?? {}
+  const optimizerInput = snapshot?.optimizer_input ?? {}
+  const monthlyContribution = Math.max(
+    0,
+    snapshot?.monthly_contribution
+      ?? snapshot?.monthlyContribution
+      ?? optimizerInput.monthly_surplus
+      ?? profile.monthly_surplus
+      ?? 0,
+  )
+
+  return {
+    weights: portfolio.weights,
+    horizon_years: snapshot?.horizon_years ?? optimizerInput.horizon_years ?? profile.horizon_years ?? 30,
+    monthly_contribution: monthlyContribution,
+    capital_on_hand: snapshot?.capital_on_hand ?? optimizerInput.capital_on_hand ?? profile.capital_on_hand ?? 0,
+    goal_target: snapshot?.goal_target ?? optimizerInput.goal_target ?? profile.goal_target ?? 0,
+    generator: snapshot?.generator ?? 'stationary_bootstrap',
+    seed: snapshot?.seed,
+    n_paths: snapshot?.n_paths ?? 10000,
+  }
+}
+
 /**
  * Stream the elicitation chat. Calls /api/v1/chat with the full message history.
  * Callbacks:
@@ -64,11 +108,7 @@ export async function postOnboard(profile) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(profile),
   })
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`Onboard error ${res.status}: ${text}`)
-  }
-  return res.json()
+  return jsonOrThrow(res, 'Onboard')
 }
 
 /**
@@ -80,59 +120,77 @@ export async function getConfig() {
   return res.json()
 }
 
-// ── Next.js finance-engine API (port 3000) ────────────────────────────────
-
-const FINANCE_BASE = import.meta.env.VITE_FINANCE_URL ?? 'http://localhost:3000'
+// ── Engine-backed finance endpoints ───────────────────────────────────────
 
 /**
- * POST /api/tax/harvest — analyse tax-loss harvesting opportunities.
- * @param {object} harvestInput  Matches HarvestInputSchema from lib/tax/taxLossHarvesting.ts
+ * POST /api/v1/portfolio — build target universe, weights, and risk metrics.
  */
-export async function postHarvestAnalysis(harvestInput) {
-  const res = await fetch(`${FINANCE_BASE}/api/tax/harvest`, {
+export async function postPortfolio(input) {
+  const profile = profileFromInput(input)
+  const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(harvestInput),
+    body: JSON.stringify({ profile }),
   })
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`Harvest API error ${res.status}: ${text}`)
-  }
-  return res.json()
+  return jsonOrThrow(res, 'Portfolio')
 }
 
 /**
- * POST /api/tax/rebalance — analyse tax-aware rebalancing.
- * @param {object} rebalanceInput  Matches RebalanceInputSchema from lib/tax/rebalancing.ts
+ * POST /api/v1/projection — run Monte Carlo projection from target weights.
+ */
+export async function postProjection(projectionInput) {
+  const res = await fetch(`${BASE}/api/v1/projection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(projectionInput),
+  })
+  return jsonOrThrow(res, 'Projection')
+}
+
+/**
+ * Former quarterly report entry point, now backed by /api/v1/portfolio and
+ * /api/v1/projection on the Python backend.
+ */
+export async function postQuarterlyReport(clientSnapshot) {
+  const hasProfile = Boolean(
+    clientSnapshot?.profile
+      ?? clientSnapshot?.validated_profile
+      ?? clientSnapshot?.onboard?.validated_profile,
+  )
+  const portfolio = hasProfile ? await postPortfolio(clientSnapshot) : clientSnapshot?.portfolio
+  if (!portfolio) throw new Error('Quarterly report requires a profile or portfolio payload')
+  const projection = await postProjection(projectionInputFromSnapshot(clientSnapshot, portfolio))
+  return {
+    portfolio,
+    projection,
+    universe: portfolio.universe,
+    weights: portfolio.weights,
+    metrics: portfolio.metrics,
+  }
+}
+
+/**
+ * POST /api/v1/tax/report — analyse tax-loss harvesting opportunities.
+ */
+export async function postHarvestAnalysis(taxReportInput) {
+  const res = await fetch(`${BASE}/api/v1/tax/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(taxReportInput),
+  })
+  return jsonOrThrow(res, 'Tax report')
+}
+
+/**
+ * POST /api/v1/rebalance — decide drift-band rebalancing.
  */
 export async function postRebalanceAnalysis(rebalanceInput) {
-  const res = await fetch(`${FINANCE_BASE}/api/tax/rebalance`, {
+  const res = await fetch(`${BASE}/api/v1/rebalance`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(rebalanceInput),
   })
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`Rebalance API error ${res.status}: ${text}`)
-  }
-  return res.json()
-}
-
-/**
- * POST /api/optimization/quarterly-report — run the full quarterly optimizer.
- * @param {object} clientSnapshot  Matches ClientSnapshotSchema from lib/optimization/types.ts
- */
-export async function postQuarterlyReport(clientSnapshot) {
-  const res = await fetch(`${FINANCE_BASE}/api/optimization/quarterly-report`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(clientSnapshot),
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`Quarterly report error ${res.status}: ${text}`)
-  }
-  return res.json()
+  return jsonOrThrow(res, 'Rebalance')
 }
 
 // ── Streaming advisor Q&A ─────────────────────────────────────────────────

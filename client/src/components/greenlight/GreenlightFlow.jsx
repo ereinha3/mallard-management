@@ -14,8 +14,6 @@ const STEPS = {
   REBALANCE:  'rebalance',
 }
 
-const stepOrder = [STEPS.INTAKE, STEPS.GATE_HALT, STEPS.GATE_GREEN, STEPS.PORTFOLIO, STEPS.REBALANCE]
-
 function StepIndicator({ step }) {
   const labels = ['Intake', 'Gate', 'Portfolio', 'Rebalance']
   const activeIdx =
@@ -104,7 +102,7 @@ export default function GreenlightFlow() {
             <div>
               <span
                 className="font-display font-semibold text-base"
-                style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
+                style={{ color: 'var(--text-primary)', letterSpacing: 0 }}
               >
                 Greenlight
               </span>
