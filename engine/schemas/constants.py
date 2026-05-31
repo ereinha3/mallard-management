@@ -7,6 +7,10 @@ LTCG_RATE = 0.15
 EXPECTED_MARKET_RETURN = 0.07
 GAMMA_MIN = 1.5
 GAMMA_MAX = 8.0
+# Momentum-vol tilt uses trailing 12-1 month return by default.
+TILT_LOOKBACK_MONTHS = 12
+# Cross-sectional signal multiplier for gamma-modulated risky-bucket tilt.
+TILT_LAMBDA = 0.5
 GL_MEAN = 28.27
 GL_SD = 4.94
 GL_ALPHA = 0.77

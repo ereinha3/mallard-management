@@ -286,7 +286,15 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert body["optimizer_input"]["capital_on_hand"] == 7500
     assert body["portfolio"]["weights"]["method"] == "erc"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
+    assert abs(sum(body["portfolio"]["weights"]["by_bucket"].values()) - 1.0) < 1e-6
+    assert body["portfolio"]["weights"]["by_bucket"]["gold"] < 0.35
     assert body["portfolio"]["metrics"]["expected_vol"] >= 0
+    etfs = {item["ticker"]: item for item in body["portfolio"]["etfs"]}
+    assert etfs["ESGV"]["name"] == "Vanguard ESG U.S. Stock ETF"
+    assert etfs["ESGV"]["sleeve"] == "us_equity"
+    assert etfs["ESGV"]["bucket"] == "us_total_market"
+    assert etfs["ESGV"]["replacement_for"] == "VTI"
+    assert etfs["ESGV"]["exclusion_reason"] == "fossil_fuels"
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
@@ -489,6 +497,7 @@ def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: Fast
         weights = body["portfolio"]["weights"]
         assert abs(sum(weights["by_ticker"].values()) - 1.0) < 1e-6
         assert abs(sum(weights["by_sleeve"].values()) - 1.0) < 1e-6
+        assert abs(sum(weights["by_bucket"].values()) - 1.0) < 1e-6
         assert body["portfolio"]["metrics"]["expected_vol"] >= 0
         responses.append(body)
 
@@ -542,13 +551,18 @@ def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_ap
     body = response.json()
     assert abs(body["validation"]["sum_by_ticker"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    assert abs(body["validation"]["sum_risky_bucket"] - (4 / 6)) < 1e-6
-    assert abs(body["validation"]["sum_safe_bucket"] - (2 / 6)) < 1e-6
+    # Risky/safe bucket weights partition the portfolio.
+    assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
+    # Four of six sleeves are fully risky; the bonds sleeve also contributes its
+    # credit-risky buckets (EM debt, bank loans), pushing risky just above 4/6.
+    assert body["validation"]["sum_risky_bucket"] > 4 / 6
+    assert body["validation"]["sum_safe_bucket"] < 2 / 6
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["validation"]["warnings"] == ["Input by_sleeve sum was 6.000000; normalized to 1.0."]
     assert abs(sum(body["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["weights"]["by_sleeve"].values()) - 1.0) < 1e-6
+    assert abs(sum(body["weights"]["by_bucket"].values()) - 1.0) < 1e-6
     assert body["metrics"]["expected_vol"] >= 0
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
@@ -567,7 +581,7 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
                     "us_equity": 0.4,
                     "intl_equity": 0.2,
                     "bonds": 0.3,
-                    "gold": 0.1,
+                    "real_assets": 0.1,
                 }
             },
         },
@@ -580,8 +594,11 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert body["metrics"]["expected_shortfall_95"] >= 0
     assert body["metrics"]["risk_contributions"]
     assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
-    assert abs(body["validation"]["sum_risky_bucket"] - 0.7) < 1e-6
-    assert abs(body["validation"]["sum_safe_bucket"] - 0.3) < 1e-6
+    # Equity + real_assets sleeves (0.7) are risky; the bonds sleeve adds its
+    # credit-risky buckets on top, so risky exceeds 0.7 and safe falls below 0.3.
+    assert abs(body["validation"]["sum_risky_bucket"] + body["validation"]["sum_safe_bucket"] - 1.0) < 1e-6
+    assert body["validation"]["sum_risky_bucket"] > 0.7
+    assert body["validation"]["sum_safe_bucket"] < 0.3
     assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["weights"]["by_sleeve"]["tips"] == 0.0

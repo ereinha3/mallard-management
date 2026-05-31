@@ -8,15 +8,32 @@ from pathlib import Path
 import pandas as pd
 
 from data import repository
-from schemas.models import EsgExclusion, ExcludedTicker, Sleeve, Universe
+from schemas.models import Bucket, EsgExclusion, ExcludedTicker, Sleeve, Universe
 
 DATA_DIR = Path(__file__).resolve().parent
-UNIVERSE_PATH = DATA_DIR / "universe.csv"
-PRICES_PATH = DATA_DIR / "prices.csv"
 
-RISKY_SLEEVES: list[Sleeve] = ["us_equity", "intl_equity", "reits", "gold"]
+RISKY_SLEEVES: list[Sleeve] = ["us_equity", "intl_equity", "reits", "gold", "real_assets"]
 SAFE_SLEEVES: list[Sleeve] = ["bonds", "tips"]
 ESG_COLUMNS = ("fossil_fuels", "weapons", "tobacco", "gambling")
+
+_THEME_ALIASES = {
+    "technology": ("technology", "tech", "information_technology", "us_sector_tech", "xlk", "vgt"),
+    "financials": ("financial", "financials", "finance", "us_sector_financials", "xlf", "vfh"),
+    "healthcare": ("health", "healthcare", "health_care", "us_sector_healthcare", "xlv", "vht"),
+    "energy": ("energy", "oil", "gas", "us_sector_energy", "xle", "vde"),
+    "industrials": ("industrial", "industrials", "us_sector_industrials", "xli", "vis"),
+    "discretionary": ("discretionary", "consumer_discretionary", "us_sector_discretionary", "xly", "vcr"),
+    "staples": ("staples", "consumer_staples", "us_sector_staples", "xlp", "vdc"),
+    "utilities": ("utility", "utilities", "us_sector_utilities", "xlu", "vpu"),
+    "materials": ("material", "materials", "us_sector_materials", "xlb", "vaw"),
+    "communication": ("communication", "communications", "comm", "us_sector_comm", "xlc", "vox"),
+    "international": ("intl", "international", "foreign", "developed_intl", "emerging", "em"),
+    "reits": ("reit", "reits", "real_estate", "property"),
+    "gold": ("gold", "commodity", "commodities"),
+    "bonds": ("bond", "bonds", "fixed_income", "treasury", "corporate", "muni"),
+    "tips": ("tips", "inflation", "inflation_protected"),
+}
+_NEGATIVE_THEME_WORDS = ("avoid", "exclude", "away", "underweight")
 
 
 def load_prices() -> pd.DataFrame:
@@ -35,35 +52,155 @@ def latest_prices(tickers: Iterable[str] | None = None) -> dict[str, float]:
     return repository.latest_prices(tickers)
 
 
-def load_universe(esg_exclusions: Iterable[EsgExclusion] | None = None) -> Universe:
-    """Build a Universe from docs/greenlight/05 §5, applying ESG substitutions."""
+def _normalize_text(value: object) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _quote_type_allowed(value: object, universe_pref: str) -> bool:
+    quote_type = _normalize_text(value)
+    if universe_pref == "mix":
+        return True
+    if universe_pref == "stock":
+        return quote_type in {"stock", "common_stock", "equity"}
+    return quote_type in {"", "etf"}
+
+
+def _theme_terms(theme: str) -> tuple[bool, list[str]]:
+    normalized = _normalize_text(theme)
+    negative = any(word in normalized for word in _NEGATIVE_THEME_WORDS)
+    for word in _NEGATIVE_THEME_WORDS:
+        normalized = normalized.replace(word, "")
+    normalized = normalized.strip("_")
+    terms = list(_THEME_ALIASES.get(normalized, (normalized,)))
+    return negative, [term for term in terms if term]
+
+
+def _row_matches_terms(row: Mapping[str, object], terms: Iterable[str]) -> bool:
+    haystack = " ".join(
+        _normalize_text(row.get(column))
+        for column in (
+            "ticker",
+            "asset_class",
+            "bucket",
+            "region",
+            "size",
+            "style",
+            "underlying_index",
+            "issuer",
+            "quote_type",
+            "sleeve",
+        )
+    )
+    # Single-word terms match whole words only (so "tech" does not match
+    # "biotechnology"); multi-word terms (e.g. "us_sector_tech") match as substrings.
+    tokens = set(haystack.replace("_", " ").split())
+    for term in terms:
+        if "_" in term:
+            if term in haystack:
+                return True
+        elif term in tokens:
+            return True
+    return False
+
+
+def _apply_theme_tilts(rows: pd.DataFrame, sector_theme_tilts: Iterable[str] | None) -> pd.DataFrame:
+    result = rows
+    positive: list[list[str]] = []
+    for theme in sector_theme_tilts or []:
+        negative, terms = _theme_terms(str(theme))
+        if not terms:
+            continue
+        mask = result.apply(lambda row: _row_matches_terms(row, terms), axis=1)
+        if negative:
+            result = result.loc[~mask].copy()
+        else:
+            positive.append(terms)
+
+    for terms in positive:
+        mask = result.apply(lambda row: _row_matches_terms(row, terms), axis=1)
+        if not bool(mask.any()):
+            continue
+        matching_sleeves = set(result.loc[mask, "sleeve"].dropna().astype(str))
+        result = result.loc[~result["sleeve"].astype(str).isin(matching_sleeves) | mask].copy()
+    return result
+
+
+def ticker_metadata() -> dict[str, dict[str, str]]:
+    """Return ticker metadata sourced from the DB Instrument table."""
+
+    rows = repository.instruments().fillna("")
+    metadata: dict[str, dict[str, str]] = {}
+    for row in rows.to_dict("records"):
+        ticker = str(row["ticker"])
+        sleeve = str(row.get("sleeve") or repository.SLEEVE_BY_ASSET_CLASS.get(str(row.get("asset_class")), ""))
+        name = str(row.get("name") or "").strip()
+        if not name:
+            issuer = str(row.get("issuer") or "").strip()
+            index = str(row.get("underlying_index") or "").strip()
+            name = " ".join(part for part in (issuer, index, "ETF") if part).strip() or ticker
+        metadata[ticker] = {
+            "ticker": ticker,
+            "name": name,
+            "sleeve": sleeve,
+            "bucket": str(row.get("bucket") or ""),
+            "quote_type": str(row.get("quote_type") or ""),
+        }
+    return metadata
+
+
+def load_universe(
+    esg_exclusions: Iterable[EsgExclusion] | None = None,
+    *,
+    universe_pref: str = "etf",
+    sector_theme_tilts: Iterable[str] | None = None,
+) -> Universe:
+    """Build a Universe from classification data, applying preference filters."""
 
     exclusions = [ex for ex in (esg_exclusions or []) if ex != "none"]
     rows = repository.instruments().fillna("")
     if rows.empty:
         raise ValueError("instrument universe is empty")
-    primary = rows[rows["role"].isin(["risky", "safe"])]
+    primary = rows[rows["role"].isin(["risky", "safe"])].copy()
     if primary.empty:
         primary = rows
+    primary = primary[primary["quote_type"].apply(lambda value: _quote_type_allowed(value, universe_pref))].copy()
+    primary = _apply_theme_tilts(primary, sector_theme_tilts)
+    if primary.empty:
+        raise ValueError("instrument universe is empty after applying preferences")
     sleeves: dict[Sleeve, list[str]] = {}
+    buckets: dict[Bucket, list[str]] = {}
+    bucket_roles: dict[Bucket, str] = {}
     market_weights: dict[Sleeve, float] = {}
+    bucket_market_weights: dict[Bucket, float] = {}
     excluded: list[ExcludedTicker] = []
 
     for row in primary.to_dict("records"):
         sleeve = str(row.get("sleeve") or repository.SLEEVE_BY_ASSET_CLASS.get(str(row.get("asset_class")), row.get("asset_class")))
+        bucket = str(row.get("bucket") or sleeve)
+        role = str(row.get("role") or ("safe" if sleeve in SAFE_SLEEVES else "risky"))
         ticker = str(row["ticker"])
         for exclusion in exclusions:
             replacement = str(row.get(exclusion, "")).strip()
             if replacement and replacement != ticker:
-                excluded.append(ExcludedTicker(ticker=ticker, reason=exclusion))
+                excluded.append(ExcludedTicker(ticker=ticker, reason=exclusion, replacement=replacement))
                 ticker = replacement
                 break
-        sleeves.setdefault(sleeve, []).append(ticker)
+        sleeve_tickers = sleeves.setdefault(sleeve, [])
+        if ticker not in sleeve_tickers:
+            sleeve_tickers.append(ticker)
+        bucket_tickers = buckets.setdefault(bucket, [])
+        if ticker not in bucket_tickers:
+            bucket_tickers.append(ticker)
+        bucket_roles[bucket] = role
         weight = row.get("market_weight", "")
-        if weight == "":
-            market_weights.setdefault(sleeve, 1.0)
-        else:
-            market_weights[sleeve] = float(weight)
+        if weight != "":
+            market_weights[sleeve] = market_weights.get(sleeve, 0.0) + float(weight)
+            bucket_market_weights[bucket] = bucket_market_weights.get(bucket, 0.0) + float(weight)
+
+    for sleeve in sleeves:
+        market_weights.setdefault(sleeve, 1.0)
+    for bucket in buckets:
+        bucket_market_weights.setdefault(bucket, 1.0)
 
     tickers = sorted({ticker for tickers_for_sleeve in sleeves.values() for ticker in tickers_for_sleeve})
     total_weight = sum(market_weights.values())
@@ -72,34 +209,63 @@ def load_universe(esg_exclusions: Iterable[EsgExclusion] | None = None) -> Unive
         market_weights = {sleeve: equal_weight for sleeve in market_weights}
     elif abs(total_weight - 1.0) > 1e-12:
         market_weights = {sleeve: weight / total_weight for sleeve, weight in market_weights.items()}
+    bucket_total_weight = sum(bucket_market_weights.values())
+    if bucket_total_weight <= 0:
+        equal_bucket_weight = 1.0 / len(bucket_market_weights)
+        bucket_market_weights = {bucket: equal_bucket_weight for bucket in bucket_market_weights}
+    elif abs(bucket_total_weight - 1.0) > 1e-12:
+        bucket_market_weights = {
+            bucket: weight / bucket_total_weight
+            for bucket, weight in bucket_market_weights.items()
+        }
+    risky_buckets = [bucket for bucket in buckets if bucket_roles.get(bucket) == "risky"]
+    safe_buckets = [bucket for bucket in buckets if bucket_roles.get(bucket) == "safe"]
     return Universe(
         tickers=tickers,
         sleeves=sleeves,
+        buckets=buckets,
         risky_sleeves=RISKY_SLEEVES,
         safe_sleeves=SAFE_SLEEVES,
+        risky_buckets=risky_buckets,
+        safe_buckets=safe_buckets,
         market_weights=market_weights,
+        bucket_market_weights=bucket_market_weights,
         excluded=excluded,
     )
 
 
-def returns_matrix(sleeves: Iterable[Sleeve] | Mapping[Sleeve, Iterable[str]]) -> pd.DataFrame:
-    """Return daily sleeve returns for docs/greenlight/05 §§4-5 sleeve names."""
+def returns_matrix(groups: Iterable[str] | Mapping[str, Iterable[str]]) -> pd.DataFrame:
+    """Return daily equal-weight returns for named sleeves or buckets."""
 
-    if isinstance(sleeves, Mapping):
-        sleeve_to_tickers = {sleeve: list(tickers) for sleeve, tickers in sleeves.items()}
+    if isinstance(groups, Mapping):
+        group_to_tickers = {group: list(tickers) for group, tickers in groups.items()}
     else:
         universe = load_universe(["none"])
-        sleeve_to_tickers = {sleeve: universe.sleeves[sleeve] for sleeve in sleeves}
+        group_to_tickers = {}
+        for group in groups:
+            if group in universe.buckets:
+                group_to_tickers[group] = universe.buckets[group]
+            else:
+                group_to_tickers[group] = universe.sleeves[group]
 
     prices = load_prices().pivot(index="date", columns="ticker", values="adj_close").sort_index()
     returns = prices.pct_change().dropna(how="all")
     matrix = pd.DataFrame(index=returns.index)
-    for sleeve, tickers in sleeve_to_tickers.items():
+    for group, tickers in group_to_tickers.items():
         available = [ticker for ticker in tickers if ticker in returns.columns]
         if not available:
-            raise KeyError(f"No cached prices available for sleeve {sleeve!r}")
-        matrix[sleeve] = returns[available].mean(axis=1)
+            raise KeyError(f"No cached prices available for group {group!r}")
+        matrix[group] = returns[available].mean(axis=1)
     return matrix.dropna(how="any")
+
+
+def bucket_returns(buckets: Iterable[Bucket] | Mapping[Bucket, Iterable[str]] | None = None) -> pd.DataFrame:
+    """Return daily bucket returns, equal-weighted across ETFs in each bucket."""
+
+    if buckets is None:
+        universe = load_universe(["none"])
+        return returns_matrix(universe.buckets)
+    return returns_matrix(buckets)
 
 
 def sleeve_returns(weights: Mapping[Sleeve, float]) -> pd.Series:

@@ -37,3 +37,7 @@ CLAUDE.md
 STATUS.md
 opencode.json
 .mcp.json
+
+# Alpaca / OAuth downloaded credential files
+client_secret_*.txt
+**/client_secret_*.txt
