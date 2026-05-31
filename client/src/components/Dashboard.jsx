@@ -62,7 +62,7 @@ function getRiskDisplay(onboardResult) {
 
 function addAssetRow(rows, covered, row, aliases = []) {
   const amount = numberOrNull(row.value)
-  if (amount == null || amount <= 0) return
+  if (amount == null || amount < 0) return
 
   const keys = [row.key, row.label, ...aliases]
     .filter(Boolean)
@@ -112,7 +112,7 @@ function getAssetRows(profile) {
 
   const unique = new Map()
   rows.forEach(row => {
-    if (row.value != null && row.value > 0) unique.set(row.label, row)
+    if (row.value != null && row.value >= 0) unique.set(row.label, row)
   })
   const total = [...unique.values()].reduce((sum, row) => sum + row.value, 0)
   return [...unique.values()].map(row => ({
@@ -255,7 +255,7 @@ export default function Dashboard({ onboardResult }) {
   const totalDebt = liabilities.length > 0 ? rowDebtTotal : snapshotDebt ?? (assets.length > 0 ? 0 : null)
   const snapshotNetWorth = numberOrNull(snapshot.net_worth_estimate)
   const netWorth = assets.length > 0 && totalDebt != null ? assetRowsTotal - totalDebt : snapshotNetWorth
-  const totalAssets = assetRowsTotal > 0 ? assetRowsTotal : netWorth != null && totalDebt != null ? netWorth + totalDebt : null
+  const totalAssets = assets.length > 0 ? assetRowsTotal : netWorth != null && totalDebt != null ? netWorth + totalDebt : null
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
 
   useEffect(() => {
@@ -395,6 +395,9 @@ export default function Dashboard({ onboardResult }) {
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
               Risk Capacity
             </div>
+            <p className="text-xs leading-relaxed mb-2" style={{ color: 'var(--text-muted)' }}>
+              How much investment risk your finances can absorb, unlike tolerance, which is your willingness to take risk.
+            </p>
             <RetirementScore score={score} />
           </div>
 

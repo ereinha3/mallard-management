@@ -509,8 +509,11 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
           </div>
 
           <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-            <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-              Risk Contribution
+            <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+              Risk Contributions
+            </div>
+            <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+              Each sleeve's share of total portfolio risk (volatility), not dollar weight. These sum to 100%.
             </div>
             <div className="grid gap-2">
               {SLEEVE_ORDER.map((sleeve) => {

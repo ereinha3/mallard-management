@@ -7,7 +7,6 @@ import AuthScreen from './components/AuthScreen'
 import TaxProfileForm from './components/TaxProfileForm'
 import OnboardingChat from './components/OnboardingChat'
 import AdvisorChat from './components/AdvisorChat'
-import AccountsTab from './components/AccountsTab'
 import RiskView from './components/RiskView'
 import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
@@ -215,7 +214,6 @@ export default function App() {
             onUpdated={setOnboardResult}
             embedded
           />
-          <AccountsTab onboardResult={onboardResult} embedded />
         </div>
       )}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}

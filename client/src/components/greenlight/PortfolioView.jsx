@@ -706,7 +706,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                       Risk Contributions
                     </div>
                     <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      Sleeve contribution to portfolio risk from the optimizer metrics.
+                      Each sleeve's share of total portfolio risk (volatility), not dollar weight. These sum to 100%.
                     </div>
                   </div>
                 </div>
