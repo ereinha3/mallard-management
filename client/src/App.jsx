@@ -12,6 +12,7 @@ import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
 import LearnView from './components/learn/LearnView'
 import { TourProvider } from './components/tour/TourProvider'
+import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'advisor', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
@@ -45,6 +46,12 @@ export default function App() {
       <AuthScreen
         onAuth={(u) => {
           setUser(u)
+        }}
+        onDevSkip={() => {
+          // Developer shortcut: bypass login + onboarding, land in the app with demo data
+          setOnboardResult(DUMMY_ONBOARD_RESULT)
+          setOnboardingDone(true)
+          setUser(DUMMY_USER)
         }}
       />
     )
