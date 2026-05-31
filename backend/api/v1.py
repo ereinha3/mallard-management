@@ -64,7 +64,7 @@ from data.loaders import load_prices, returns_matrix, ticker_metadata  # noqa: E
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
-from llm.elicitation import stream_elicitation  # noqa: E402
+from llm.elicitation import stream_interview  # noqa: E402
 from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
@@ -1899,7 +1899,7 @@ async def chat(request: api_models.ChatRequest) -> StreamingResponse:
         if session_id:
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
         assistant_chunks = []
-        async for event in stream_elicitation(request.messages):
+        async for event in stream_interview(request.messages, session_id=session_id):
             if event.get("type") == "token":
                 assistant_chunks.append(event.get("content", ""))
             elif event.get("type") == "profile_ready" and session_id:

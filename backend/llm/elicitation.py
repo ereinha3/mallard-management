@@ -24,6 +24,7 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from llm import interview_state
 from llm.instrument import next_directive, step_from_messages
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
@@ -33,10 +34,17 @@ GEMINI_MODEL = "gemini-3.5-flash"
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """
-You are Greenlight's intake specialist. Your job is to conduct a warm, efficient
-conversation that gathers a user's complete financial profile so Greenlight's
-analysis engine can determine whether they are ready to invest — and, if so, how
-to build an appropriate portfolio.
+You are the intake specialist for Mallard Management — a responsible automated-
+investing advisor. Mallard runs a responsibility gate (high-interest debt and
+emergency-fund checks) BEFORE investing, then a deterministic engine builds a
+diversified, low-cost portfolio composed ENTIRELY of ETFs (broad index funds
+across equities, bonds, REITs, gold, and TIPS) — never individual stocks. Your
+job is to conduct a warm, efficient conversation that gathers a user's complete
+financial profile so that engine can determine whether they are ready to invest
+— and, if so, how to build an appropriate portfolio.
+
+IMPORTANT: Mallard is ETF-only. NEVER ask whether the user prefers ETFs vs.
+individual stocks, and never imply individual stocks are an option.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR ROLE
@@ -84,8 +92,8 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    • Any outstanding debts — for each: balance, APR, and type
      (credit_card | student | mortgage | auto | personal | other). The form did not capture debts.
    • A rough goal target dollar amount
-   • Investment preferences: ETF-only / individual stocks / mix; sectors to exclude
-     for ethical reasons; sectors to tilt toward
+   • Ethical exclusions (sectors to avoid) and any sectors to tilt toward.
+     Mallard is ETF-only — do NOT ask about individual stocks or an ETF/stock choice.
    • The risk-tolerance instrument below — this is the heart of the conversation
 
 5. RISK TOLERANCE — 13-item Grable-Lytton instrument
@@ -210,8 +218,8 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-10. INVESTMENT PREFERENCES
-   • ETF-only, individual stocks, or a mix
+10. INVESTMENT PREFERENCES (Mallard is ETF-only — do NOT ask about individual stocks)
+   • universe_pref is always "etf"; never offer the user a stock or mix choice
    • Any industries or areas they want to avoid. Ask this as one focused,
      conversational question, for example: "Are there any industries or areas
      you'd rather avoid in your portfolio, such as oil & gas / fossil fuels,
@@ -374,7 +382,7 @@ def _build_submit_profile_tool() -> Any:
                             enum=["bond_like", "mixed", "stock_like"],
                         ),
                         # Preferences
-                        "universe_pref": types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
+                        "universe_pref": types.Schema(type="STRING", enum=["etf"]),
                         "esg_exclusions": types.Schema(
                             type="ARRAY",
                             items=types.Schema(
@@ -522,6 +530,161 @@ async def stream_elicitation(
     def _produce() -> None:
         try:
             for event in _stream_sync(messages):
+                loop.call_soon_threadsafe(q.put_nowait, event)
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                q.put_nowait, {"type": "error", "content": str(exc)}
+            )
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, None)  # sentinel
+
+    threading.Thread(target=_produce, daemon=True).start()
+
+    while True:
+        event = await q.get()
+        if event is None:
+            break
+        yield event
+
+
+def _message_role_content(message: Any) -> tuple[str, str]:
+    if isinstance(message, dict):
+        role = message.get("role", "user")
+        content = message.get("content", "")
+    else:
+        role = getattr(message, "role", "user")
+        content = getattr(message, "content", "")
+    return str(role or "user"), str(content or "")
+
+
+def _has_prior_assistant_message(messages: list[ChatMessage]) -> bool:
+    return any(
+        _message_role_content(message)[0] == "assistant" for message in messages[:-1]
+    )
+
+
+def _stream_interview_sync(
+    messages: list[ChatMessage],
+    session_id: str | None,
+) -> Generator[dict, None, None]:
+    try:
+        from persistence import (  # noqa: PLC0415
+            get_session,
+            get_session_elicitation_state,
+            set_session_elicitation_state,
+        )
+        from llm import scoring  # noqa: PLC0415
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+        return
+
+    db = get_session()
+    try:
+        state = (
+            get_session_elicitation_state(db, session_id)
+            or interview_state.initial_state()
+        )
+        if messages:
+            last_role, last_content = _message_role_content(messages[-1])
+            item = interview_state.current(state)
+            if (
+                item is not None
+                and last_role == "user"
+                and _has_prior_assistant_message(messages)
+            ):
+                try:
+                    score = scoring.score_answer(item, last_content, messages)
+                except Exception as exc:
+                    yield {"type": "error", "content": str(exc)}
+                    return
+                state = interview_state.record_and_advance(state, score)
+
+        set_session_elicitation_state(db, session_id, state)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        yield {"type": "error", "content": str(exc)}
+        return
+    finally:
+        db.close()
+
+    if interview_state.is_complete(state):
+        try:
+            profile = scoring.assemble_profile(
+                messages,
+                interview_state.collected_scores(state),
+            )
+        except Exception as exc:
+            yield {"type": "error", "content": str(exc)}
+            return
+
+        try:
+            from api.v1 import _run_pipeline  # noqa: PLC0415
+            import models as api_models  # noqa: PLC0415
+
+            profile_input = api_models.UserProfileInput(**profile)
+            result = _run_pipeline(profile_input)
+            if (
+                result.status == "needs_clarification"
+                and interview_state.re_ask_count(state) < 1
+            ):
+                state = interview_state.reset_risk_items(state)
+                db = get_session()
+                try:
+                    set_session_elicitation_state(db, session_id, state)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+                finally:
+                    db.close()
+
+                yield {
+                    "type": "token",
+                    "content": (
+                        "A couple of those answers pointed in different directions "
+                        "— let me revisit a few questions.\n\n"
+                    ),
+                }
+                for chunk in scoring.render_question(
+                    interview_state.current(state),
+                    messages,
+                ):
+                    yield {"type": "token", "content": chunk}
+                return
+        except Exception:
+            yield {"type": "profile_ready", "profile": profile}
+            return
+
+        yield {"type": "profile_ready", "profile": profile}
+        return
+
+    item = interview_state.current(state)
+    if item is None:
+        yield {"type": "error", "content": "Interview state is invalid."}
+        return
+
+    try:
+        for chunk in scoring.render_question(item, messages):
+            yield {"type": "token", "content": chunk}
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+
+
+async def stream_interview(
+    messages: list[ChatMessage],
+    session_id: str | None = None,
+) -> AsyncGenerator[dict, None]:
+    """
+    Async generator for the score-gated onboarding interview.
+    Uses the same thread/queue bridge as the legacy Gemini elicitation stream.
+    """
+    loop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _produce() -> None:
+        try:
+            for event in _stream_interview_sync(messages, session_id):
                 loop.call_soon_threadsafe(q.put_nowait, event)
         except Exception as exc:
             loop.call_soon_threadsafe(
