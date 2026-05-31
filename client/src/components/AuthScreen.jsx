@@ -317,7 +317,6 @@ export default function AuthScreen({ onAuth }) {
               <div>
                 <div className="mallard-logo-name">Mallard</div>
                 <div className="mallard-logo-subtitle">MANAGEMENT</div>
-                <div className="mallard-logo-tagline">Fiduciary-grade advice. Free by default.</div>
               </div>
             </div>
 
