@@ -548,7 +548,7 @@ export default function AuthScreen({ onAuth }) {
           font-size: clamp(64px, 7vw, 92px);
           font-weight: 600;
           line-height: 1.02;
-          letter-spacing: -0.045em;
+          letter-spacing: 0.03em;
           color: var(--text-primary);
         }
 
