@@ -100,6 +100,7 @@ def instruments() -> pd.DataFrame:
 
     statement = select(
         Instrument.ticker,
+        Instrument.name,
         Instrument.asset_class,
         Instrument.bucket,
         Instrument.region,
@@ -121,6 +122,7 @@ def instruments() -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "ticker",
+                "name",
                 "asset_class",
                 "bucket",
                 "region",

@@ -20,7 +20,17 @@ IncomeStability = Literal["bond_like", "mixed", "stock_like"]
 UniversePref = Literal["etf", "stock", "mix"]
 EsgExclusion = Literal["fossil_fuels", "weapons", "tobacco", "gambling", "none"]
 DebtKind = Literal["credit_card", "student", "auto", "mortgage", "personal", "other"]
-Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits"]
+# Sleeve taxonomy. The fixed-income split (cash_like / core_bonds / credit /
+# duration_hedge / inflation) is the Wave-0 contract for the Sharpe-audit
+# remediation: only `cash_like` is the CAL risk-free leg; the rest are capped
+# risky diversifiers (see docs/greenlight/audits/2026-05-31-sharpe-audit.md).
+# `bonds`/`tips` retained for back-compat with existing seed/data.
+Sleeve = Literal[
+    "us_equity", "intl_equity", "gold", "reits", "real_assets",
+    "bonds", "tips",
+    "cash_like", "core_bonds", "credit", "duration_hedge", "inflation",
+]
+Bucket = str
 
 
 class ContractModel(BaseModel):
@@ -154,26 +164,34 @@ class GateResult(ContractModel):
 class ExcludedTicker(ContractModel):
     ticker: str
     reason: str
+    replacement: str | None = None
 
 
 class Universe(ContractModel):
     tickers: list[str]
     sleeves: dict[Sleeve, list[str]]
+    buckets: dict[Bucket, list[str]] = Field(default_factory=dict)
     risky_sleeves: list[Sleeve]
     safe_sleeves: list[Sleeve]
+    risky_buckets: list[Bucket] = Field(default_factory=list)
+    safe_buckets: list[Bucket] = Field(default_factory=list)
     market_weights: dict[Sleeve, Weight]
+    bucket_market_weights: dict[Bucket, Weight] = Field(default_factory=dict)
     excluded: list[ExcludedTicker]
 
     @model_validator(mode="after")
     def validate_market_weights_sum(self) -> Self:
         if abs(sum(self.market_weights.values()) - 1.0) > 1e-6:
             raise ValueError("market_weights must sum to 1.0 ± 1e-6")
+        if self.bucket_market_weights and abs(sum(self.bucket_market_weights.values()) - 1.0) > 1e-6:
+            raise ValueError("bucket_market_weights must sum to 1.0 ± 1e-6")
         return self
 
 
 class TargetWeights(ContractModel):
     by_ticker: dict[str, Weight]
     by_sleeve: dict[Sleeve, Weight]
+    by_bucket: dict[Bucket, Weight] = Field(default_factory=dict)
     blend_alpha: Weight
     method: Literal["erc", "black_litterman", "cvar"]
 
@@ -183,13 +201,15 @@ class TargetWeights(ContractModel):
             raise ValueError("by_ticker weights must sum to 1.0 ± 1e-6")
         if abs(sum(self.by_sleeve.values()) - 1.0) > 1e-6:
             raise ValueError("by_sleeve weights must sum to 1.0 ± 1e-6")
+        if self.by_bucket and abs(sum(self.by_bucket.values()) - 1.0) > 1e-6:
+            raise ValueError("by_bucket weights must sum to 1.0 ± 1e-6")
         return self
 
 
 class RiskMetrics(ContractModel):
     expected_vol: Percent
     expected_shortfall_95: Percent
-    risk_contributions: dict[Sleeve, Percent]
+    risk_contributions: dict[str, Percent]
 
 
 PercentileKey = Literal["p5", "p25", "p50", "p75", "p95"]
@@ -283,7 +303,9 @@ class TaxReport(ContractModel):
     after_tax_notes: list[str]
 
 
-StrategyName = Literal["greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo"]
+StrategyName = Literal[
+    "greenlight_erc", "one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy"
+]
 
 
 class EquityCurvePoint(ContractModel):

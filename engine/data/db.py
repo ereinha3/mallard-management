@@ -22,6 +22,7 @@ class Instrument(Base):
     __tablename__ = "instruments"
 
     ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
     asset_class: Mapped[str | None] = mapped_column(String, nullable=True)
     bucket: Mapped[str | None] = mapped_column(String, nullable=True)
     region: Mapped[str | None] = mapped_column(String, nullable=True)
