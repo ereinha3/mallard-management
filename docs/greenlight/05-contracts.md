@@ -586,32 +586,65 @@ ESG exclusions map to substitute tickers (e.g. `fossil_fuels` → swap VTI→ESG
 
 ## 6. API contract (FastAPI; JSON over HTTP)
 
-Base path `/api`. All POST bodies and responses are JSON matching §2. Frontend mocks these with static fixtures (§8) until the engine is wired.
+Live API base path is `/api/v1` (mounted by `backend/main.py`). All POST bodies and responses are JSON matching the live Pydantic models. `GET /health` is the only top-level route outside `/api/v1`.
 
-### 6.1 Pipeline endpoints
+The older standalone `/api/*` pipeline routes in earlier specs are superseded by this consolidated `/api/v1/*` surface.
+
+### 6.1 Live registered routes
 | Method | Path | Body → Response |
 |--------|------|-----------------|
-| POST | `/profile/extract` | `{ turns: [...] }` or `{ form: {...} }` → `UserProfile` |
-| POST | `/profile/validate` | `UserProfile` → `ValidatedProfile` \| `{ clarification_requests: [...] }` |
-| POST | `/risk/profile` | `ValidatedProfile` → `RiskProfile` |
-| POST | `/gate/evaluate` | `{ profile: ValidatedProfile, risk: RiskProfile }` → `GateResult` |
-| POST | `/portfolio/build` | `{ profile, risk }` → `{ universe: Universe, weights: TargetWeights, metrics: RiskMetrics }` |
-| POST | `/projection/montecarlo` | `{ weights, horizon_years, monthly_contribution, capital_on_hand, goal_target, generator }` → `Projection` |
-| POST | `/sizing` | `{ weights, capital_on_hand, monthly_surplus }` → `OrderPlan` |
-| POST | `/execute` | `OrderPlan` → `{ fills: [Fill], positions: Positions }` |
-| GET | `/positions` | → `Positions` |
-| POST | `/rebalance` | `{ positions: Positions, weights: TargetWeights }` → `RebalanceDecision` |
-| POST | `/tax/report` | `{ positions, cost_basis: map<ticker,money>, filing_status, bracket: percent }` → `TaxReport` |
-| GET | `/backtest` | → `BacktestResult` (static) |
-| POST | `/narrate` | `{ kind: string, payload: object }` → `{ text: string }` |
+| GET | `/health` | top-level health check → `{ status, service }` |
+| POST | `/api/v1/auth/register` | `AuthRequest` → `AuthResponse` |
+| POST | `/api/v1/auth/login` | `AuthRequest` → `AuthResponse` |
+| POST | `/api/v1/onboard` | `UserProfileInput` + optional `user_email`, `session_id` query params → `OnboardResponse` |
+| POST | `/api/v1/gate/recheck` | `UserProfileInput` → `OnboardResponse` |
+| POST | `/api/v1/portfolio` | `PortfolioRequest { profile, method? }` → `PortfolioResponse` |
+| POST | `/api/v1/portfolio/reoptimize` | `PortfolioReoptimizeRequest` → `PortfolioReoptimizeResponse` |
+| POST | `/api/v1/portfolio/analyze-weights` | `PortfolioAnalyzeWeightsRequest` → `PortfolioAnalyzeWeightsResponse` |
+| POST | `/api/v1/portfolio/save` | `SavePortfolioRequest` + optional `user_email` query param → `OnboardResponse` |
+| POST | `/api/v1/projection` | `ProjectionRequest` → `Projection` |
+| POST | `/api/v1/rebalance` | `RebalanceRequest` → `RebalanceDecision` |
+| POST | `/api/v1/tax/report` | `TaxReportRequest` → `TaxReport` |
+| POST | `/api/v1/backtest` | `BacktestRequest` → `BacktestResponse` |
+| GET | `/api/v1/config` | gate thresholds + market assumptions |
+| GET | `/api/v1/profile/{email}` | stored `OnboardResponse` or `status=no_profile` |
+| POST | `/api/v1/profile/update` | `UpdateProfileRequest` + optional `user_email` query param → `OnboardResponse` |
+| GET | `/api/v1/users/{email}/record` | account, profile, onboard result, chat sessions |
+| GET | `/api/v1/users/{email}/chats` | chat session summaries; optional `kind` query param |
+| GET | `/api/v1/users/{email}/active-onboarding` | latest active elicitation session, if any |
+| GET | `/api/v1/chats/{session_id}` | chat transcript |
+| POST | `/api/v1/chat` | elicitation SSE: `session`, `token`, `profile_ready`, `error`, `[DONE]` |
+| POST | `/api/v1/advisor/chat` | advisor SSE backed by Gemini function tools |
+| POST | `/api/v1/funding/mock/deposit` | mock funding deposit → `FundingTransactionOut` |
+| GET | `/api/v1/funding/account/{user_email}` | investment-account funding state |
+| POST | `/api/v1/brokerage/account` | sandbox brokerage account creation |
+| POST | `/api/v1/brokerage/ach-relationship` | sandbox ACH relationship creation |
+| POST | `/api/v1/brokerage/deposit` | sandbox brokerage deposit |
+| POST | `/api/v1/brokerage/journal` | JNLC cash journal from firm account to user brokerage account |
+| POST | `/api/v1/execution/preview` | `ExecutionRequest` → `OrderPlanOut` |
+| POST | `/api/v1/execution/submit` | `ExecutionRequest` → fills + positions |
+| POST | `/api/v1/execution/rebalance/submit` | `RebalanceExecutionRequest` → rebalance decision + fills + positions |
+| GET | `/api/v1/positions/{user_email}` | broker/simulator positions |
+| POST | `/api/v1/maintenance/rebalance` | `MaintenanceRebalanceRequest` (`trigger=quarterly|reprofile`) → `MaintenanceRebalanceResponse` |
 
-### 6.2 Orchestration (demo convenience)
-| POST | `/run` | `ValidatedProfile` → `{ gate: GateResult, weights?, metrics?, projection?, order_plan? }` (stops at gate if halt) |
+### 6.2 Superseded standalone route map
+| Earlier standalone route | Live route / status |
+|---|---|
+| `POST /api/profile/extract` | `POST /api/v1/chat` SSE emits `profile_ready` |
+| `POST /api/profile/validate` | folded into `POST /api/v1/onboard` and `POST /api/v1/profile/update` |
+| `POST /api/risk/profile` | folded into `POST /api/v1/onboard` |
+| `POST /api/gate/evaluate` | `POST /api/v1/gate/recheck` or full `POST /api/v1/onboard` |
+| `POST /api/portfolio/build` | `POST /api/v1/portfolio` |
+| `POST /api/projection/montecarlo` | `POST /api/v1/projection` |
+| `POST /api/sizing` | `POST /api/v1/execution/preview` |
+| `POST /api/execute` | `POST /api/v1/execution/submit` |
+| `GET /api/positions` | `GET /api/v1/positions/{user_email}` |
+| `GET /api/backtest` | `POST /api/v1/backtest` |
+| `POST /api/narrate` | `POST /api/v1/advisor/chat` SSE |
+| `POST /api/run` | `POST /api/v1/onboard` |
+| `POST /api/sim/fast-forward` | no generic sim-clock route; portfolio maintenance is `POST /api/v1/maintenance/rebalance` |
 
-### 6.3 Demo controls
-| POST | `/sim/fast-forward` | `{ quarters: int }` → drifts simulator prices, returns new `Positions` |
-
-### 6.4 Error shape
+### 6.3 Error shape
 ```
 { error: { code: enum(validation|not_found|engine|upstream), message: string, field?: string } }
 ```
