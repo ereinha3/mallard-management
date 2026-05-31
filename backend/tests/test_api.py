@@ -586,3 +586,60 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["weights"]["by_sleeve"]["tips"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
+
+
+def test_active_onboarding_returns_found_false_when_no_session(test_app: FastAPI):
+    client = _client(test_app)
+    email = "no-resume@example.com"
+    _register(client, email)
+
+    response = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert response.status_code == 200
+    assert response.json() == {"found": False, "session": None}
+
+
+def test_interrupted_onboarding_is_resumable_then_cleared_on_complete(test_app: FastAPI):
+    """An elicitation session persisted mid-flow must be resumable by email (transcript
+    intact), and completing /onboard with its session_id must mark it complete so it is
+    no longer surfaced as resumable."""
+    from persistence import append_message, get_or_create_session, get_session
+
+    client = _client(test_app)
+    email = "resume@example.com"
+    _register(client, email)
+
+    # Simulate an interrupted intake: /chat persists the session + messages up front,
+    # then the stream is cut off. Recreate that DB state directly (no live LLM).
+    db = get_session()
+    try:
+        session = get_or_create_session(db, None, email, "elicitation")
+        db.flush()
+        session_id = session.id
+        append_message(db, session_id, "user", "intake seed")
+        append_message(db, session_id, "assistant", "What is your time horizon?")
+        db.commit()
+    finally:
+        db.close()
+
+    # Resume-by-email surfaces the in-progress session WITH its transcript.
+    resume = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert resume.status_code == 200
+    body = resume.json()
+    assert body["found"] is True
+    assert body["session"]["id"] == session_id
+    assert body["session"]["status"] == "active"
+    assert [m["role"] for m in body["session"]["messages"]] == ["user", "assistant"]
+
+    # Completing onboard for that session marks it complete.
+    onboard = client.post(
+        f"/api/v1/onboard?user_email={email}&session_id={session_id}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard.status_code == 200
+
+    # It is no longer resumable, and the transcript records the completed status.
+    resume_after = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert resume_after.json() == {"found": False, "session": None}
+    transcript = client.get(f"/api/v1/chats/{session_id}")
+    assert transcript.status_code == 200
+    assert transcript.json()["status"] == "complete"

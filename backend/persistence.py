@@ -272,6 +272,34 @@ def list_sessions(db: Session, email: str, kind: str | None = None) -> list[Chat
     return query.order_by(ChatSession.created_at.desc()).all()
 
 
+def get_latest_active_session(
+    db: Session,
+    email: str,
+    kind: str | None = None,
+) -> ChatSession | None:
+    """Most-recently-touched session still in 'active' status for this user.
+
+    Used to resume an interrupted enrollment by email alone — no client-side
+    session id required.
+    """
+    query = db.query(ChatSession).filter(
+        ChatSession.user_email == email,
+        ChatSession.status == "active",
+    )
+    if kind:
+        query = query.filter(ChatSession.kind == kind)
+    return query.order_by(ChatSession.updated_at.desc()).first()
+
+
+def set_session_status(db: Session, session_id: str, status: str) -> ChatSession | None:
+    """Transition a session's lifecycle status (e.g. 'active' -> 'complete')."""
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if chat_session:
+        chat_session.status = status
+        chat_session.updated_at = datetime.utcnow()
+    return chat_session
+
+
 def get_or_create_investment_account(db: Session, email: str) -> InvestmentAccount:
     account = db.query(InvestmentAccount).filter(InvestmentAccount.user_email == email).first()
     if account:

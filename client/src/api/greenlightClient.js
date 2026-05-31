@@ -46,6 +46,17 @@ export async function getProfile(email) {
 }
 
 /**
+ * GET /api/v1/users/{email}/active-onboarding — the latest in-progress elicitation
+ * session for this user (transcript + extracted profile), so an interrupted
+ * enrollment can be resumed by email alone. Returns { found, session } or null.
+ */
+export async function getActiveOnboarding(email) {
+  const res = await fetch(`${BASE}/api/v1/users/${encodeURIComponent(email)}/active-onboarding`)
+  if (!res.ok) return null
+  return res.json()
+}
+
+/**
  * Stream the elicitation chat. Calls /api/v1/chat with the full message history.
  */
 export async function streamChat({ messages, user_email, session_id, onSession, onToken, onProfileReady, onError, onDone }) {
@@ -99,11 +110,15 @@ export async function streamChat({ messages, user_email, session_id, onSession, 
 /**
  * POST /api/v1/onboard — validate profile, run gate, return OnboardResponse.
  */
-export async function postOnboard(profile, userEmail = null) {
-  const url = userEmail 
-    ? `${BASE}/api/v1/onboard?user_email=${encodeURIComponent(userEmail)}`
-    : `${BASE}/api/v1/onboard`
-    
+export async function postOnboard(profile, userEmail = null, sessionId = null) {
+  const params = new URLSearchParams()
+  if (userEmail) params.set('user_email', userEmail)
+  // Passing the session id lets the backend mark that elicitation session
+  // 'complete' so it is no longer surfaced as a resumable in-progress onboarding.
+  if (sessionId) params.set('session_id', sessionId)
+  const qs = params.toString()
+  const url = qs ? `${BASE}/api/v1/onboard?${qs}` : `${BASE}/api/v1/onboard`
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
