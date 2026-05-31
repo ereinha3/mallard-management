@@ -63,6 +63,9 @@ function getAssetRows(profile) {
     rows.push({ label: 'House', value: numberOrNull(profile.home_value), type: 'home' })
   }
   rows.push({ label: 'Non-Liquid Savings', value: numberOrNull(profile.non_liquid_savings), type: 'other' })
+  rows.push({ label: '401(k)', value: numberOrNull(profile.balance_401k), type: 'retirement' })
+  rows.push({ label: 'IRA', value: numberOrNull(profile.ira_balance), type: 'retirement' })
+  rows.push({ label: 'HSA', value: numberOrNull(profile.hsa_balance), type: 'other' })
 
   Object.entries(assetsObj).forEach(([key, value]) => {
     const amount = numberOrNull(value)

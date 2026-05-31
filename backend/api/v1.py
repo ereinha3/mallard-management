@@ -151,6 +151,9 @@ def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUser
         "hsa_coverage",
         "home_value",
         "non_liquid_savings",
+        "balance_401k",
+        "ira_balance",
+        "hsa_balance",
     }
     payload = profile_input.model_dump(exclude=tax_fields)
     payload["goals"] = [_normalize_goal(goal) for goal in payload.get("goals") or ["general_wealth"]]
@@ -269,6 +272,9 @@ def _to_api_validated(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    payload["balance_401k"] = source.balance_401k
+    payload["ira_balance"] = source.ira_balance
+    payload["hsa_balance"] = source.hsa_balance
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -297,6 +303,9 @@ def _to_api_validated_from_profile(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    payload["balance_401k"] = source.balance_401k
+    payload["ira_balance"] = source.ira_balance
+    payload["hsa_balance"] = source.hsa_balance
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -499,6 +508,9 @@ def _compute_financial_analysis(
             + profile.emergency_fund
             + (profile.non_liquid_savings or 0.0)
             + (profile.home_value or 0.0)
+            + (profile.balance_401k or 0.0)
+            + (profile.ira_balance or 0.0)
+            + (profile.hsa_balance or 0.0)
             - total_debt,
             2,
         ),

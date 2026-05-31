@@ -112,6 +112,9 @@ class UserProfileInput(BaseModel):
         ge=0,
         description="Non-liquid savings: stocks, ETFs, brokerage accounts",
     )
+    balance_401k: Optional[float] = Field(default=0.0, ge=0, description="Current 401(k) account balance")
+    ira_balance: Optional[float] = Field(default=0.0, ge=0, description="Current IRA account balance")
+    hsa_balance: Optional[float] = Field(default=0.0, ge=0, description="Current HSA account balance")
     debts: List[DebtItem] = Field(default_factory=list)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
