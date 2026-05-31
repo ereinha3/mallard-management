@@ -31,11 +31,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",   # Create React App
-        "http://localhost:5173",   # Vite
-        "http://localhost:4173",   # Vite preview
-    ],
+    # Accept any localhost / 127.0.0.1 origin on ANY port (Vite may land on
+    # 5173, 5174, … and the browser may use either host alias). This kills the
+    # "Failed to fetch" CORS-preflight rejection class in local dev.
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
