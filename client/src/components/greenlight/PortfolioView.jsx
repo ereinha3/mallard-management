@@ -5,6 +5,7 @@ import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } fro
 import IntakeChat from './IntakeChat'
 import PortfolioEditor from './PortfolioEditor'
 import { postPortfolio } from '../../api/greenlightClient'
+import { numberOrNull } from '../../lib/utils'
 import { CountUpNumber, PortfolioRevealStyles, RevealItem, usePrefersReducedMotion } from './PortfolioReveal'
 import RebalancePanel from './RebalancePanel'
 import { useTour } from '../tour/TourProvider'
@@ -21,6 +22,7 @@ import {
   sleeveColor,
   sleeveLabel,
   tickerSleeveMap,
+  withDisplayAllocationPcts,
   weightsToAllocation,
 } from './engineData'
 
@@ -28,11 +30,6 @@ function formatMetricPct(decimalValue, pctValue, digits = 1) {
   if (decimalValue != null && Number.isFinite(Number(decimalValue))) return formatPercent(decimalValue, digits)
   if (pctValue != null && Number.isFinite(Number(pctValue))) return `${Number(pctValue).toFixed(digits)}%`
   return 'N/A'
-}
-
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
 }
 
 function metricCountConfig(decimalValue, pctValue, digits = 1) {
@@ -93,7 +90,7 @@ const CustomTooltipAlloc = ({ active, payload }) => {
     <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
       <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{d.label}</div>
       <div className="font-mono mt-0.5" style={{ color: d.color }}>
-        {d.pct.toFixed(1)}%{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}
+        {(d.displayPct ?? d.pct).toFixed(1)}%{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}
       </div>
     </div>
   )
@@ -208,13 +205,14 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const riskDial = inferRiskDialFromWeights(weights)
   const metrics = portfolio?.metrics ?? null
   const allocation = useMemo(() => (
-    portfolio ? weightsToAllocation(weights, portfolio, capital) : []
+    portfolio ? withDisplayAllocationPcts(weightsToAllocation(weights, portfolio, capital)) : []
   ), [capital, portfolio, weights])
   const realPortfolioPresent = Boolean(resultPortfolio)
   const fetchedPortfolioPresent = Boolean(fetchedPortfolio)
   const method = (portfolio ? explicitPortfolioMethod(portfolio) : null) ?? selectedMethod
   const blendAlpha = portfolio?.blend_alpha ?? portfolio?.weights?.blend_alpha
-  const methodLabel = method ? portfolioMethodLabel(method) : (blendAlpha != null ? 'blend' : realPortfolioPresent ? 'engine' : 'optimizer')
+  const blendAlphaValue = numberOrNull(blendAlpha)
+  const methodLabel = method ? portfolioMethodLabel(method) : (blendAlphaValue != null ? 'blend' : realPortfolioPresent ? 'engine' : 'optimizer')
   const growthPct = allocation
     .filter(a => ['us_equity', 'intl_equity', 'reits'].includes(a.key))
     .reduce((sum, a) => sum + a.pct, 0)
@@ -224,11 +222,11 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     const byTicker = portfolio?.weights?.by_ticker ?? {}
     return JSON.stringify({
       method: methodLabel,
-      blendAlpha,
+      blendAlpha: blendAlphaValue,
       bySleeve,
       byTicker,
     })
-  }, [blendAlpha, methodLabel, portfolio, weights])
+  }, [blendAlphaValue, methodLabel, portfolio, weights])
 
   useEffect(() => {
     if (resultPortfolio) {
@@ -287,7 +285,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     ticker: row.ticker ?? row.key,
     sleeve: row.sleeve,
     label: row.label,
-    pct: row.pct,
+    pct: row.displayPct ?? row.pct,
     amount: row.amount,
     color: row.color,
   }))
@@ -432,7 +430,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               style={{
                 display: 'grid',
                 gap: 18,
-                gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
                 opacity: loadingPortfolio ? 0.72 : 1,
                 transition: 'opacity 160ms ease',
               }}
@@ -462,9 +460,9 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                 color="var(--green, var(--emerald))"
               />
               <RiskMetric
-                label={blendAlpha != null ? 'Blend α' : 'Method'}
-                value={blendAlpha != null ? Number(blendAlpha).toFixed(2) : methodLabel}
-                countConfig={blendAlpha != null ? { value: Number(blendAlpha), format: v => Number(v).toFixed(2) } : null}
+                label={blendAlphaValue != null ? 'Blend α' : 'Method'}
+                value={blendAlphaValue != null ? blendAlphaValue.toFixed(2) : methodLabel}
+                countConfig={blendAlphaValue != null ? { value: blendAlphaValue, format: v => Number(v).toFixed(2) } : null}
                 reducedMotion={reducedMotion}
                 delay={330}
                 color="var(--blue)"
@@ -558,6 +556,9 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                       <Tooltip content={<CustomTooltipAlloc />} />
                     </PieChart>
                   </ResponsiveContainer>
+                  <div className="sr-only">
+                    Allocation summary: {allocation.map(row => `${row.label}: ${(row.displayPct ?? row.pct).toFixed(1)}%`).join(', ')}
+                  </div>
                   <div className="portfolio-reveal-center" style={{
                     position: 'absolute', top: '50%', left: '50%',
                     transform: 'translate(-50%, -50%)',
@@ -579,7 +580,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     <RevealItem key={a.key} className="flex items-center gap-2 text-xs" index={index} reducedMotion={reducedMotion}>
                       <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.color }} />
                       <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{a.label}</span>
-                      <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{a.pct.toFixed(1)}%</span>
+                      <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{(a.displayPct ?? a.pct).toFixed(1)}%</span>
                     </RevealItem>
                   ))}
                 </div>
@@ -629,7 +630,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                               className="text-xs px-2 py-0.5 rounded-full font-medium"
                               style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
                             >
-                              {realPortfolioPresent ? 'engine' : 'live fetch'}
+                              {fetchedPortfolioPresent ? 'live fetch' : realPortfolioPresent ? 'engine' : 'optimizer'}
                             </span>
                           </td>
                         </RevealItem>

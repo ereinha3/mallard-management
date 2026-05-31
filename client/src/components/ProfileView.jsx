@@ -146,11 +146,13 @@ function mergeProfileResult(onboardResult, patch) {
   }
 }
 
-function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
+function MultiSelectDropdown({ id, labelId, field, value, options, onChange, style }) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef(null)
+  const buttonRef = useRef(null)
   const selectedValues = parseField(field.key, value)
   const selectedSet = new Set(selectedValues)
+  const listboxId = `${id}-listbox`
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -174,8 +176,13 @@ function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
   return (
     <div ref={dropdownRef} id={id} style={{ position: 'relative' }}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
+        aria-labelledby={labelId}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
         style={{
           ...style,
           textAlign: 'left',
@@ -187,6 +194,7 @@ function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
 
       {isOpen && (
         <div
+          id={listboxId}
           role="listbox"
           aria-multiselectable="true"
           style={{
@@ -214,6 +222,12 @@ function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
                 tabIndex={0}
                 onClick={() => toggleOption(option)}
                 onKeyDown={event => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setIsOpen(false)
+                    buttonRef.current?.focus()
+                    return
+                  }
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     toggleOption(option)
@@ -276,9 +290,10 @@ function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
 
 function Field({ field, value, onChange }) {
   const inputId = `profile-${field.key}`
+  const labelId = `${inputId}-label`
   const fieldOptions = field.options ?? []
-  const selectedValues = field.type === 'multi-select' ? parseField(field.key, value) : []
-  const options = field.type === 'multi-select'
+  const selectedValues = field.type === 'multi-select' || field.type === 'tags' ? parseField(field.key, value) : []
+  const options = field.type === 'multi-select' || field.type === 'tags'
     ? [...new Set([...fieldOptions, ...selectedValues])]
     : fieldOptions
   const commonStyle = {
@@ -294,7 +309,7 @@ function Field({ field, value, onChange }) {
 
   return (
     <label className="block">
-      <span className="block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
+      <span id={labelId} className="block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
         {field.label}
       </span>
       {field.type === 'select' ? (
@@ -320,6 +335,7 @@ function Field({ field, value, onChange }) {
                 type="button"
                 onClick={() => onChange(field.key, option)}
                 className="font-semibold transition-all"
+                aria-pressed={isSelected}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 20,
@@ -359,6 +375,7 @@ function Field({ field, value, onChange }) {
       ) : field.type === 'tags' ? (
         <MultiSelectDropdown
           id={inputId}
+          labelId={labelId}
           field={field}
           value={value}
           options={options}
@@ -369,6 +386,7 @@ function Field({ field, value, onChange }) {
         <input
           id={inputId}
           type={field.type === 'money' || field.type === 'number' ? 'number' : 'text'}
+          inputMode={field.type === 'money' ? 'decimal' : undefined}
           min={field.type === 'money' || field.type === 'number' ? '0' : undefined}
           step={field.type === 'money' || field.type === 'number' ? '1' : undefined}
           value={value}

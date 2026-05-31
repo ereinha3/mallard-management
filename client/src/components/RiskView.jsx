@@ -27,10 +27,16 @@ export default function RiskView({ onboardResult }) {
   const risk = onboardResult?.financial_analysis?.risk ?? {}
   const capacity = numberOrNull(riskProfile.capacity_score ?? risk.capacity_score)
   const tolerance = numberOrNull(riskProfile.tolerance_score ?? risk.tolerance_score)
-  const gamma = numberOrNull(riskProfile.gamma_mid ?? riskProfile.gamma ?? risk.gamma_mid)
-  const gammaBand = risk.label ?? riskProfile.gamma_band_label ?? null
+  const gamma = numberOrNull(riskProfile.gamma_band?.mid ?? riskProfile.gamma_mid ?? riskProfile.gamma ?? risk.gamma_mid)
+  const gammaBandMin = numberOrNull(riskProfile.gamma_band?.min)
+  const gammaBandMax = numberOrNull(riskProfile.gamma_band?.max)
+  const gammaBand = risk.label ?? (
+    gammaBandMin != null && gammaBandMax != null ? `${gammaBandMin}–${gammaBandMax}` : null
+  )
   const targetVol = numberOrNull(risk.target_volatility_pct)
   const maxLoss = numberOrNull(risk.estimated_max_loss_1yr_pct)
+  const bindingAxis = risk.binding_axis ?? riskProfile.binding_axis
+  const lossAversionFlag = risk.loss_aversion_flag ?? riskProfile.loss_aversion_flag
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -42,14 +48,14 @@ export default function RiskView({ onboardResult }) {
       </header>
 
       <div className="p-8 space-y-5 max-w-6xl">
-        <div data-tour="risk-overview" className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div data-tour="risk-overview" className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))' }}>
           <Metric label="Gamma Band" value={gammaBand} icon={Shield} />
           <Metric label="Risk Aversion Gamma" value={gamma != null ? gamma.toFixed(2) : null} icon={Gauge} />
           <Metric label="Target Volatility" value={targetVol != null ? formatPercent(targetVol) : null} icon={Activity} color="var(--emerald)" />
           <Metric label="Estimated 1Y Max Loss" value={maxLoss != null ? formatPercent(maxLoss) : null} icon={AlertTriangle} color="var(--ruby)" />
         </div>
 
-        <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))' }}>
           <div data-tour="risk-capacity-tolerance" className="card-premium p-6">
             <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
               Capacity vs Tolerance
@@ -72,7 +78,7 @@ export default function RiskView({ onboardResult }) {
               </div>
             ))}
             <div className="text-xs mt-5" style={{ color: 'var(--text-muted)' }}>
-              Binding axis: <span style={{ color: 'var(--text-secondary)' }}>{risk.binding_axis ?? 'Not available'}</span>
+              Binding axis: <span style={{ color: 'var(--text-secondary)' }}>{bindingAxis ?? 'Not available'}</span>
             </div>
           </div>
 
@@ -83,8 +89,8 @@ export default function RiskView({ onboardResult }) {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between gap-4">
                 <span style={{ color: 'var(--text-secondary)' }}>Loss aversion flag</span>
-                <span style={{ color: risk.loss_aversion_flag ? 'var(--ruby)' : 'var(--emerald)' }}>
-                  {risk.loss_aversion_flag == null ? 'Not available' : risk.loss_aversion_flag ? 'Yes' : 'No'}
+                <span style={{ color: lossAversionFlag ? 'var(--ruby)' : 'var(--emerald)' }}>
+                  {lossAversionFlag == null ? 'Not available' : lossAversionFlag ? 'Yes' : 'No'}
                 </span>
               </div>
               <div>

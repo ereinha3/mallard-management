@@ -19,6 +19,7 @@ import {
   riskSummaryFromMetrics,
   sleeveColor,
   sleeveLabel,
+  withDisplayAllocationPcts,
   weightsToAllocation,
 } from './engineData'
 
@@ -110,7 +111,7 @@ function AllocationTooltip({ active, payload }) {
   return (
     <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
       <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{row.label}</div>
-      <div className="font-mono" style={{ color: row.color }}>{row.pct.toFixed(1)}%</div>
+      <div className="font-mono" style={{ color: row.color }}>{(row.displayPct ?? row.pct).toFixed(1)}%</div>
     </div>
   )
 }
@@ -158,12 +159,16 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
 
   const displayMetrics = serverMetrics
   const displaySummary = riskSummary
-  const allocation = useMemo(() => weightsToAllocation(weights, basePortfolio, capital), [basePortfolio, capital, weights])
+  const allocation = useMemo(() => (
+    withDisplayAllocationPcts(weightsToAllocation(weights, basePortfolio, capital))
+  ), [basePortfolio, capital, weights])
   const barData = allocation.map(row => ({ ...row, value: row.pct }))
   const split = useMemo(() => portfolioSplit(weights), [weights])
   const mixes = useMemo(() => groupWeights(weights), [weights])
   const validationWarnings = validation?.warnings ?? []
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
+  const riskContributions = displayMetrics?.risk_contributions
+  const hasRiskContributions = riskContributions && typeof riskContributions === 'object'
 
   useEffect(() => {
     if (editMode === 'dial') return undefined
@@ -283,6 +288,9 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
       setNetworkState('ok')
     } catch {
       setNetworkState('unavailable')
+      setPersistenceState('idle')
+      setApplyState('idle')
+      return
     }
 
     let updatedResult = mergePortfolioResult(onboardResult, nextPortfolio, nextSummary)
@@ -383,7 +391,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
         </div>
       </div>
 
-      <div className="grid gap-5" style={{ gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(360px, 1.3fr)' }}>
+      <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))' }}>
         <div className="space-y-4">
           <div data-tour="greenlight-risk-dial" className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <label htmlFor="risk-dial" className="flex items-center justify-between gap-3 mb-3">
@@ -442,7 +450,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
               Instant Preview
             </div>
-            <div className="grid gap-4" style={{ gridTemplateColumns: '220px 1fr' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}>
               <div style={{ height: 210, position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -452,6 +460,9 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
                     <Tooltip content={<AllocationTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="sr-only">
+                  Allocation summary: {allocation.map(row => `${row.label}: ${(row.displayPct ?? row.pct).toFixed(1)}%`).join(', ')}
+                </div>
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                   <div className="text-center">
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--text-primary)' }}>
@@ -480,20 +491,30 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
               Risk Contribution
             </div>
-            <div className="grid gap-2">
-              {SLEEVE_ORDER.map((sleeve) => {
-                const contribution = Number(displayMetrics?.risk_contributions?.[sleeve] ?? 0) * 100
+            {hasRiskContributions ? (
+              <div className="grid gap-2">
+                {SLEEVE_ORDER.map((sleeve) => {
+                  const rawContribution = Number(riskContributions?.[sleeve])
+                  const contribution = Number.isFinite(rawContribution) ? rawContribution * 100 : null
+                  const width = contribution == null ? 0 : Math.max(0, Math.min(100, contribution))
                 return (
                   <div key={sleeve} className="flex items-center gap-3 text-xs">
                     <div style={{ width: 86, color: 'var(--text-secondary)' }}>{sleeveLabel(sleeve)}</div>
                     <div className="h-2 rounded-full overflow-hidden" style={{ flex: 1, background: 'var(--bg-surface)' }}>
-                      <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, contribution))}%`, background: sleeveColor(sleeve) }} />
+                      <div className="h-full rounded-full" style={{ width: `${width}%`, background: sleeveColor(sleeve) }} />
                     </div>
-                    <div className="font-mono text-right" style={{ width: 48, color: 'var(--text-muted)' }}>{contribution.toFixed(1)}%</div>
+                    <div className="font-mono text-right" style={{ width: 48, color: 'var(--text-muted)' }}>
+                      {contribution == null ? 'N/A' : `${contribution.toFixed(1)}%`}
+                    </div>
                   </div>
                 )
-              })}
-            </div>
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg p-3 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                Risk contribution analysis is pending or unavailable.
+              </div>
+            )}
             {validationMessage && (
               <div className="mt-3 rounded-lg p-2 text-xs" style={{ background: 'rgba(217,64,64,0.08)', border: '1px solid rgba(217,64,64,0.25)', color: 'var(--ruby)' }}>
                 {validationMessage}

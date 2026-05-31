@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   Building, Briefcase, Home, TrendingUp, PiggyBank, Car,
   CreditCard, Plus, ExternalLink, ShieldCheck, Lock, ArrowRight, X
@@ -50,6 +50,12 @@ function formatProfilePercent(value) {
   return formatPercent(Math.abs(num) <= 1 ? num * 100 : num)
 }
 
+function formatApr(value) {
+  const num = numberOrNull(value)
+  if (num == null) return 'Not provided'
+  return formatPercent(Math.abs(num) <= 1 ? num * 100 : num)
+}
+
 function assetTypeFor(key) {
   if (key.includes('401') || key.includes('ira') || key.includes('retirement')) return 'retirement'
   if (key.includes('home') || key.includes('real_estate')) return 'home'
@@ -61,11 +67,13 @@ function assetTypeFor(key) {
 
 function AccountCard({ account, isLiability }) {
   const [open, setOpen] = useState(false)
+  const detailsId = useId()
   const config = isLiability
     ? (LIABILITY_ICONS[account.type] || LIABILITY_ICONS.other)
     : (ASSET_ICONS[account.type] || ASSET_ICONS.other)
   const Icon = config.icon
   const isExpandable = isLiability || account.details?.length > 0
+  const payoffMonths = numberOrNull(account.months_to_payoff)
   const rowContent = (
     <>
       <div
@@ -101,7 +109,13 @@ function AccountCard({ account, isLiability }) {
   return (
     <div className="card-premium p-5 transition-all hover:border-gold-light group" style={ACCOUNTS_SURFACE_STYLE}>
       {isExpandable ? (
-        <button type="button" className="w-full flex items-center gap-4 text-left" onClick={() => setOpen(!open)}>
+        <button
+          type="button"
+          className="w-full flex items-center gap-4 text-left"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-controls={detailsId}
+        >
           {rowContent}
         </button>
       ) : (
@@ -111,12 +125,12 @@ function AccountCard({ account, isLiability }) {
       )}
 
       {open && (
-        <div className="mt-4 pt-4 grid grid-cols-1 gap-2 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+        <div id={detailsId} className="mt-4 pt-4 grid grid-cols-1 gap-2 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
           {isLiability ? (
             <>
               <div className="flex justify-between">
                 <span className="text-muted">APR</span>
-                <span className="font-mono text-primary">{account.apr != null ? formatPercent(account.apr * 100) : 'Not provided'}</span>
+                <span className="font-mono text-primary">{formatApr(account.apr)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Monthly interest cost</span>
@@ -124,7 +138,11 @@ function AccountCard({ account, isLiability }) {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Months to payoff</span>
-                <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : 'Not provided'}</span>
+                <span className="font-mono text-primary">
+                  {payoffMonths != null
+                    ? `${Math.round(payoffMonths).toLocaleString()} months`
+                    : 'Not provided'}
+                </span>
               </div>
             </>
           ) : (
@@ -142,16 +160,50 @@ function AccountCard({ account, isLiability }) {
 }
 
 function LinkModal({ onClose }) {
+  const titleId = useId()
+  const closeButtonRef = useRef(null)
+
+  useEffect(() => {
+    closeButtonRef.current?.focus()
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
-      <div className="card-premium p-6 max-w-md w-full mx-4 bg-surface" style={ACCOUNTS_SURFACE_STYLE}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.55)' }}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="card-premium p-6 max-w-md w-full mx-4 bg-surface"
+        style={ACCOUNTS_SURFACE_STYLE}
+      >
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <div className="font-display font-semibold text-xl text-primary">Plaid connection pending</div>
+            <div id={titleId} className="font-display font-semibold text-xl text-primary">Plaid connection pending</div>
             <div className="text-xs text-muted mt-1">Live account linking is not connected in this build.</div>
           </div>
-          <button type="button" onClick={onClose} className="p-1 rounded-md hover:bg-bg-elevated text-muted">
-            <X size={18} />
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close account linking dialog"
+            className="p-1 rounded-md hover:bg-bg-elevated text-muted"
+          >
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
         <div className="text-sm text-secondary leading-relaxed">
@@ -258,7 +310,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
         label: titleize(kind),
         balance,
         type: kind,
-        subtitle: apr != null ? `${formatPercent(apr * 100)} APR` : 'Debt from profile',
+        subtitle: apr != null ? `${formatApr(apr)} APR` : 'Debt from profile',
         apr,
         monthly_interest_cost: numberOrNull(firstPresent(debt.monthly_interest_cost, debt.monthly_interest)),
         months_to_payoff: numberOrNull(firstPresent(debt.months_to_payoff, debt.payoff_months)),
@@ -285,12 +337,12 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
             className="flex items-center gap-2 px-4 py-2 bg-gold text-bg-base rounded-lg text-sm font-bold hover:bg-gold-bright transition-colors"
           >
             <Plus size={16} strokeWidth={3} />
-            Link Account
+            Account Linking Info
           </button>
         </div>
       </div>
 
-      <div data-tour="accounts-holdings" className="p-8 space-y-10 max-w-6xl">
+      <div data-tour="accounts-holdings" className="p-4 sm:p-6 lg:p-8 space-y-10 max-w-6xl">
         <section>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
@@ -388,7 +440,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
             <ExternalLink size={24} className="text-gold mb-3" />
             <div className="text-sm font-semibold text-primary mb-1">Plaid Not Connected</div>
             <div className="text-xs text-muted leading-relaxed">
-              The Link Account button now explains the missing integration instead of showing sample institutions.
+              The Account Linking Info button explains the missing integration instead of showing sample institutions.
             </div>
           </div>
         </footer>

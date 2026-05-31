@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const GOLD = '#C9A84C'
+const GOLD = 'var(--gold)'
 
 const FIELDS = [
   { name: 'income', label: 'Annual household income', type: 'currency', placeholder: '120,000' },
@@ -41,6 +41,14 @@ function parsePositiveNumber(value) {
 
   const parsed = Number(cleaned)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function parseNonNegativeNumber(value) {
+  const cleaned = String(value).replace(/,/g, '').trim()
+  if (!cleaned) return null
+
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 function parseBoundedInteger(value, min, max) {
@@ -100,9 +108,10 @@ export default function IntakeForm({ onSubmit }) {
         return
       }
 
-      const parsed = parsePositiveNumber(values[field.name])
+      const allowsZero = ['liquidCapital', 'emergencyFund', 'nonLiquidSavings'].includes(field.name)
+      const parsed = allowsZero ? parseNonNegativeNumber(values[field.name]) : parsePositiveNumber(values[field.name])
       if (parsed === null) {
-        nextErrors[field.name] = 'Enter a positive number.'
+        nextErrors[field.name] = allowsZero ? 'Enter zero or more.' : 'Enter a positive number.'
       } else {
         parsedValues[field.name] = parsed
       }
@@ -146,7 +155,7 @@ export default function IntakeForm({ onSubmit }) {
     <div
       className="h-full overflow-y-auto px-5 py-10"
       style={{
-        background: '#F8F2E6',
+        background: 'var(--bg-base)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -157,10 +166,10 @@ export default function IntakeForm({ onSubmit }) {
         noValidate
         style={{
           width: 'min(100%, 560px)',
-          background: '#FFFDF8',
-          border: '1px solid rgba(201,168,76,0.2)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-bright)',
           borderRadius: 18,
-          boxShadow: '0 22px 60px rgba(69, 55, 25, 0.12)',
+          boxShadow: '0 22px 60px rgba(0,0,0,0.18)',
           padding: '34px',
         }}
       >
@@ -168,7 +177,7 @@ export default function IntakeForm({ onSubmit }) {
           <h1
             className="font-display"
             style={{
-              color: '#2B261B',
+              color: 'var(--text-primary)',
               fontFamily: '"Playfair Display", serif',
               fontSize: 34,
               fontWeight: 700,
@@ -179,7 +188,7 @@ export default function IntakeForm({ onSubmit }) {
           >
             {step === 1 ? 'Tell us about your finances' : 'Tell us about your work'}
           </h1>
-          <p style={{ color: '#7A6D52', fontSize: 15, margin: '10px 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 15, margin: '10px 0 0' }}>
             {step === 1 ? 'This takes about 30 seconds' : 'Helps us understand your income stability'}
           </p>
         </div>
@@ -192,10 +201,10 @@ export default function IntakeForm({ onSubmit }) {
                 width: '100%',
                 height: 48,
                 boxSizing: 'border-box',
-                background: '#FFF9EC',
-                border: `1px solid ${hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'}`,
+                background: 'var(--bg-base)',
+                border: `1px solid ${hasError ? 'var(--ruby)' : 'var(--border-bright)'}`,
                 borderRadius: 12,
-                color: '#2B261B',
+                color: 'var(--text-primary)',
                 fontSize: 16,
                 fontFamily: 'DM Sans, sans-serif',
                 outline: 'none',
@@ -205,17 +214,17 @@ export default function IntakeForm({ onSubmit }) {
               const focusControl = event => {
                 event.target.style.borderColor = GOLD
                 event.target.style.boxShadow = '0 0 0 3px rgba(201,168,76,0.22)'
-                event.target.style.background = '#FFFFFF'
+                event.target.style.background = 'var(--bg-surface)'
               }
               const blurControl = event => {
-                event.target.style.borderColor = hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'
+                event.target.style.borderColor = hasError ? 'var(--ruby)' : 'var(--border-bright)'
                 event.target.style.boxShadow = 'none'
-                event.target.style.background = '#FFF9EC'
+                event.target.style.background = 'var(--bg-base)'
               }
 
               return (
                 <label key={field.name} style={{ display: 'grid', gap: 7 }}>
-                  <span style={{ color: '#3B3425', fontSize: 13, fontWeight: 700 }}>
+                  <span style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}>
                     {field.label}
                   </span>
                   {field.type === 'select' ? (
@@ -246,7 +255,7 @@ export default function IntakeForm({ onSubmit }) {
                             left: 15,
                             top: '50%',
                             transform: 'translateY(-50%)',
-                            color: '#8A7B5B',
+                            color: 'var(--text-muted)',
                             fontSize: 15,
                             fontWeight: 700,
                           }}
@@ -257,7 +266,7 @@ export default function IntakeForm({ onSubmit }) {
                       <input
                         value={values[field.name]}
                         onChange={event => handleChange(field.name, event.target.value)}
-                        type="number"
+                        type={field.type === 'currency' ? 'text' : 'number'}
                         inputMode={field.type === 'currency' ? 'decimal' : 'numeric'}
                         min={field.min ?? 0}
                         max={field.max}
@@ -273,7 +282,7 @@ export default function IntakeForm({ onSubmit }) {
                     </div>
                   )}
                   {hasError && (
-                    <span id={`${field.name}-error`} style={{ color: '#B94545', fontSize: 12 }}>
+                    <span id={`${field.name}-error`} style={{ color: 'var(--ruby)', fontSize: 12 }}>
                       {errors[field.name]}
                     </span>
                   )}
@@ -289,10 +298,10 @@ export default function IntakeForm({ onSubmit }) {
                 width: '100%',
                 height: 48,
                 boxSizing: 'border-box',
-                background: '#FFF9EC',
-                border: `1px solid ${hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'}`,
+                background: 'var(--bg-base)',
+                border: `1px solid ${hasError ? 'var(--ruby)' : 'var(--border-bright)'}`,
                 borderRadius: 12,
-                color: '#2B261B',
+                color: 'var(--text-primary)',
                 fontSize: 16,
                 fontFamily: 'DM Sans, sans-serif',
                 outline: 'none',
@@ -302,7 +311,7 @@ export default function IntakeForm({ onSubmit }) {
 
               return (
                 <label key={field.name} style={{ display: 'grid', gap: 7 }}>
-                  <span style={{ color: '#3B3425', fontSize: 13, fontWeight: 700 }}>
+                  <span style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}>
                     {field.label}
                   </span>
                   {field.type === 'select' ? (
@@ -316,12 +325,12 @@ export default function IntakeForm({ onSubmit }) {
                       onFocus={event => {
                         event.target.style.borderColor = GOLD
                         event.target.style.boxShadow = '0 0 0 3px rgba(201,168,76,0.22)'
-                        event.target.style.background = '#FFFFFF'
+                        event.target.style.background = 'var(--bg-surface)'
                       }}
                       onBlur={event => {
-                        event.target.style.borderColor = hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'
+                        event.target.style.borderColor = hasError ? 'var(--ruby)' : 'var(--border-bright)'
                         event.target.style.boxShadow = 'none'
-                        event.target.style.background = '#FFF9EC'
+                        event.target.style.background = 'var(--bg-base)'
                       }}
                     >
                       <option value="">Select one</option>
@@ -344,17 +353,17 @@ export default function IntakeForm({ onSubmit }) {
                       onFocus={event => {
                         event.target.style.borderColor = GOLD
                         event.target.style.boxShadow = '0 0 0 3px rgba(201,168,76,0.22)'
-                        event.target.style.background = '#FFFFFF'
+                        event.target.style.background = 'var(--bg-surface)'
                       }}
                       onBlur={event => {
-                        event.target.style.borderColor = hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'
+                        event.target.style.borderColor = hasError ? 'var(--ruby)' : 'var(--border-bright)'
                         event.target.style.boxShadow = 'none'
-                        event.target.style.background = '#FFF9EC'
+                        event.target.style.background = 'var(--bg-base)'
                       }}
                     />
                   )}
                   {hasError && (
-                    <span id={`${field.name}-error`} style={{ color: '#B94545', fontSize: 12 }}>
+                    <span id={`${field.name}-error`} style={{ color: 'var(--ruby)', fontSize: 12 }}>
                       {employmentErrors[field.name]}
                     </span>
                   )}
@@ -373,7 +382,7 @@ export default function IntakeForm({ onSubmit }) {
             border: 'none',
             borderRadius: 12,
             background: GOLD,
-            color: '#FFFFFF',
+            color: '#070910',
             cursor: 'pointer',
             fontSize: 15,
             fontWeight: 800,
@@ -407,7 +416,7 @@ export default function IntakeForm({ onSubmit }) {
               padding: 0,
               border: 'none',
               background: 'transparent',
-              color: '#7A6D52',
+              color: 'var(--text-secondary)',
               cursor: 'pointer',
               fontSize: 14,
               fontWeight: 700,

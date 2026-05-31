@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Feather, CheckCircle, Send, AlertTriangle } from 'lucide-react'
 import { streamChat, postOnboard } from '../api/greenlightClient'
 import IntakeForm from './greenlight/IntakeForm.jsx'
+import { numberOrNull, formatCurrency, formatPercent, formatMoneyOrNull } from '../lib/utils'
 
 // ── Building / analysis screen ────────────────────────────────────────────────
 
@@ -20,7 +21,10 @@ function BuildingScreen({ onboardResult }) {
   }, [])
 
   const gateStatus = onboardResult?.gate_result?.status
+  const gateCleared = gateStatus === 'greenlight' || gateStatus === 'green'
   const snapshot = onboardResult?.financial_analysis?.snapshot
+  const monthlySurplus = numberOrNull(snapshot?.monthly_surplus)
+  const savingsRatePct = numberOrNull(snapshot?.savings_rate_pct)
 
   const steps = [
     { label: 'Profile validated',       done: progress > 20 },
@@ -57,11 +61,11 @@ function BuildingScreen({ onboardResult }) {
             fontWeight: 600, letterSpacing: '-0.02em',
             color: 'var(--text-primary)', lineHeight: 1.1, marginBottom: 10,
           }}>
-            {phase === 'done' && gateStatus === 'greenlight' ? "You're cleared." : "Building your plan."}
+            {phase === 'done' && gateCleared ? "You're cleared." : "Building your plan."}
           </div>
           <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             {phase === 'done' && snapshot
-              ? `Monthly surplus: $${Math.round(snapshot.monthly_surplus).toLocaleString()} · Savings rate: ${snapshot.savings_rate_pct.toFixed(1)}%`
+              ? `Monthly surplus: ${monthlySurplus == null ? 'Not returned' : formatCurrency(monthlySurplus)} · Savings rate: ${savingsRatePct == null ? 'Not returned' : formatPercent(savingsRatePct)}`
               : 'Running the responsibility gate and risk calibration...'}
           </div>
         </div>
@@ -102,15 +106,15 @@ function BuildingScreen({ onboardResult }) {
           <div
             style={{
               width: '100%', padding: '12px 16px', borderRadius: 10,
-              background: gateStatus === 'greenlight' ? 'rgba(26,173,114,0.08)' : 'rgba(217,64,64,0.08)',
-              border: `1px solid ${gateStatus === 'greenlight' ? 'rgba(26,173,114,0.25)' : 'rgba(217,64,64,0.25)'}`,
+              background: gateCleared ? 'rgba(26,173,114,0.08)' : 'rgba(217,64,64,0.08)',
+              border: `1px solid ${gateCleared ? 'rgba(26,173,114,0.25)' : 'rgba(217,64,64,0.25)'}`,
               textAlign: 'center', fontSize: 13,
-              color: gateStatus === 'greenlight' ? 'var(--emerald)' : 'var(--ruby)',
+              color: gateCleared ? 'var(--emerald)' : 'var(--ruby)',
               fontWeight: 600,
               animation: 'fadeUp 0.4s ease both',
             }}
           >
-            {gateStatus === 'greenlight'
+            {gateCleared
               ? 'Gate cleared. Taking you to your dashboard.'
               : `Gate: ${onboardResult?.gate_result?.reason?.slice(0, 80) ?? 'Action required before investing.'}`
             }
@@ -272,6 +276,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
   const [isStreaming, setIsStreaming] = useState(false)
   const [inputVal, setInputVal] = useState('')
   const [error, setError] = useState(null)
+  const [onboardError, setOnboardError] = useState(null)
 
   // Pipeline state
   const [profile, setProfile] = useState(null)       // UserProfileInput from backend
@@ -285,6 +290,8 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
   const sessionIdRef = useRef(resumeSession?.id ?? null)
   const resumeKickedRef = useRef(false)
   const formExtrasRef = useRef({})
+  const onboardStartedRef = useRef(false)
+  const [onboardRetryKey, setOnboardRetryKey] = useState(0)
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -299,8 +306,11 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
   // After profile_ready → run /onboard → show building screen
   useEffect(() => {
     if (!profile) return
+    if (onboardStartedRef.current) return
+    onboardStartedRef.current = true
     ;(async () => {
       setBuilding(true)
+      setOnboardError(null)
       try {
         const result = await postOnboard(
           { ...profile, ...getTaxProfilePayload(taxProfile), ...formExtrasRef.current },
@@ -312,25 +322,25 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
         await new Promise(r => setTimeout(r, 1800))
         onComplete(result)
       } catch (e) {
-        // If onboard fails, still proceed (show dashboard without gate data)
         console.error('Onboard error:', e)
-        await new Promise(r => setTimeout(r, 1800))
-        onComplete(null)
+        setBuilding(false)
+        setOnboardError('We could not run the responsibility gate. Your answers are still here; try again.')
       }
     })()
-  }, [profile, taxProfile, user?.email]) // eslint-disable-line
+  }, [profile, taxProfile, user?.email, onboardRetryKey]) // eslint-disable-line
 
   const callBackend = useCallback((msgList) => {
     abortRef.current = false
     setIsStreaming(true)
     setStreamingText('')
     setError(null)
+    setOnboardError(null)
 
     let accumulated = ''
     let committed = false
 
     streamChat({
-      messages: msgList,
+      messages: msgList.map(({ role, content }) => ({ role, content })),
       user_email: user?.email,
       session_id: sessionIdRef.current,
       onSession: (session) => {
@@ -408,10 +418,19 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
     }
     setStep('chat')
 
-    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, non-liquid savings are $${capturedFields.nonLiquidSavings}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
-    const seed = [{ role: 'user', content: seedContent }]
+    const taxPayload = getTaxProfilePayload(taxProfile)
+    const filingStatusText = taxPayload.filing_status ? `, filing status is ${taxPayload.filing_status}` : ''
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, non-liquid savings are $${capturedFields.nonLiquidSavings}, age is ${capturedFields.age}${filingStatusText}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
+    const seed = [{ role: 'user', content: seedContent, hiddenSeed: true }]
     setMessages(seed)
     callBackend(seed)
+  }
+
+  function handleRetryOnboard() {
+    if (!profile) return
+    onboardStartedRef.current = false
+    setOnboardError(null)
+    setOnboardRetryKey(prev => prev + 1)
   }
 
   function handleSend(e) {
@@ -427,6 +446,8 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
 
   if (building) return <BuildingScreen onboardResult={onboardResult} />
   if (step === 'form') return <IntakeForm onSubmit={handleIntakeSubmit} />
+
+  const visibleMessages = messages.filter(m => !m.hiddenSeed)
 
   // Render all committed messages + current streaming text
   return (
@@ -473,7 +494,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
         <div style={{ flex: 1, overflow: 'hidden auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
           {/* Filter out the seed user message */}
-          {messages.slice(1).map((m, i) =>
+          {visibleMessages.map((m, i) =>
             m.role === 'assistant'
               ? <MallardBubble key={i} text={m.content} isStreaming={false} />
               : <UserBubble key={i} text={m.content} />
@@ -516,6 +537,41 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
                 <div style={{ fontWeight: 600, marginBottom: 3 }}>Backend unreachable</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{error}</div>
               </div>
+            </div>
+          )}
+
+          {onboardError && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px',
+              background: 'rgba(217,64,64,0.08)', border: '1px solid rgba(217,64,64,0.25)',
+              borderRadius: 10, fontSize: 13, color: 'var(--ruby)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 3 }}>Gate check failed</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{onboardError}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryOnboard}
+                style={{
+                  height: 34,
+                  padding: '0 12px',
+                  border: '1px solid rgba(217,64,64,0.3)',
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  fontFamily: 'DM Sans, sans-serif',
+                  flexShrink: 0,
+                }}
+              >
+                Retry
+              </button>
             </div>
           )}
 
@@ -588,7 +644,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
         </div>
 
         <div style={{ flex: 1, padding: '14px 14px', overflowY: 'auto' }}>
-          {!profile && messages.length <= 1 && (
+          {!profile && visibleMessages.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', paddingTop: 28, lineHeight: 1.6 }}>
               Your details will appear<br />here as Mallard gathers<br />your financial picture.
             </div>
@@ -627,10 +683,10 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
 function ProfileSummary({ profile }) {
   const fields = [
     { label: 'Age', value: profile.age },
-    { label: 'Annual Income', value: profile.household_income ? `$${Math.round(profile.household_income).toLocaleString()}` : null },
-    { label: 'Monthly Expenses', value: profile.monthly_expenses ? `$${Math.round(profile.monthly_expenses).toLocaleString()}` : null },
-    { label: 'Capital on Hand', value: profile.capital_on_hand != null ? `$${Math.round(profile.capital_on_hand).toLocaleString()}` : null },
-    { label: 'Emergency Fund', value: profile.emergency_fund != null ? `$${Math.round(profile.emergency_fund).toLocaleString()}` : null },
+    { label: 'Annual Income', value: formatMoneyOrNull(profile.household_income, { fallback: null }) },
+    { label: 'Monthly Expenses', value: formatMoneyOrNull(profile.monthly_expenses, { fallback: null }) },
+    { label: 'Capital on Hand', value: formatMoneyOrNull(profile.capital_on_hand, { fallback: null }) },
+    { label: 'Emergency Fund', value: formatMoneyOrNull(profile.emergency_fund, { fallback: null }) },
     { label: 'Horizon', value: profile.horizon_years ? `${profile.horizon_years} yrs` : null },
     { label: 'Filing Status', value: profile.filing_status },
     { label: 'Income Stability', value: profile.income_stability },

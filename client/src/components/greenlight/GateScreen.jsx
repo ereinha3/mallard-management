@@ -47,7 +47,7 @@ function normalizeGateChecks(gateResult) {
   if (Array.isArray(rawChecks)) {
     return rawChecks.map((check, index) => ({
       key: check.key ?? `check_${index + 1}`,
-      status: check.status ?? 'warn',
+      status: check.status ?? (check.passed === true ? 'pass' : check.passed === false ? 'fail' : 'warn'),
       detail: check.detail ?? '',
     }))
   }
@@ -165,14 +165,18 @@ function getHaltReasons(gateResult) {
 
 function HaltScreen({ onFix, gateResult }) {
   const [visible, setVisible] = useState(false)
-  useEffect(() => { setTimeout(() => setVisible(true), 100) }, [])
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 100)
+    return () => clearTimeout(timer)
+  }, [])
 
   const r = getHaltReasons(gateResult)
   const gateChecks = normalizeGateChecks(gateResult)
 
   // Pick the worst high-APR debt for the display card (or show all if multiple)
   const worstDebt = r.highAprDebts[0] ?? null
-  const debtApr = worstDebt && worstDebt.apr != null ? Math.round((worstDebt.apr ?? worstDebt.interest_rate) * 1000) / 10 : null
+  const debtAprRaw = worstDebt ? (worstDebt.apr ?? worstDebt.interest_rate) : null
+  const debtApr = debtAprRaw != null ? Math.round(debtAprRaw * 1000) / 10 : null
   const debtBalance = worstDebt?.balance ?? worstDebt?.amount
   const debtLabel = worstDebt?.label ?? worstDebt?.type ?? 'Credit card'
 
@@ -183,7 +187,7 @@ function HaltScreen({ onFix, gateResult }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center h-full relative overflow-hidden"
+      className="flex flex-col items-center justify-start sm:justify-center h-full relative overflow-y-auto px-4 py-8 sm:px-6 sm:py-10"
       style={{ background: 'var(--bg-base)' }}
     >
       {/* Atmospheric glow */}
@@ -234,7 +238,7 @@ function HaltScreen({ onFix, gateResult }) {
         </div>
 
         {/* Math cards */}
-        <div className="w-full grid gap-4 mb-8" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="w-full grid gap-4 mb-8" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))' }}>
           {gateChecks.length > 0 && gateChecks.map(check => (
             <GateCheckCard key={check.key} check={check} tone="halt" />
           ))}
@@ -444,8 +448,12 @@ function GreenScreen({ onContinue, gateResult }) {
   const [visible, setVisible] = useState(false)
   const [pulse, setPulse] = useState(false)
   useEffect(() => {
-    setTimeout(() => setVisible(true), 100)
-    setTimeout(() => setPulse(true), 600)
+    const visibleTimer = setTimeout(() => setVisible(true), 100)
+    const pulseTimer = setTimeout(() => setPulse(true), 600)
+    return () => {
+      clearTimeout(visibleTimer)
+      clearTimeout(pulseTimer)
+    }
   }, [])
 
   const profile = getProfile(gateResult)
@@ -482,7 +490,7 @@ function GreenScreen({ onContinue, gateResult }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center h-full relative overflow-hidden"
+      className="flex flex-col items-center justify-start sm:justify-center h-full relative overflow-y-auto px-4 py-8 sm:px-6 sm:py-10"
       style={{ background: 'var(--bg-base)' }}
     >
       {/* Atmospheric emerald glow */}
@@ -536,7 +544,7 @@ function GreenScreen({ onContinue, gateResult }) {
         {/* Passed checks */}
         <div
           className="w-full grid gap-3 mb-8"
-          style={{ gridTemplateColumns: `repeat(${passedChecks.length}, 1fr)` }}
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))' }}
         >
           {passedChecks.map(check => (
             <GateCheckCard key={check.key} check={check} />
@@ -557,7 +565,7 @@ function GreenScreen({ onContinue, gateResult }) {
           >
             What's next
           </div>
-          <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))' }}>
             {[
               { step: 'Risk', label: 'Risk profile', note: 'Tolerance and capacity from backend analysis' },
               { step: 'Universe', label: 'Filtered universe', note: 'Exclusions returned by the optimizer universe' },

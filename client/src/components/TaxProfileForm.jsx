@@ -92,6 +92,8 @@ function SelectField({ label, value, onChange, options, error }) {
 }
 
 function Toggle({ label, checked, onChange }) {
+  const [labelId] = useState(() => nextId('tax-toggle-label'))
+
   return (
     <div style={{
       display: 'flex',
@@ -104,7 +106,7 @@ function Toggle({ label, checked, onChange }) {
       borderRadius: 8,
     }}>
       <div>
-        <div style={labelStyle}>{label}</div>
+        <div id={labelId} style={labelStyle}>{label}</div>
         <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
           {checked ? 'Yes' : 'No'}
         </div>
@@ -113,6 +115,7 @@ function Toggle({ label, checked, onChange }) {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-labelledby={labelId}
         onClick={() => onChange(!checked)}
         style={{
           width: 54,
@@ -195,6 +198,11 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function isInvalidOptionalNumber(value) {
+  if (String(value ?? '').trim() === '') return false
+  return !Number.isFinite(Number(value))
+}
+
 function handleFocus(hasError) {
   return (event) => {
     event.target.style.borderColor = hasError ? 'var(--ruby)' : 'var(--gold-light)'
@@ -253,6 +261,12 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: null }))
   }
 
+  const setStateCode = (event) => {
+    const state = event.target.value.replace(/[^a-z]/gi, '').toUpperCase().slice(0, 2)
+    setForm(prev => ({ ...prev, state }))
+    if (errors.state) setErrors(prev => ({ ...prev, state: null }))
+  }
+
   function setHsaEligible(value) {
     setForm(prev => ({
       ...prev,
@@ -264,6 +278,25 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
 
   function validate() {
     const nextErrors = {}
+    const optionalNumericFields = [
+      ['annual401k', 'Enter a valid 401k contribution.'],
+      ['employerMatchRate', 'Enter a valid employer match rate.'],
+      ['employerMatchCap', 'Enter a valid employer match cap.'],
+      ['traditionalIra', 'Enter a valid IRA contribution.'],
+    ]
+
+    if (form.state.trim() && !/^[A-Z]{2}$/.test(form.state.trim())) {
+      nextErrors.state = 'Enter a 2-letter uppercase state code.'
+    }
+
+    optionalNumericFields.forEach(([field, message]) => {
+      if (isInvalidOptionalNumber(form[field])) nextErrors[field] = message
+    })
+
+    if (form.hsaEligible && isInvalidOptionalNumber(form.hsaContribution)) {
+      nextErrors.hsaContribution = 'Enter a valid HSA contribution.'
+    }
+
     if (!form.filingStatus) nextErrors.filingStatus = 'Filing status is required'
     return nextErrors
   }
@@ -443,9 +476,10 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
               <Field
                 label="State"
                 value={form.state}
-                onChange={set('state')}
+                onChange={setStateCode}
                 placeholder="CA"
                 autoComplete="address-level1"
+                error={errors.state}
               />
               <div style={{ gridColumn: '1 / -1' }}>
                 <SelectField
@@ -467,6 +501,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 onChange={set('annual401k')}
                 placeholder="23000"
                 inputMode="decimal"
+                error={errors.annual401k}
               />
               <Field
                 label="Employer Match Rate %"
@@ -474,6 +509,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 onChange={set('employerMatchRate')}
                 placeholder="4"
                 inputMode="decimal"
+                error={errors.employerMatchRate}
               />
               <Field
                 label="Employer Match Cap % of Salary"
@@ -481,6 +517,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 onChange={set('employerMatchCap')}
                 placeholder="6"
                 inputMode="decimal"
+                error={errors.employerMatchCap}
               />
               <Field
                 label="Traditional IRA $"
@@ -488,6 +525,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 onChange={set('traditionalIra')}
                 placeholder="7000"
                 inputMode="decimal"
+                error={errors.traditionalIra}
               />
               <div style={{ gridColumn: '1 / -1' }}>
                 <Toggle
@@ -504,6 +542,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                     onChange={set('hsaContribution')}
                     placeholder="4150"
                     inputMode="decimal"
+                    error={errors.hsaContribution}
                   />
                   <SelectField
                     label="HSA Coverage"

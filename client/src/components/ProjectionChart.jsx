@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatMoneyOrNull, numberOrNull } from '../lib/utils'
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
+function nullableNumber(value) {
+  return value == null ? null : numberOrNull(value)
 }
 
 function getProjectionInputs(onboardResult) {
   const optimizer = onboardResult?.optimizer_input ?? {}
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
-  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
-  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
-  const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
-  const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
+  const horizonYears = nullableNumber(optimizer.horizon_years ?? profile.horizon_years)
+  const monthlyContribution = nullableNumber(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const capitalOnHand = nullableNumber(optimizer.capital_on_hand ?? profile.capital_on_hand)
+  const goalTarget = nullableNumber(optimizer.goal_target ?? profile.goal_target)
 
   if (horizonYears == null || monthlyContribution == null || capitalOnHand == null || goalTarget == null) {
     return null
@@ -86,7 +85,7 @@ function bandPath(data, lowerKey, upperKey, xFor, yFor) {
   ].join(' ')
 }
 
-export default function ProjectionChart({ projection: providedProjection, onboardResult, retirementYear }) {
+export default function ProjectionChart({ projection: providedProjection, onboardResult, retirementHorizonYears }) {
   const [fetchedProjection, setFetchedProjection] = useState(null)
   const [loadingProjection, setLoadingProjection] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -145,7 +144,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
 
   const projection = providedProjection ?? fetchedProjection
   const data = useMemo(() => (projection ? rowsFromProjection(projection) : []), [projection])
-  const referenceYear = projection?.horizon_years ?? retirementYear
+  const referenceHorizonYears = nullableNumber(projection?.horizon_years ?? retirementHorizonYears)
   const scale = useMemo(() => projectionScale(data), [data])
 
   if (!portfolio?.weights && !projection) {
@@ -204,7 +203,11 @@ export default function ProjectionChart({ projection: providedProjection, onboar
     .filter((value, index, values) => values.indexOf(value) === index)
   const p90Band = bandPath(data, 'p5', 'p95', xFor, yFor)
   const p50Band = bandPath(data, 'p25', 'p75', xFor, yFor)
-  const retireX = referenceYear && Number(referenceYear) <= data.length ? xFor(Number(referenceYear) - 1) : null
+  const retireIndex = referenceHorizonYears == null ? null : Math.round(referenceHorizonYears) - 1
+  const retireX = retireIndex != null && retireIndex >= 0 && retireIndex < data.length ? xFor(retireIndex) : null
+  const successProbability = nullableNumber(projection?.p_success)
+  const medianTerminal = nullableNumber(projection?.median_terminal)
+  const badCaseTerminal = nullableNumber(projection?.bad_case_terminal)
 
   return (
     <div>
@@ -213,19 +216,19 @@ export default function ProjectionChart({ projection: providedProjection, onboar
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Success Probability</div>
             <div className="font-display font-semibold" style={{ color: 'var(--emerald)', fontSize: 24, lineHeight: 1 }}>
-              {(Number(projection.p_success ?? 0) * 100).toFixed(0)}%
+              {successProbability == null ? 'N/A' : `${(successProbability * 100).toFixed(0)}%`}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Median Terminal</div>
             <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)', fontSize: 16 }}>
-              {formatCurrency(Number(projection.median_terminal ?? 0), true)}
+              {formatMoneyOrNull(medianTerminal ?? undefined, { compact: true, fallback: 'N/A' })}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: 'rgba(230,69,69,0.08)', border: '1px solid rgba(230,69,69,0.16)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Bad Case</div>
             <div className="font-mono font-semibold" style={{ color: 'var(--ruby)', fontSize: 16 }}>
-              {formatCurrency(Number(projection.bad_case_terminal ?? 0), true)}
+              {formatMoneyOrNull(badCaseTerminal ?? undefined, { compact: true, fallback: 'N/A' })}
             </div>
           </div>
         </div>
@@ -235,7 +238,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
           role="img"
           aria-label="Monte Carlo portfolio projection percentile paths"
           viewBox={`0 0 ${width} ${height}`}
-          preserveAspectRatio="none"
+          preserveAspectRatio="xMidYMid meet"
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <defs>

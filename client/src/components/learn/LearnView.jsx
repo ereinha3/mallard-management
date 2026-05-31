@@ -3,6 +3,12 @@ import { BookOpen, GraduationCap } from 'lucide-react'
 import { lessonCount, modules } from './lessons'
 
 const STORAGE_KEY = 'mallard-learn-progress'
+const lessonIdSet = new Set(modules.flatMap(module => module.lessons.map(lesson => lesson.id)))
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, value))
+}
 
 function getStoredProgress() {
   if (typeof window === 'undefined') return []
@@ -10,7 +16,9 @@ function getStoredProgress() {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     const parsed = stored ? JSON.parse(stored) : []
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    return Array.isArray(parsed)
+      ? Array.from(new Set(parsed.filter(id => lessonIdSet.has(id))))
+      : []
   } catch {
     return []
   }
@@ -21,12 +29,17 @@ function saveStoredProgress(completedIds) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(completedIds))
 }
 
-function ProgressBar({ value, height = 6 }) {
-  const safeValue = Math.max(0, Math.min(100, value))
+function ProgressBar({ value, height = 6, label = 'Progress' }) {
+  const safeValue = clampPercent(value)
 
   return (
     <div
       className="overflow-hidden"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={safeValue}
       style={{
         height,
         borderRadius: 999,
@@ -52,7 +65,7 @@ function moduleProgress(module, completedSet) {
   return {
     completed,
     total: module.lessons.length,
-    percent: Math.round((completed / module.lessons.length) * 100),
+    percent: clampPercent(Math.round((completed / module.lessons.length) * 100)),
   }
 }
 
@@ -60,7 +73,7 @@ function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
   return (
     <aside
       data-tour="learn-curriculum"
-      className="w-full lg:w-[340px] shrink-0 overflow-y-auto p-4 lg:p-6"
+      className="max-h-[42vh] w-full shrink-0 overflow-y-auto p-4 lg:max-h-none lg:w-[340px] lg:p-6"
       style={{
         background: 'var(--bg-surface)',
         borderRight: '1px solid var(--border)',
@@ -92,10 +105,10 @@ function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
             Overall progress
           </span>
           <span className="font-mono text-xs" style={{ color: 'var(--green, var(--emerald))' }}>
-            {Math.round((completedSet.size / lessonCount) * 100)}%
+            {clampPercent(Math.round((completedSet.size / lessonCount) * 100))}%
           </span>
         </div>
-        <ProgressBar value={(completedSet.size / lessonCount) * 100} />
+        <ProgressBar value={(completedSet.size / lessonCount) * 100} label="Overall progress" />
         <div className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
           {completedSet.size} of {lessonCount} lessons complete
         </div>
@@ -120,7 +133,7 @@ function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
                   {module.description}
                 </p>
                 <div className="mt-3">
-                  <ProgressBar value={progress.percent} height={5} />
+                  <ProgressBar value={progress.percent} height={5} label={`${module.title} progress`} />
                 </div>
               </div>
 
@@ -200,7 +213,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
   const completedSet = useMemo(() => new Set(completedIds), [completedIds])
   const { module, lesson } = getLessonById(activeLessonId)
   const horizonYears = onboardResult?.validated_profile?.horizon_years
-  const overallPercent = Math.round((completedSet.size / lessonCount) * 100)
+  const overallPercent = clampPercent(Math.round((completedSet.size / lessonCount) * 100))
   const isComplete = completedSet.has(lesson.id)
   const sources = Array.isArray(lesson.sources) ? lesson.sources : []
 
@@ -213,11 +226,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
 
   function askMallard() {
     if (typeof onAskMallard === 'function') {
-      onAskMallard({
-        lessonId: lesson.id,
-        lessonTitle: lesson.title,
-        prompt: buildAskPrompt(lesson, horizonYears),
-      })
+      onAskMallard(buildAskPrompt(lesson, horizonYears))
     }
   }
 
@@ -255,7 +264,7 @@ export default function LearnView({ onboardResult, onAskMallard }) {
                 {overallPercent}%
               </span>
             </div>
-            <ProgressBar value={overallPercent} />
+            <ProgressBar value={overallPercent} label="Course progress" />
           </div>
         </div>
       </header>

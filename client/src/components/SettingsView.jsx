@@ -28,7 +28,7 @@ function ReadOnlyField({ label, value }) {
   )
 }
 
-function EditableField({ label, value, onChange, type = 'text', autoComplete, maxLength }) {
+function EditableField({ label, value, onChange, type = 'text', autoComplete, maxLength, inputMode, error }) {
   return (
     <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
       <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -38,12 +38,17 @@ function EditableField({ label, value, onChange, type = 'text', autoComplete, ma
         onChange={onChange}
         autoComplete={autoComplete}
         maxLength={maxLength}
-        className="w-full bg-transparent text-sm font-mono"
+        inputMode={inputMode}
+        aria-invalid={!!error}
+        className="settings-input w-full bg-transparent text-sm font-mono"
         style={{
           color: 'var(--text-primary)',
           outline: 'none',
         }}
       />
+      {error && (
+        <span className="block text-xs mt-1" style={{ color: 'var(--ruby)' }}>{error}</span>
+      )}
     </label>
   )
 }
@@ -74,6 +79,8 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
   const userZip = user.zip_code ?? user.zip ?? ''
   const [accountForm, setAccountForm] = useState(() => accountFormFromUser(user))
   const [savingAccount, setSavingAccount] = useState(false)
+  const [saveStatus, setSaveStatus] = useState(null)
+  const [zipError, setZipError] = useState('')
   const { theme, setTheme } = useTheme()
   const { startTour } = useTour()
 
@@ -103,7 +110,15 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
   function updateAccountField(field) {
     return (event) => {
       setAccountForm(current => ({ ...current, [field]: event.target.value }))
+      setSaveStatus(null)
     }
+  }
+
+  function updateZip(event) {
+    const zip_code = event.target.value.replace(/\D/g, '').slice(0, 5)
+    setAccountForm(current => ({ ...current, zip_code }))
+    setZipError('')
+    setSaveStatus(null)
   }
 
   function updatePhone(event) {
@@ -115,6 +130,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
     else if (nationalDigits.length > 0) phone = `(${nationalDigits}`
     if (digits.length === 11 && digits[0] === '1') phone = `1 ${phone}`
     setAccountForm(current => ({ ...current, phone }))
+    setSaveStatus(null)
   }
 
   async function handleSaveAccount() {
@@ -122,7 +138,13 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
     const name = accountForm.name.trim()
     const phone = accountForm.phone.trim()
     const address = accountForm.address.trim()
-    const zip_code = accountForm.zip_code.trim()
+    const zip_code = accountForm.zip_code.replace(/\D/g, '').slice(0, 5)
+
+    if (!/^\d{5}$/.test(zip_code)) {
+      setZipError('Enter a valid 5-digit ZIP code.')
+      setSaveStatus({ type: 'error', message: 'Enter a valid 5-digit ZIP code before saving.' })
+      return
+    }
 
     const persistUser = (nextUser) => {
       try {
@@ -146,15 +168,18 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
 
     if (!user.email) {
       persistUser(fallbackUser)
+      setSaveStatus({ type: 'local', message: 'Saved locally; backend unavailable for this session.' })
       return
     }
 
     if (user.isDemo) {
       persistUser(fallbackUser)
+      setSaveStatus({ type: 'local', message: 'Saved locally; demo accounts do not sync to backend.' })
       return
     }
 
     setSavingAccount(true)
+    setSaveStatus(null)
     try {
       const updated = await updateAccount({ user_email: user.email, name, phone, address, zip_code })
       const savedZip = updated.zip_code ?? zip_code
@@ -166,8 +191,10 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
         zip: savedZip,
       }
       persistUser(mergedUser)
+      setSaveStatus({ type: 'success', message: 'Saved to account.' })
     } catch {
       persistUser(fallbackUser)
+      setSaveStatus({ type: 'local', message: 'Saved locally; backend failed.' })
     } finally {
       setSavingAccount(false)
     }
@@ -182,7 +209,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
         </p>
       </header>
 
-      <div className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))' }}>
         <section className="card-premium p-5">
           <div className="flex items-center gap-2 mb-4">
             <User size={14} style={{ color: 'var(--gold-light)' }} />
@@ -194,7 +221,15 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
           <ReadOnlyField label="Email" value={user.email} />
           <EditableField label="Phone" type="tel" value={accountForm.phone} onChange={updatePhone} autoComplete="tel" />
           <EditableField label="Street Address" value={accountForm.address} onChange={updateAccountField('address')} autoComplete="street-address" />
-          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" maxLength={5} />
+          <EditableField
+            label="ZIP Code"
+            value={accountForm.zip_code}
+            onChange={updateZip}
+            autoComplete="postal-code"
+            maxLength={5}
+            inputMode="numeric"
+            error={zipError}
+          />
           <button
             type="button"
             onClick={handleSaveAccount}
@@ -212,6 +247,15 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
           >
             {savingAccount ? 'Saving...' : 'Save Changes'}
           </button>
+          {saveStatus && (
+            <div
+              role={saveStatus.type === 'error' ? 'alert' : 'status'}
+              className="mt-3 text-sm font-semibold"
+              style={{ color: saveStatus.type === 'success' ? 'var(--green)' : saveStatus.type === 'error' ? 'var(--ruby)' : 'var(--gold-light)' }}
+            >
+              {saveStatus.message}
+            </div>
+          )}
         </section>
 
         <section className="card-premium p-5" data-tour="settings-appearance">
@@ -269,12 +313,12 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
                 Sign out of this Mallard Management session.
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 data-tour="tour-replay"
                 onClick={handleReplayTour}
-                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
                 style={{
                   border: '1px solid var(--border-bright)',
                   borderRadius: 8,
@@ -290,7 +334,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
                 type="button"
                 data-tour="settings-logout"
                 onClick={onLogout}
-                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
                 style={{
                   border: '1px solid rgba(217, 64, 64, 0.75)',
                   borderRadius: 8,
@@ -306,6 +350,14 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
           </div>
         </section>
       </div>
+      <style>{`
+        .settings-input:focus-visible {
+          outline: 2px solid var(--gold-light) !important;
+          outline-offset: 3px;
+          border-radius: 4px;
+          box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+      `}</style>
     </div>
   )
 }

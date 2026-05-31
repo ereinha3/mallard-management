@@ -19,7 +19,7 @@ function getScoreLabel(score) {
 export default function RetirementScore({ score }) {
   const [displayed, setDisplayed] = useState(0)
   const hasScore = Number.isFinite(score)
-  const safeScore = hasScore ? score : 0
+  const safeScore = hasScore ? Math.min(100, Math.max(0, score)) : 0
 
   useEffect(() => {
     if (!hasScore) {
@@ -38,11 +38,16 @@ export default function RetirementScore({ score }) {
   const visibleScore = hasScore ? displayed : 0
   const offset = CIRCUMFERENCE - (visibleScore / 100) * CIRCUMFERENCE
   const color = hasScore ? getScoreColor(safeScore) : 'var(--text-muted)'
+  const displayedScore = hasScore ? Math.round(displayed * 10) / 10 : null
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-2">
+    <div
+      className="flex flex-col items-center justify-center h-full gap-2"
+      role="img"
+      aria-label={hasScore ? `Risk capacity score: ${displayedScore} out of 100` : 'Risk capacity score unavailable'}
+    >
       <div style={{ position: 'relative', width: 140, height: 140 }}>
-        <svg width="140" height="140" style={{ transform: 'rotate(-90deg)' }}>
+        <svg aria-hidden="true" width="140" height="140" style={{ transform: 'rotate(-90deg)' }}>
           <circle
             cx="70" cy="70" r={RADIUS}
             fill="none"
@@ -68,7 +73,7 @@ export default function RetirementScore({ score }) {
             className="font-display font-semibold"
             style={{ fontSize: 42, lineHeight: 1, color, letterSpacing: '-0.03em' }}
           >
-            {hasScore ? Math.round(displayed * 10) / 10 : '—'}
+            {hasScore ? displayedScore : '—'}
           </span>
           <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             /100

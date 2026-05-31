@@ -4,7 +4,7 @@ import {
   Calendar, ArrowUpRight, ArrowDownRight,
   Home, Car, Briefcase, PiggyBank, CreditCard, Building, Landmark,
 } from 'lucide-react'
-import { formatCurrency, formatPercent } from '../lib/utils'
+import { formatCurrency, formatPercent, formatMoneyOrNull, numberOrNull } from '../lib/utils'
 import RetirementScore from './RetirementScore'
 import ProjectionChart from './ProjectionChart'
 
@@ -27,17 +27,16 @@ const LIABILITY_ICONS = {
   other:        { icon: DollarSign,color: '#6b7280' },
 }
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
+function formatMaybeCurrency(value, compact = false) {
+  return value == null ? 'Not available' : formatMoneyOrNull(value, { compact, fallback: 'Not available' })
 }
 
-function formatMaybeCurrency(value, compact = false) {
-  return value == null ? 'Not available' : formatCurrency(value, compact)
+function nullableNumber(value) {
+  return value == null ? null : numberOrNull(value)
 }
 
 function bucketStatus(bucket) {
-  const contribution = numberOrNull(bucket?.annual_contribution) ?? 0
+  const contribution = nullableNumber(bucket?.annual_contribution) ?? 0
   if (contribution <= 0) {
     return { color: 'var(--text-muted)', background: 'rgba(107,114,128,0.10)', border: 'rgba(107,114,128,0.22)' }
   }
@@ -110,10 +109,10 @@ function getLiabilityRows(onboardResult, profile) {
 
 function getProjectionInputs(onboardResult, profile) {
   const optimizer = onboardResult?.optimizer_input ?? {}
-  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
-  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
-  const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
-  const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
+  const horizonYears = nullableNumber(optimizer.horizon_years ?? profile.horizon_years)
+  const monthlyContribution = nullableNumber(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const capitalOnHand = nullableNumber(optimizer.capital_on_hand ?? profile.capital_on_hand)
+  const goalTarget = nullableNumber(optimizer.goal_target ?? profile.goal_target)
 
   if (horizonYears == null || monthlyContribution == null || capitalOnHand == null || goalTarget == null) {
     return null
@@ -127,10 +126,14 @@ function getProjectionInputs(onboardResult, profile) {
   }
 }
 
-function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon: Icon, color, delay = '', dataTour }) {
-  const isPos = delta >= 0
+function MetricCard({ label, value, suffix, delta, deltaLabel, direction, directionLabel, description, icon: Icon, color, delay = '', dataTour }) {
+  const numericValue = typeof value === 'number' && Number.isFinite(value) ? value : null
+  const numericDelta = nullableNumber(delta)
+  const trendDirection = direction ?? (numericDelta == null ? null : numericDelta >= 0 ? 'up' : 'down')
+  const isPos = trendDirection !== 'down'
+  const trendText = numericDelta == null ? directionLabel : formatPercent(Math.abs(numericDelta), true)
   const displayValue = typeof value === 'number'
-    ? (suffix ? value.toFixed(1) : formatCurrency(value))
+    ? (numericValue == null ? 'N/A' : suffix ? numericValue.toFixed(1) : formatCurrency(numericValue))
     : value
   return (
     <div data-tour={dataTour} className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
@@ -148,16 +151,16 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon
       <div>
         <span className="font-display font-semibold"
           style={{ fontSize: 32, lineHeight: 1, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
-          {displayValue}{suffix && value != null && <span className="font-display text-2xl" style={{ color: 'var(--text-secondary)' }}>{suffix}</span>}
+          {displayValue}{suffix && numericValue != null && <span className="font-display text-2xl" style={{ color: 'var(--text-secondary)' }}>{suffix}</span>}
         </span>
       </div>
-      {delta !== undefined && value != null && (
+      {trendDirection && trendText && value != null && (
         <div className="flex items-center gap-1.5 text-xs font-medium">
           {isPos
             ? <ArrowUpRight size={13} style={{ color: 'var(--emerald)' }} />
             : <ArrowDownRight size={13} style={{ color: 'var(--ruby)' }} />}
           <span style={{ color: isPos ? 'var(--emerald)' : 'var(--ruby)' }}>
-            {formatPercent(Math.abs(delta), true)}
+            {trendText}
           </span>
           {deltaLabel && <span style={{ color: 'var(--text-muted)' }}>{deltaLabel}</span>}
         </div>
@@ -205,17 +208,20 @@ export default function Dashboard({ onboardResult }) {
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
 
-  const netWorth = numberOrNull(snapshot.net_worth_estimate)
-  const totalDebt = numberOrNull(snapshot.total_debt)
-  const cashFlow = numberOrNull(snapshot.monthly_surplus)
-  const savingsRate = numberOrNull(snapshot.savings_rate_pct)
-  const monthlyIncome = numberOrNull(snapshot.monthly_income)
-  const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
-  const totalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
-  const score = numberOrNull(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
+  const netWorth = nullableNumber(snapshot.net_worth_estimate)
+  const totalDebt = nullableNumber(snapshot.total_debt)
+  const cashFlow = nullableNumber(snapshot.monthly_surplus)
+  const savingsRate = nullableNumber(snapshot.savings_rate_pct)
+  const monthlyIncome = nullableNumber(snapshot.monthly_income)
+  const monthlyExpenses = nullableNumber(snapshot.monthly_expenses)
+  const score = nullableNumber(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
   const assets = getAssetRows(profile)
+  const backendTotalAssets = nullableNumber(snapshot.total_assets)
+  const assetRowsTotal = assets.length > 0 ? assets.reduce((sum, row) => sum + row.value, 0) : null
+  const inferredTotalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
+  const totalAssets = backendTotalAssets ?? assetRowsTotal ?? inferredTotalAssets
   const liabilities = getLiabilityRows(onboardResult, profile)
-  const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
+  const retirementHorizonYears = nullableNumber(profile.horizon_years)
 
   useEffect(() => {
     let cancelled = false
@@ -292,8 +298,8 @@ export default function Dashboard({ onboardResult }) {
     { label: 'Net Take-Home', value: numberOrNull(taxBreakdown.net_income), highlight: true },
   ] : []
   const bucketRows = bucketPlan?.buckets ?? []
-  const bucketTaxSavings = numberOrNull(bucketPlan?.total_tax_savings)
-  const bucketNetTakeHome = numberOrNull(bucketPlan?.net_income_after_optimization)
+  const bucketTaxSavings = nullableNumber(bucketPlan?.total_tax_savings)
+  const bucketNetTakeHome = nullableNumber(bucketPlan?.net_income_after_optimization)
 
   return (
     <div role="main" className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -357,8 +363,8 @@ export default function Dashboard({ onboardResult }) {
           <MetricCard
             label="Monthly Cash Flow"
             value={cashFlow ?? 'Not available'}
-            delta={cashFlow == null ? undefined : cashFlow > 0 ? 1 : -1}
-            deltaLabel="from analysis"
+            direction={cashFlow == null ? null : cashFlow >= 0 ? 'up' : 'down'}
+            directionLabel={cashFlow == null ? null : cashFlow >= 0 ? 'Positive cash flow' : 'Negative cash flow'}
             icon={TrendingUp}
             color="var(--emerald)"
             delay="d200"
@@ -411,7 +417,7 @@ export default function Dashboard({ onboardResult }) {
                 {projectionError}
               </div>
             ) : (
-              <ProjectionChart projection={projection} onboardResult={onboardResult} retirementYear={retirementYear} />
+              <ProjectionChart projection={projection} onboardResult={onboardResult} retirementHorizonYears={retirementHorizonYears} />
             )}
           </div>
 
@@ -450,7 +456,7 @@ export default function Dashboard({ onboardResult }) {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.action}</div>
                     <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      {item.target_amount != null ? `${formatCurrency(Number(item.target_amount))} target` : 'No dollar target'}{item.months_estimated != null ? ` · ${item.months_estimated} months` : ''}
+                      {nullableNumber(item.target_amount) != null ? `${formatCurrency(nullableNumber(item.target_amount))} target` : 'No dollar target'}{nullableNumber(item.months_estimated) != null ? ` · ${Math.round(nullableNumber(item.months_estimated))} months` : ''}
                     </div>
                   </div>
                 </div>
@@ -619,10 +625,10 @@ export default function Dashboard({ onboardResult }) {
               </div>
               <div className="mt-4 pt-3 flex items-center justify-between gap-4 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  Total tax savings: <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>{formatCurrency(bucketTaxSavings ?? 0)}</span>
+                  Total tax savings: <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>{formatMoneyOrNull(bucketTaxSavings ?? undefined, { fallback: 'N/A' })}</span>
                 </span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  Net take-home after optimization: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(bucketNetTakeHome ?? 0)}</span>
+                  Net take-home after optimization: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatMoneyOrNull(bucketNetTakeHome ?? undefined, { fallback: 'N/A' })}</span>
                 </span>
               </div>
             </>

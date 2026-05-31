@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckCircle, AlertTriangle, Send, Loader } from 'lucide-react'
 import { streamChat, postOnboard } from '../../api/greenlightClient'
+import { numberOrNull, formatMoneyOrNull } from '../../lib/utils'
 
 function AgentBubble({ text, isStreaming }) {
   return (
@@ -114,6 +115,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [inputVal, setInputVal] = useState('')
   const [error, setError] = useState(null)
+  const [onboardError, setOnboardError] = useState(null)
   const [profile, setProfile] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const bottomRef = useRef(null)
@@ -129,10 +131,24 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
     if (!isStreaming && !analyzing) inputRef.current?.focus()
   }, [isStreaming, analyzing])
 
+  const submitProfile = useCallback(async (profileData) => {
+    setAnalyzing(true)
+    setOnboardError(null)
+    try {
+      const result = await postOnboard(profileData, userEmail)
+      await new Promise(r => setTimeout(r, 800))
+      onComplete(result)
+    } catch {
+      setAnalyzing(false)
+      setOnboardError('We could not run the responsibility gate. Your extracted answers are still here; try again.')
+    }
+  }, [onComplete, userEmail])
+
   const callBackend = useCallback((msgList) => {
     setIsStreaming(true)
     setStreamingText('')
     setError(null)
+    setOnboardError(null)
     let accumulated = ''
     let committed = false
 
@@ -156,15 +172,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
         setStreamingText('')
         setIsStreaming(false)
         setProfile(profileData)
-        setAnalyzing(true)
-        try {
-          const result = await postOnboard(profileData, userEmail)
-          await new Promise(r => setTimeout(r, 800))
-          onComplete(result)
-        } catch {
-          await new Promise(r => setTimeout(r, 800))
-          onComplete(null)
-        }
+        submitProfile(profileData)
       },
       onError: (msg) => {
         setIsStreaming(false)
@@ -181,7 +189,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
         setIsStreaming(false)
       },
     })
-  }, [onComplete, userEmail])
+  }, [submitProfile, userEmail])
 
   useEffect(() => {
     if (calledRef.current) return
@@ -201,30 +209,25 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
     callBackend(updated)
   }
 
+  const monthlyExpenses = profile ? numberOrNull(profile.monthly_expenses) : null
+  const emergencyFund = profile ? numberOrNull(profile.emergency_fund) : null
+  const emergencyFundStatus = emergencyFund != null && monthlyExpenses != null && emergencyFund < monthlyExpenses * 3 ? 'warn' : 'ok'
+  const moneyRow = (label, value, status = 'ok', note = null) => {
+    const formatted = formatMoneyOrNull(value, { fallback: null })
+    return formatted ? { label, value: formatted, status, note } : null
+  }
   const paramRows = profile ? [
-    {
-      label: 'Annual Income',
-      value: `$${Math.round(profile.household_income).toLocaleString()}`,
-      status: 'ok',
-    },
-    {
-      label: 'Monthly Expenses',
-      value: `$${Math.round(profile.monthly_expenses).toLocaleString()}`,
-      status: 'ok',
-    },
-    {
-      label: 'Emergency Fund',
-      value: `$${Math.round(profile.emergency_fund).toLocaleString()}`,
-      status: profile.emergency_fund < profile.monthly_expenses * 3 ? 'warn' : 'ok',
-      note: profile.emergency_fund < profile.monthly_expenses * 3
-        ? 'May be below 3-month threshold'
-        : 'Meets 3-month threshold',
-    },
-    {
-      label: 'Capital on Hand',
-      value: `$${Math.round(profile.capital_on_hand).toLocaleString()}`,
-      status: 'ok',
-    },
+    moneyRow('Annual Income', profile.household_income),
+    moneyRow('Monthly Expenses', profile.monthly_expenses),
+    moneyRow(
+      'Emergency Fund',
+      profile.emergency_fund,
+      emergencyFundStatus,
+      emergencyFund != null && monthlyExpenses != null
+        ? (emergencyFundStatus === 'warn' ? 'May be below 3-month threshold' : 'Meets 3-month threshold')
+        : null
+    ),
+    moneyRow('Capital on Hand', profile.capital_on_hand),
     {
       label: 'Debts',
       value: profile.debts?.length ? `${profile.debts.length} item(s)` : 'None',
@@ -246,7 +249,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
       value: profile.income_stability?.replace(/_/g, ' '),
       status: 'ok',
     },
-  ].filter(r => r.value) : []
+  ].filter(r => r?.value) : []
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -308,6 +311,41 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
             </div>
           )}
 
+          {onboardError && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px',
+              background: 'rgba(217,64,64,0.08)', border: '1px solid rgba(217,64,64,0.25)',
+              borderRadius: 10, fontSize: 13, color: 'var(--ruby)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 3 }}>Gate check failed</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{onboardError}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => profile && submitProfile(profile)}
+                style={{
+                  height: 34,
+                  padding: '0 12px',
+                  border: '1px solid rgba(217,64,64,0.3)',
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  fontFamily: 'DM Sans, sans-serif',
+                  flexShrink: 0,
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
 
@@ -323,6 +361,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
                 : 'Type your answer...'
               }
               disabled={isStreaming || analyzing}
+              aria-label="Your answer"
               style={{
                 flex: 1, padding: '11px 16px',
                 background: 'var(--bg-elevated)',
@@ -345,6 +384,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
             <button
               type="submit"
               disabled={isStreaming || analyzing || !inputVal.trim()}
+              aria-label="Send message"
               style={{
                 width: 44, height: 44, borderRadius: 9, border: 'none', flexShrink: 0,
                 cursor: (isStreaming || analyzing || !inputVal.trim()) ? 'not-allowed' : 'pointer',
@@ -356,7 +396,7 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
                 transition: 'all 0.15s',
               }}
             >
-              <Send size={16} />
+              <Send size={16} aria-hidden="true" />
             </button>
           </form>
           <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown } from 'lucide-react'
+import { numberOrNull, formatMoneyOrNull, formatPercent } from '../../lib/utils'
 
 const SLEEVE_COLORS = ['#ddb84a', '#4a72e8', '#6b7280', '#22c27e', '#f0c060', '#8b5cf6', '#e64545', '#14b8a6']
 
@@ -26,6 +27,19 @@ function toPercent(value) {
   return Math.abs(numeric) <= 1 ? numeric * 100 : numeric
 }
 
+function formatAmountOrUnavailable(...values) {
+  for (const value of values) {
+    const amount = numberOrNull(value)
+    if (amount !== null) return formatMoneyOrNull(amount, { fallback: 'N/A' })
+  }
+  return 'N/A'
+}
+
+function formatSharesOrUnavailable(value) {
+  const shares = numberOrNull(value)
+  return shares === null ? 'N/A sh' : `${shares.toFixed(2)} sh`
+}
+
 function normalizeResponse(response) {
   return response?.data ?? response ?? {}
 }
@@ -46,7 +60,8 @@ function costBasisFromPositions(positions) {
 }
 
 function DriftBar({ sleeve }) {
-  const drift = Number((sleeve.drift_pp ?? sleeve.current - sleeve.target).toFixed(1))
+  const driftRaw = numberOrNull(sleeve.drift_pp ?? sleeve.current - sleeve.target) ?? 0
+  const drift = Number(driftRaw.toFixed(1))
   const breached = Math.abs(drift) > 5
   const currentWidth = Math.max(0, Math.min(100, sleeve.current))
   const targetLeft = Math.max(0, Math.min(100, sleeve.target))
@@ -122,9 +137,9 @@ function DriftBar({ sleeve }) {
       <div className="flex justify-between mt-1.5 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
         <span>0%</span>
         <span style={{ color: 'var(--text-secondary)' }}>
-          Target <span style={{ color: sleeve.color }}>{sleeve.target}%</span> · Current <span style={{ color: breached ? 'var(--ruby)' : 'var(--text-primary)' }}>{sleeve.current}%</span>
+          Target <span style={{ color: sleeve.color }}>{formatPercent(sleeve.target)}</span> · Current <span style={{ color: breached ? 'var(--ruby)' : 'var(--text-primary)' }}>{formatPercent(sleeve.current)}</span>
         </span>
-        <span>50%</span>
+        <span>100%</span>
       </div>
 
       <div className="mt-2 text-xs" style={{ color: breached ? 'var(--ruby)' : 'var(--text-muted)' }}>
@@ -179,8 +194,8 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
                     <span className="font-mono">{trade.action ?? trade.side ?? 'Trade'}</span>
                     {' '}
                     <span className="font-mono">{trade.ticker ?? trade.symbol ?? trade.asset ?? ''}</span>
-                    {trade.shares != null ? <span className="font-mono"> {Number(trade.shares).toFixed(2)} sh</span> : null}
-                    {trade.amount != null || trade.value != null ? <span className="font-mono"> ${Number(trade.amount ?? trade.value).toLocaleString()}</span> : null}
+                    {trade.shares != null ? <span className="font-mono"> {formatSharesOrUnavailable(trade.shares)}</span> : null}
+                    {trade.amount != null || trade.value != null ? <span className="font-mono"> {formatAmountOrUnavailable(trade.amount, trade.value)}</span> : null}
                   </div>
                 ))}
               </div>
@@ -215,11 +230,11 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
                 ? steers.map((steer, index) => (
                   <div key={`${steer.ticker ?? steer.symbol ?? 'steer'}-${index}`}>
                     Steer toward <span className="font-mono">{steer.ticker ?? steer.symbol ?? steer.asset ?? steer.label ?? steer}</span>
-                    {steer.amount != null || steer.value != null ? <span className="font-mono"> ${Number(steer.amount ?? steer.value).toLocaleString()}</span> : null}
+                    {steer.amount != null || steer.value != null ? <span className="font-mono"> {formatAmountOrUnavailable(steer.amount, steer.value)}</span> : null}
                   </div>
                 ))
                 : monthlyContrib != null && monthlyContrib > 0
-                ? <>Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> can be steered toward underweight target sleeves.</>
+                ? <>Next <span className="font-mono">{formatMoneyOrNull(monthlyContrib, { fallback: 'N/A' })}/mo</span> can be steered toward underweight target sleeves.</>
                 : 'No positive monthly contribution was returned by the analysis.'}
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
@@ -523,7 +538,7 @@ export default function RebalancePanel({ onboardResult, userEmail }) {
           <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
             Sleeve Drift · Current vs Target (±5pp band)
           </div>
-          <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))' }}>
             {drifts.length > 0
               ? drifts.map(s => <DriftBar key={s.ticker} sleeve={s} />)
               : (
@@ -538,7 +553,7 @@ export default function RebalancePanel({ onboardResult, userEmail }) {
         </div>
 
         {/* Two-column: plan + tax */}
-        <div className="grid gap-5 anim-fade-up d200" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="grid gap-5 anim-fade-up d200" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))' }}>
           <RebalancePlan monthlyContrib={monthlyContrib} rebalance={rebalance} />
           <TaxPanel taxReport={taxReportResponse} />
         </div>
