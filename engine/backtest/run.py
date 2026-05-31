@@ -52,14 +52,21 @@ def _normalize(weights: Mapping[str, float], columns: pd.Index) -> pd.Series:
 def _sleeve_to_ticker_weights(universe: Any, by_sleeve: Mapping[str, float]) -> dict[str, float]:
     by_ticker: dict[str, float] = {}
     for sleeve, sleeve_weight in by_sleeve.items():
-        for ticker in universe.sleeves[sleeve]:
-            by_ticker[ticker] = by_ticker.get(ticker, 0.0) + float(sleeve_weight) / len(universe.sleeves[sleeve])
+        tickers = universe.sleeves.get(sleeve, [])
+        if not tickers:
+            continue
+        for ticker in tickers:
+            by_ticker[ticker] = by_ticker.get(ticker, 0.0) + float(sleeve_weight) / len(tickers)
     return by_ticker
 
 
 def _bucket_weights(universe: Any, sleeves: list[str]) -> dict[str, float]:
-    total = sum(float(universe.market_weights[sleeve]) for sleeve in sleeves)
-    return {sleeve: float(universe.market_weights[sleeve]) / total for sleeve in sleeves}
+    # Only sleeves actually present in the universe carry a market weight.
+    present = [sleeve for sleeve in sleeves if sleeve in universe.market_weights]
+    total = sum(float(universe.market_weights[sleeve]) for sleeve in present)
+    if total <= 0.0:
+        return {}
+    return {sleeve: float(universe.market_weights[sleeve]) / total for sleeve in present}
 
 
 def _target_date_weights(universe: Any, columns: pd.Index, elapsed_months: int) -> pd.Series:

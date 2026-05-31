@@ -65,7 +65,7 @@ from llm.elicitation import stream_elicitation  # noqa: E402
 from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
-from optimizer.blend import build_target_weights  # noqa: E402
+from optimizer.blend import build_target_weights, bucket_return_matrix  # noqa: E402
 from optimizer.cvar import cvar_weights  # noqa: E402
 from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions  # noqa: E402
 from profiler.profile import build_risk_profile  # noqa: E402
@@ -523,6 +523,12 @@ def _estimated_max_loss_1yr_pct(
 
 def _estimated_max_loss_1yr_pct_for_weights(universe: Any, weights: Any) -> float:
     _ensure_engine_data()
+    by_bucket = getattr(weights, "by_bucket", {}) or {}
+    if by_bucket and getattr(universe, "buckets", None):
+        return _estimated_max_loss_1yr_pct(
+            by_bucket,
+            bucket_return_matrix(universe, load_prices()),
+        )
     return _estimated_max_loss_1yr_pct(
         weights.by_sleeve,
         returns_matrix(universe.sleeves),
@@ -541,14 +547,19 @@ def _estimated_max_loss_1yr_pct_for_profile(validated: Any, risk_profile: Any) -
 
 def _compute_risk_metrics(universe: Any, weights: Any) -> api_models.RiskMetrics:
     _ensure_engine_data()
-    sleeve_returns = returns_matrix(universe.sleeves)
-    aligned = pd.Series(weights.by_sleeve, dtype=float).reindex(sleeve_returns.columns).fillna(0.0)
-    periods = _periods_per_year(sleeve_returns.index)
-    annual_cov = cov_ledoit_wolf(sleeve_returns) * periods
+    by_bucket = getattr(weights, "by_bucket", {}) or {}
+    if by_bucket and getattr(universe, "buckets", None):
+        returns = bucket_return_matrix(universe, load_prices())
+        aligned = pd.Series(by_bucket, dtype=float).reindex(returns.columns).fillna(0.0)
+    else:
+        returns = returns_matrix(universe.sleeves)
+        aligned = pd.Series(weights.by_sleeve, dtype=float).reindex(returns.columns).fillna(0.0)
+    periods = _periods_per_year(returns.index)
+    annual_cov = cov_ledoit_wolf(returns) * periods
     vector = aligned.reindex(annual_cov.columns).fillna(0.0).to_numpy(dtype=float)
     expected_vol = float(np.sqrt(max(vector @ annual_cov.to_numpy(dtype=float) @ vector, 0.0)))
 
-    portfolio_returns = sleeve_returns.dot(aligned)
+    portfolio_returns = returns.dot(aligned)
     tail_cutoff = portfolio_returns.quantile(0.05)
     tail_losses = -portfolio_returns[portfolio_returns <= tail_cutoff]
     expected_shortfall = float(max(0.0, tail_losses.mean() * math.sqrt(periods))) if not tail_losses.empty else 0.0
@@ -601,11 +612,22 @@ def _portfolio_etfs(universe: Any, weights: Any) -> list[api_models.PortfolioETF
                 ),
                 "",
             )
+        bucket = str(meta.get("bucket") or "")
+        if not bucket:
+            bucket = next(
+                (
+                    str(bucket_name)
+                    for bucket_name, bucket_tickers in getattr(universe, "buckets", {}).items()
+                    if ticker in bucket_tickers
+                ),
+                "",
+            )
         etfs.append(
             api_models.PortfolioETF(
                 ticker=str(ticker),
                 name=str(meta.get("name") or ticker),
                 sleeve=sleeve,
+                bucket=bucket,
                 weight=float(weight),
                 replacement_for=None if replacement is None else str(replacement.ticker),
                 exclusion_reason=None if replacement is None else str(replacement.reason),
@@ -652,11 +674,13 @@ def _target_weights_from_sleeves(
             by_ticker[ticker] = by_ticker.get(ticker, 0.0) + ticker_weight
     ticker_total = sum(by_ticker.values())
     by_ticker = {ticker: weight / ticker_total for ticker, weight in by_ticker.items()}
+    by_bucket = _by_bucket_from_tickers(universe, by_ticker)
 
     risky_fraction = sum(by_sleeve.get(sleeve, 0.0) for sleeve in universe.risky_sleeves)
     return EngineTargetWeights(
         by_ticker=by_ticker,
         by_sleeve=by_sleeve,
+        by_bucket=by_bucket,
         blend_alpha=float(max(0.0, min(1.0, risky_fraction))),
         method=method,
     )
@@ -693,23 +717,23 @@ def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_mod
 def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
     """Map the user dial onto the realized safe/risky frontier used by the optimizer."""
     _ensure_engine_data()
-    sleeve_returns = returns_matrix(universe.sleeves)
-    risky_sleeves = [sleeve for sleeve in universe.risky_sleeves if sleeve in sleeve_returns.columns]
-    safe_sleeves = [sleeve for sleeve in universe.safe_sleeves if sleeve in sleeve_returns.columns]
-    if not risky_sleeves or not safe_sleeves:
-        raise ValueError("Universe must include risky and safe sleeves for risk-dial optimization.")
+    returns = bucket_return_matrix(universe, load_prices())
+    risky_buckets = [bucket for bucket in universe.risky_buckets if bucket in returns.columns]
+    safe_buckets = [bucket for bucket in universe.safe_buckets if bucket in returns.columns]
+    if not risky_buckets or not safe_buckets:
+        raise ValueError("Universe must include risky and safe buckets for risk-dial optimization.")
 
-    risky_weights = erc_weights(sleeve_returns[risky_sleeves])
+    risky_weights = erc_weights(returns[risky_buckets])
     safe_weights = {
-        sleeve: float(universe.market_weights.get(sleeve, 0.0))
-        for sleeve in safe_sleeves
+        bucket: float(universe.bucket_market_weights.get(bucket, 0.0))
+        for bucket in safe_buckets
     }
     if sum(safe_weights.values()) <= 0:
-        safe_weights = {sleeve: 1.0 for sleeve in safe_sleeves}
-    safe_weights = _normalize_weights(safe_weights, "safe_sleeve")
+        safe_weights = {bucket: 1.0 for bucket in safe_buckets}
+    safe_weights = _normalize_weights(safe_weights, "safe_bucket")
 
-    risky_series = sleeve_returns[list(risky_weights)].dot(pd.Series(risky_weights, dtype=float))
-    safe_series = sleeve_returns[list(safe_weights)].dot(pd.Series(safe_weights, dtype=float))
+    risky_series = returns[list(risky_weights)].dot(pd.Series(risky_weights, dtype=float))
+    safe_series = returns[list(safe_weights)].dot(pd.Series(safe_weights, dtype=float))
     portfolios = pd.DataFrame({"risky": risky_series, "safe": safe_series}).dropna(how="any")
     annual_cov = cov_ledoit_wolf(portfolios) * _periods_per_year(portfolios.index)
     sigma_safe = float(np.sqrt(max(annual_cov.loc["safe", "safe"], 0.0)))
@@ -775,10 +799,28 @@ def _ticker_to_sleeve(universe: Any) -> dict[str, str]:
     return mapping
 
 
+def _ticker_to_bucket(universe: Any) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for bucket, tickers in getattr(universe, "buckets", {}).items():
+        for ticker in tickers:
+            mapping[str(ticker)] = str(bucket)
+    return mapping
+
+
+def _by_bucket_from_tickers(universe: Any, by_ticker: Mapping[str, float]) -> dict[str, float]:
+    ticker_buckets = _ticker_to_bucket(universe)
+    by_bucket: dict[str, float] = {str(bucket): 0.0 for bucket in getattr(universe, "buckets", {})}
+    for ticker, weight in by_ticker.items():
+        bucket = ticker_buckets.get(str(ticker))
+        if bucket is not None:
+            by_bucket[bucket] = by_bucket.get(bucket, 0.0) + float(weight)
+    return _normalize_weights(by_bucket, "by_bucket")
+
+
 def _weights_from_sleeves(
     universe: Any,
     weights: dict[Any, float],
-) -> tuple[dict[str, float], dict[str, float], list[str]]:
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], list[str]]:
     warnings: list[str] = []
     known_sleeves = {str(sleeve) for sleeve in universe.sleeves}
     unknown = sorted(str(sleeve) for sleeve in weights if str(sleeve) not in known_sleeves)
@@ -806,15 +848,17 @@ def _weights_from_sleeves(
         for ticker in tickers:
             by_ticker[str(ticker)] = by_ticker.get(str(ticker), 0.0) + ticker_weight
 
-    return _normalize_weights(by_ticker, "by_ticker"), by_sleeve, warnings
+    by_ticker = _normalize_weights(by_ticker, "by_ticker")
+    return by_ticker, by_sleeve, _by_bucket_from_tickers(universe, by_ticker), warnings
 
 
 def _weights_from_tickers(
     universe: Any,
     weights: dict[str, float],
-) -> tuple[dict[str, float], dict[str, float], list[str]]:
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], list[str]]:
     warnings: list[str] = []
     ticker_sleeves = _ticker_to_sleeve(universe)
+    ticker_buckets = _ticker_to_bucket(universe)
     known = {
         str(ticker): float(weight)
         for ticker, weight in weights.items()
@@ -829,22 +873,26 @@ def _weights_from_tickers(
         warnings.append(f"Input by_ticker sum was {raw_total:.6f}; normalized to 1.0.")
     by_ticker = _normalize_weights(known, "by_ticker")
     by_sleeve: dict[str, float] = {}
+    by_bucket: dict[str, float] = {}
     for ticker, weight in by_ticker.items():
         sleeve = ticker_sleeves[ticker]
         by_sleeve[sleeve] = by_sleeve.get(sleeve, 0.0) + weight
+        bucket = ticker_buckets.get(ticker)
+        if bucket is not None:
+            by_bucket[bucket] = by_bucket.get(bucket, 0.0) + weight
 
-    return by_ticker, _normalize_weights(by_sleeve, "by_sleeve"), warnings
+    return by_ticker, _normalize_weights(by_sleeve, "by_sleeve"), _normalize_weights(by_bucket, "by_bucket"), warnings
 
 
 def _analyze_weight_inputs(
     universe: Any,
     weights: api_models.EditableWeights,
-) -> tuple[dict[str, float], dict[str, float], list[str]]:
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], list[str]]:
     if weights.by_sleeve:
-        by_ticker, by_sleeve, warnings = _weights_from_sleeves(universe, weights.by_sleeve)
+        by_ticker, by_sleeve, by_bucket, warnings = _weights_from_sleeves(universe, weights.by_sleeve)
         if weights.by_ticker:
             warnings.append("by_ticker was ignored because by_sleeve was provided.")
-        return by_ticker, by_sleeve, warnings
+        return by_ticker, by_sleeve, by_bucket, warnings
 
     return _weights_from_tickers(universe, weights.by_ticker or {})
 
@@ -853,22 +901,23 @@ def _portfolio_weight_validation(
     universe: Any,
     by_ticker: dict[str, float],
     by_sleeve: dict[str, float],
+    by_bucket: dict[str, float],
     warnings: list[str],
 ) -> api_models.PortfolioWeightsValidation:
     sum_by_ticker = float(sum(by_ticker.values()))
     sum_by_sleeve = float(sum(by_sleeve.values()))
-    risky_sleeves = {str(sleeve) for sleeve in universe.risky_sleeves}
-    safe_sleeves = {str(sleeve) for sleeve in universe.safe_sleeves}
-    sum_risky_bucket = float(sum(weight for sleeve, weight in by_sleeve.items() if sleeve in risky_sleeves))
-    sum_safe_bucket = float(sum(weight for sleeve, weight in by_sleeve.items() if sleeve in safe_sleeves))
+    risky_buckets = {str(bucket) for bucket in getattr(universe, "risky_buckets", [])}
+    safe_buckets = {str(bucket) for bucket in getattr(universe, "safe_buckets", [])}
+    sum_risky_bucket = float(sum(weight for bucket, weight in by_bucket.items() if bucket in risky_buckets))
+    sum_safe_bucket = float(sum(weight for bucket, weight in by_bucket.items() if bucket in safe_buckets))
 
     risky_within = (
-        sum(float(by_sleeve.get(sleeve, 0.0)) / sum_risky_bucket for sleeve in risky_sleeves)
+        sum(float(by_bucket.get(bucket, 0.0)) / sum_risky_bucket for bucket in risky_buckets)
         if sum_risky_bucket > _WEIGHT_TOLERANCE
         else 0.0
     )
     safe_within = (
-        sum(float(by_sleeve.get(sleeve, 0.0)) / sum_safe_bucket for sleeve in safe_sleeves)
+        sum(float(by_bucket.get(bucket, 0.0)) / sum_safe_bucket for bucket in safe_buckets)
         if sum_safe_bucket > _WEIGHT_TOLERANCE
         else 0.0
     )
@@ -1059,6 +1108,7 @@ def _price_backed_weights(weights: EngineTargetWeights) -> EngineTargetWeights:
     return EngineTargetWeights(
         by_ticker={ticker: weight / total for ticker, weight in by_ticker.items()},
         by_sleeve=weights.by_sleeve,
+        by_bucket=getattr(weights, "by_bucket", {}) or {},
         blend_alpha=weights.blend_alpha,
         method=weights.method,
     )
@@ -1492,8 +1542,8 @@ async def portfolio_analyze_weights(
     try:
         validated, _ = _greenlit_engine_context(request.profile)
         universe = _build_universe(validated)
-        by_ticker, by_sleeve, warnings = _analyze_weight_inputs(universe, request.weights)
-        normalized_weights = SimpleNamespace(by_sleeve=by_sleeve)
+        by_ticker, by_sleeve, by_bucket, warnings = _analyze_weight_inputs(universe, request.weights)
+        normalized_weights = SimpleNamespace(by_sleeve=by_sleeve, by_bucket=by_bucket)
         metrics = _compute_risk_metrics(universe, normalized_weights)
     except HTTPException:
         raise
@@ -1501,9 +1551,9 @@ async def portfolio_analyze_weights(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return api_models.PortfolioAnalyzeWeightsResponse(
-        weights=api_models.AnalyzedWeights(by_ticker=by_ticker, by_sleeve=by_sleeve),
+        weights=api_models.AnalyzedWeights(by_ticker=by_ticker, by_sleeve=by_sleeve, by_bucket=by_bucket),
         metrics=metrics,
-        validation=_portfolio_weight_validation(universe, by_ticker, by_sleeve, warnings),
+        validation=_portfolio_weight_validation(universe, by_ticker, by_sleeve, by_bucket, warnings),
     )
 
 

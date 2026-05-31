@@ -20,7 +20,8 @@ IncomeStability = Literal["bond_like", "mixed", "stock_like"]
 UniversePref = Literal["etf", "stock", "mix"]
 EsgExclusion = Literal["fossil_fuels", "weapons", "tobacco", "gambling", "none"]
 DebtKind = Literal["credit_card", "student", "auto", "mortgage", "personal", "other"]
-Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits"]
+Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits", "real_assets"]
+Bucket = str
 
 
 class ContractModel(BaseModel):
@@ -160,21 +161,28 @@ class ExcludedTicker(ContractModel):
 class Universe(ContractModel):
     tickers: list[str]
     sleeves: dict[Sleeve, list[str]]
+    buckets: dict[Bucket, list[str]] = Field(default_factory=dict)
     risky_sleeves: list[Sleeve]
     safe_sleeves: list[Sleeve]
+    risky_buckets: list[Bucket] = Field(default_factory=list)
+    safe_buckets: list[Bucket] = Field(default_factory=list)
     market_weights: dict[Sleeve, Weight]
+    bucket_market_weights: dict[Bucket, Weight] = Field(default_factory=dict)
     excluded: list[ExcludedTicker]
 
     @model_validator(mode="after")
     def validate_market_weights_sum(self) -> Self:
         if abs(sum(self.market_weights.values()) - 1.0) > 1e-6:
             raise ValueError("market_weights must sum to 1.0 ± 1e-6")
+        if self.bucket_market_weights and abs(sum(self.bucket_market_weights.values()) - 1.0) > 1e-6:
+            raise ValueError("bucket_market_weights must sum to 1.0 ± 1e-6")
         return self
 
 
 class TargetWeights(ContractModel):
     by_ticker: dict[str, Weight]
     by_sleeve: dict[Sleeve, Weight]
+    by_bucket: dict[Bucket, Weight] = Field(default_factory=dict)
     blend_alpha: Weight
     method: Literal["erc", "black_litterman", "cvar"]
 
@@ -184,13 +192,15 @@ class TargetWeights(ContractModel):
             raise ValueError("by_ticker weights must sum to 1.0 ± 1e-6")
         if abs(sum(self.by_sleeve.values()) - 1.0) > 1e-6:
             raise ValueError("by_sleeve weights must sum to 1.0 ± 1e-6")
+        if self.by_bucket and abs(sum(self.by_bucket.values()) - 1.0) > 1e-6:
+            raise ValueError("by_bucket weights must sum to 1.0 ± 1e-6")
         return self
 
 
 class RiskMetrics(ContractModel):
     expected_vol: Percent
     expected_shortfall_95: Percent
-    risk_contributions: dict[Sleeve, Percent]
+    risk_contributions: dict[str, Percent]
 
 
 PercentileKey = Literal["p5", "p25", "p50", "p75", "p95"]

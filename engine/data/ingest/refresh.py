@@ -1,4 +1,9 @@
-"""Refresh the Greenlight DB from classification, yfinance, and FRED sources."""
+"""Refresh the Greenlight DB from the universe seed config, yfinance, and FRED.
+
+The investable universe + taxonomy come from data.universe_seed (the version-
+controlled source of truth); yfinance supplies prices/fundamentals and FRED the
+risk-free/macro series.
+"""
 
 from __future__ import annotations
 
@@ -6,19 +11,17 @@ import argparse
 import logging
 from collections.abc import Callable, Iterable
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from sqlalchemy import func, select
 
+from data import universe_seed
 from data.db import Instrument, InstrumentMeta, MacroSeries, Price, create_all, get_session
 from data.ingest.fred_source import fetch_series as fetch_fred_series
 from data.ingest.yfinance_source import fetch_meta as fetch_yfinance_meta
 from data.ingest.yfinance_source import fetch_prices as fetch_yfinance_prices
-from data.seed import DATA_DIR, ESG_COLUMNS
 
-DEFAULT_TICKERS_FROM = DATA_DIR / "classification.csv"
 DEFAULT_RISK_FREE_SERIES = "DGS3MO"
 
 
@@ -38,81 +41,10 @@ def _date(value: Any) -> date | None:
     return pd.to_datetime(value).date()
 
 
-def _sleeve(row: dict[str, Any]) -> str | None:
-    explicit = _clean(row.get("sleeve"))
-    if explicit:
-        return str(explicit)
-    asset_class = str(_clean(row.get("asset_class")) or "").lower()
-    region = str(_clean(row.get("region")) or "").lower()
-    bucket = str(_clean(row.get("bucket")) or "").lower()
-    if asset_class == "equity":
-        return "intl_equity" if region in {"developed_intl", "em", "international"} else "us_equity"
-    if asset_class == "bond":
-        return "tips" if "tips" in bucket or "inflation" in bucket else "bonds"
-    if asset_class == "commodity":
-        return "gold" if "gold" in bucket else "gold"
-    if asset_class == "real_estate":
-        return "reits"
-    return None
+def seed_instrument_frame() -> pd.DataFrame:
+    """Instrument rows (primaries + ESG alternates) from the universe seed."""
 
-
-def _role(sleeve: str | None, row: dict[str, Any]) -> str | None:
-    explicit = _clean(row.get("role"))
-    if explicit:
-        return str(explicit)
-    if sleeve in {"bonds", "tips"}:
-        return "safe"
-    if sleeve:
-        return "risky"
-    return None
-
-
-def read_instruments(path: Path) -> pd.DataFrame:
-    """Read a classification/universe CSV into instrument rows."""
-
-    raw = pd.read_csv(path).fillna("")
-    if "ticker" not in raw.columns:
-        raise ValueError(f"{path} must contain a ticker column")
-
-    rows: dict[str, dict[str, Any]] = {}
-    for record in raw.to_dict("records"):
-        ticker = str(record["ticker"]).strip()
-        if not ticker:
-            continue
-        sleeve = _sleeve(record)
-        bucket = _clean(record.get("bucket")) or sleeve
-        row = {
-            "ticker": ticker,
-            "asset_class": _clean(record.get("asset_class")) or sleeve,
-            "bucket": bucket,
-            "region": _clean(record.get("region")),
-            "size": _clean(record.get("size")),
-            "style": _clean(record.get("style")),
-            "underlying_index": _clean(record.get("underlying_index")),
-            "issuer": _clean(record.get("issuer")),
-            "quote_type": _clean(record.get("quote_type")),
-            "sleeve": sleeve,
-            "role": _role(sleeve, record),
-            "market_weight": None if _clean(record.get("market_weight")) is None else float(record["market_weight"]),
-            **{column: _clean(record.get(column)) for column in ESG_COLUMNS},
-        }
-        rows[ticker] = row
-
-        for column in ESG_COLUMNS:
-            replacement = _clean(record.get(column))
-            if not replacement or replacement == ticker:
-                continue
-            rows.setdefault(
-                str(replacement),
-                {
-                    **row,
-                    "ticker": str(replacement),
-                    "role": "alternate",
-                    "market_weight": None,
-                    **{name: None for name in ESG_COLUMNS},
-                },
-            )
-    return pd.DataFrame(rows.values())
+    return pd.DataFrame(universe_seed.instrument_rows())
 
 
 def compute_avg_dollar_volume(prices: pd.DataFrame, *, window: int = 63) -> pd.Series:
@@ -154,6 +86,7 @@ def upsert_instruments(session: Any, frame: pd.DataFrame) -> int:
         session.merge(
             Instrument(
                 ticker=str(ticker),
+                name=_clean(record.get("name")),
                 asset_class=_clean(record.get("asset_class")),
                 bucket=_clean(record.get("bucket")),
                 region=_clean(record.get("region")),
@@ -202,12 +135,14 @@ def upsert_instrument_meta(
     avg_dollar_volume: pd.Series | None = None,
     latest_prices: pd.Series | None = None,
     as_of: date | None = None,
+    inception_overrides: dict[str, date] | None = None,
 ) -> int:
     if frame.empty:
         return 0
     count = 0
     avg_dollar_volume = avg_dollar_volume if avg_dollar_volume is not None else pd.Series(dtype=float)
     latest_prices = latest_prices if latest_prices is not None else pd.Series(dtype=float)
+    inception_overrides = inception_overrides or {}
     as_of = as_of or date.today()
     for record in frame.fillna("").to_dict("records"):
         ticker = _clean(record.get("ticker"))
@@ -235,7 +170,7 @@ def upsert_instrument_meta(
                     if computed_adv is None and explicit_adv is None
                     else float(computed_adv if computed_adv is not None else explicit_adv)
                 ),
-                inception_date=_date(record.get("inception_date")),
+                inception_date=_date(record.get("inception_date")) or inception_overrides.get(str(ticker)),
             )
         )
         quote_type = _clean(record.get("quote_type"))
@@ -345,7 +280,6 @@ def format_data_quality_report(report: dict[str, Any]) -> str:
 def refresh(
     *,
     db_url: str | None = None,
-    tickers_from: Path | str = DEFAULT_TICKERS_FROM,
     risk_free_series: str = DEFAULT_RISK_FREE_SERIES,
     price_fetcher: Callable[[Iterable[str]], pd.DataFrame] = fetch_yfinance_prices,
     meta_fetcher: Callable[[Iterable[str]], pd.DataFrame] = fetch_yfinance_meta,
@@ -354,7 +288,7 @@ def refresh(
     """Fetch source data and upsert it into the configured DB."""
 
     create_all(db_url)
-    instrument_frame = read_instruments(Path(tickers_from))
+    instrument_frame = seed_instrument_frame()
     tickers = _tickers(instrument_frame)
     price_frame = price_fetcher(tickers)
     meta_frame = meta_fetcher(tickers)
@@ -372,6 +306,7 @@ def refresh(
             avg_dollar_volume=avg_dollar_volume,
             latest_prices=latest_prices,
             as_of=as_of,
+            inception_overrides=universe_seed.inception_dates(),
         )
         macro_count = upsert_macro_series(session, risk_free_series, macro_frame)
         session.commit()
@@ -388,12 +323,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Refresh the Greenlight data DB.")
     parser.add_argument("--db", dest="db_url", default=None, help="SQLAlchemy DB URL")
     parser.add_argument(
-        "--tickers-from",
-        type=Path,
-        default=DEFAULT_TICKERS_FROM,
-        help="classification/universe CSV with a ticker column",
-    )
-    parser.add_argument(
         "--risk-free-series",
         default=DEFAULT_RISK_FREE_SERIES,
         help="FRED series id for the risk-free rate",
@@ -404,14 +333,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     args = build_parser().parse_args(argv)
-    instrument_frame = read_instruments(args.tickers_from)
     summary = refresh(
         db_url=args.db_url,
-        tickers_from=args.tickers_from,
         risk_free_series=args.risk_free_series,
     )
     print(f"Refresh summary: {summary}")
-    report = data_quality_report(args.db_url, _tickers(instrument_frame))
+    report = data_quality_report(args.db_url, _tickers(seed_instrument_frame()))
     print(format_data_quality_report(report))
 
 
