@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Wallet, Landmark, TrendingUp, CheckCircle2, Clock, Loader2, AlertCircle } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Wallet, Landmark, TrendingUp, CheckCircle2, Check, Clock, Loader2, AlertCircle } from 'lucide-react'
 import {
   getFundingAccount,
   postBrokerageAccount,
@@ -49,6 +49,57 @@ function PrimaryButton({ onClick, disabled, busy, children }) {
   )
 }
 
+const STEPS = ['Account', 'Fund', 'Invest']
+
+// Compact 3-step progress rail: completed steps fill emerald, the active step
+// glows gold, future steps stay muted. `active` is the index in progress.
+function StepTracker({ active, done }) {
+  return (
+    <div className="flex items-center mt-4">
+      {STEPS.map((label, i) => {
+        const complete = i < done
+        const current = i === active && !complete
+        const color = complete ? 'var(--emerald)' : current ? 'var(--gold)' : 'var(--text-muted)'
+        return (
+          <Fragment key={label}>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="flex items-center justify-center rounded-full text-[11px] font-bold shrink-0"
+                style={{
+                  width: 20,
+                  height: 20,
+                  color: complete || current ? 'var(--bg-base)' : 'var(--text-muted)',
+                  background: complete || current ? color : 'transparent',
+                  border: complete || current ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {complete ? <Check size={12} strokeWidth={3} /> : i + 1}
+              </span>
+              <span
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: current ? 'var(--text-primary)' : 'var(--text-muted)' }}
+              >
+                {label}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div className="flex-1 h-px mx-2" style={{ background: i < done ? 'var(--emerald)' : 'var(--border)' }} />
+            )}
+          </Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
+function StepLabel({ children }) {
+  return (
+    <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>
+      {children}
+    </div>
+  )
+}
+
 export default function InvestPanel({ userEmail, portfolio }) {
   const weights = portfolio?.weights ?? null
 
@@ -73,6 +124,13 @@ export default function InvestPanel({ userEmail, portfolio }) {
     [positions],
   )
   const open = marketIsOpen()
+
+  // Drives the step rail: how many steps are fully done + which one is active.
+  const hasPositions = (positions?.items?.length ?? 0) > 0
+  const funded = cash > 0 || invested > 0 || hasPositions
+  const investedDone = invested > 0 || hasPositions
+  const stepsDone = (accountReady ? 1 : 0) + (funded ? 1 : 0) + (investedDone ? 1 : 0)
+  const activeStep = !accountReady ? 0 : !funded ? 1 : 2
 
   const refreshAccount = useCallback(async () => {
     if (!userEmail) return null
@@ -176,11 +234,15 @@ export default function InvestPanel({ userEmail, portfolio }) {
       ) : !userEmail ? (
         <StatusNote icon={AlertCircle}>Sign in to open a brokerage account.</StatusNote>
       ) : (
-        <div className="mt-4 space-y-4">
+        <>
+          <StepTracker active={activeStep} done={stepsDone} />
+
+          <div className="mt-4 space-y-4">
           {/* Step 1 — open account (real Alpaca only; simulator needs none) */}
           {!accountReady && (
             <div>
-              <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              <StepLabel>Open account</StepLabel>
+              <p className="text-sm mb-3 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 Open an Alpaca <span style={{ color: 'var(--gold-light)' }}>sandbox</span> brokerage account
                 to invest in your allocation. No real money — paper trading only.
               </p>
@@ -193,22 +255,21 @@ export default function InvestPanel({ userEmail, portfolio }) {
           {/* Step 2 — fund */}
           {accountReady && cash <= 0 && (
             <div>
-              <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              <StepLabel>Add cash</StepLabel>
+              <p className="text-sm mb-3 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 {isSimulator
                   ? 'Add simulated cash to invest. Credited instantly to your paper account.'
                   : `Add funds to invest. Instantly journaled from the firm sweep account (sandbox cap ${formatCurrency(SANDBOX_FUNDING_CAP)}).`}
               </p>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="flex items-center flex-1 rounded-lg px-3"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                  <span className="text-sm font-mono" style={{ color: 'var(--text-muted)' }}>$</span>
-                  <input
-                    type="number" min={1} max={fundingCap} value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full bg-transparent py-2.5 px-2 text-sm font-mono outline-none"
-                    style={{ color: 'var(--text-primary)' }}
-                  />
-                </div>
+              <div className="flex items-center rounded-lg px-3 mb-3"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                <span className="text-sm font-mono" style={{ color: 'var(--text-muted)' }}>$</span>
+                <input
+                  type="number" min={1} max={fundingCap} value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full bg-transparent py-2.5 px-2 text-sm font-mono outline-none"
+                  style={{ color: 'var(--text-primary)' }}
+                />
               </div>
               <PrimaryButton onClick={handleFund} busy={busy === 'fund'}>
                 <Wallet size={15} /> Add {formatCurrency(Math.min(fundingCap, Math.max(1, Number(amount) || 0)))}
@@ -219,6 +280,7 @@ export default function InvestPanel({ userEmail, portfolio }) {
           {/* Step 3 — invest */}
           {accountReady && cash > 0 && !plan && (
             <div>
+              <StepLabel>Deploy your cash</StepLabel>
               <div className="flex items-center justify-between rounded-lg p-3 mb-3"
                 style={{ background: 'var(--bg-elevated)' }}>
                 <span className="text-xs uppercase tracking-widest font-semibold" style={{ color: 'var(--text-muted)' }}>
@@ -303,7 +365,8 @@ export default function InvestPanel({ userEmail, portfolio }) {
           )}
 
           {error && <StatusNote tone="error" icon={AlertCircle}>{error}</StatusNote>}
-        </div>
+          </div>
+        </>
       )}
     </div>
   )
