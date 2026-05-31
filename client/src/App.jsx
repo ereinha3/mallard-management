@@ -93,7 +93,7 @@ export default function App() {
           {activePage === 'advisor' && <AdvisorChat context={onboardResult} user={user} />}
           {activePage === 'learn' && <LearnView onboardResult={onboardResult} />}
           {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
-          {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} />}
+          {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} onApplied={setOnboardResult} />}
           {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
           {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
           {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} />}

@@ -275,6 +275,62 @@ class PortfolioResponse(BaseModel):
     metrics: RiskMetrics
 
 
+class PortfolioRiskSummary(BaseModel):
+    target_volatility_pct: float
+    estimated_max_loss_1yr_pct: float
+
+
+class PortfolioReoptimizeRequest(BaseModel):
+    profile: UserProfileInput
+    risk_dial: float = Field(ge=0, le=1)
+
+
+class PortfolioReoptimizeResponse(BaseModel):
+    portfolio: PortfolioResponse
+    risk_summary: PortfolioRiskSummary
+
+
+class EditableWeights(BaseModel):
+    by_ticker: Optional[Dict[str, float]] = None
+    by_sleeve: Optional[Dict[Sleeve, float]] = None
+
+    @model_validator(mode="after")
+    def _validate_weight_inputs(self) -> "EditableWeights":
+        if not self.by_ticker and not self.by_sleeve:
+            raise ValueError("weights must include by_ticker or by_sleeve")
+        for name, weights in (("by_ticker", self.by_ticker), ("by_sleeve", self.by_sleeve)):
+            for key, value in (weights or {}).items():
+                if value < 0:
+                    raise ValueError(f"{name}.{key} must be non-negative")
+        return self
+
+
+class PortfolioAnalyzeWeightsRequest(BaseModel):
+    profile: UserProfileInput
+    weights: EditableWeights
+
+
+class AnalyzedWeights(BaseModel):
+    by_ticker: Dict[str, float]
+    by_sleeve: Dict[Sleeve, float]
+
+
+class PortfolioWeightsValidation(BaseModel):
+    sum_by_ticker: float
+    sum_by_sleeve: float
+    sum_risky_bucket: float
+    sum_safe_bucket: float
+    sum_risky_within_bucket: float
+    sum_safe_within_bucket: float
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PortfolioAnalyzeWeightsResponse(BaseModel):
+    weights: AnalyzedWeights
+    metrics: RiskMetrics
+    validation: PortfolioWeightsValidation
+
+
 class ProjectionRequest(BaseModel):
     weights: TargetWeights
     horizon_years: int = Field(ge=1)

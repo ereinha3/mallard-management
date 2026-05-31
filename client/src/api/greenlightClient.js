@@ -117,6 +117,42 @@ export async function postOnboard(profile, userEmail = null) {
 }
 
 /**
+ * POST /api/v1/portfolio/reoptimize — rerun optimizer from a risk dial target.
+ */
+export async function postReoptimize({ profile, risk_dial, weights = null }) {
+  const res = await fetch(`${BASE}/api/v1/portfolio/reoptimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      profile,
+      risk_dial,
+      ...(weights ? { weights: { by_sleeve: weights?.by_sleeve ?? weights } } : {}),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Reoptimize error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/portfolio/analyze-weights — analyze edited sleeve weights.
+ */
+export async function postAnalyzeWeights({ profile, weights }) {
+  const res = await fetch(`${BASE}/api/v1/portfolio/analyze-weights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile, weights: { by_sleeve: weights?.by_sleeve ?? weights } }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Analyze weights error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
  * GET /api/v1/config — gate thresholds and market assumptions.
  */
 export async function getConfig() {

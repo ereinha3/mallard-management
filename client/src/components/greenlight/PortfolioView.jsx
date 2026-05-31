@@ -1,27 +1,39 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { ArrowRight } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } from 'lucide-react'
+import IntakeChat from './IntakeChat'
+import PortfolioEditor from './PortfolioEditor'
 import RebalancePanel from './RebalancePanel'
-
-const ILLUSTRATIVE_ALLOCATION = [
-  { label: 'US Equity',   pct: 38, color: '#ddb84a', ticker: 'VTI',  esg: true },
-  { label: 'Intl Equity', pct: 20, color: '#4a72e8', ticker: 'VXUS', esg: true },
-  { label: 'Bonds',       pct: 18, color: '#6b7280', ticker: 'BND',  esg: false },
-  { label: 'TIPS',        pct: 8,  color: '#22c27e', ticker: 'SCHP', esg: false },
-  { label: 'Gold',        pct: 8,  color: '#f0c060', ticker: 'GLDM', esg: true },
-  { label: 'REITs',       pct: 8,  color: '#8b5cf6', ticker: 'USRT', esg: false },
-]
+import {
+  estimatePortfolioMetrics,
+  formatMoney,
+  formatPercent,
+  getCapital,
+  getMonthlyContribution,
+  getPortfolio,
+  getProfile,
+  getSleeveWeights,
+  inferRiskDialFromWeights,
+  weightsToAllocation,
+} from './engineData'
 
 const GLIDEPATH = Array.from({ length: 38 }, (_, i) => {
   const age = 28 + i
   const yearsToRetire = 65 - age
-  // U-shape near retirement (bond tent)
   let equity
   if (yearsToRetire > 15) equity = 80 - (i * 0.3)
   else if (yearsToRetire > 5) equity = 75 - ((15 - yearsToRetire) * 3.5)
   else equity = 55 + (5 - yearsToRetire) * 2
-  return { age, equity: Math.round(Math.max(40, Math.min(80, equity))), bonds: 100 - Math.round(Math.max(40, Math.min(80, equity))) }
+  const clipped = Math.round(Math.max(40, Math.min(80, equity)))
+  return { age, equity: clipped, bonds: 100 - clipped }
 })
+
+function formatMetricPct(decimalValue, pctValue, digits = 1) {
+  if (decimalValue != null) return formatPercent(decimalValue, digits)
+  if (pctValue != null && Number.isFinite(Number(pctValue))) return `${Number(pctValue).toFixed(digits)}%`
+  return 'N/A'
+}
 
 const CustomTooltipAlloc = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -29,7 +41,7 @@ const CustomTooltipAlloc = ({ active, payload }) => {
   return (
     <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
       <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{d.label}</div>
-      <div className="font-mono mt-0.5" style={{ color: d.color }}>{d.pct}%{d.amount != null ? ` · $${d.amount.toLocaleString()}` : ''}</div>
+      <div className="font-mono mt-0.5" style={{ color: d.color }}>{d.pct.toFixed(1)}%{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}</div>
     </div>
   )
 }
@@ -51,7 +63,7 @@ function RiskMetric({ label, value, color }) {
     <div className="text-center">
       <div
         className="font-display font-semibold"
-        style={{ fontSize: 28, lineHeight: 1, letterSpacing: '-0.03em', color: color || 'var(--text-primary)' }}
+        style={{ fontSize: 28, lineHeight: 1, color: color || 'var(--text-primary)' }}
       >
         {value}
       </div>
@@ -60,25 +72,83 @@ function RiskMetric({ label, value, color }) {
   )
 }
 
-export default function PortfolioView({ onRebalance, onboardResult }) {
+function GuideOverlay({ onClose, onComplete }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(0,0,0,0.55)',
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Greenlight guided portfolio update"
+    >
+      <div className="card-premium" style={{ width: 'min(1120px, 100%)', height: 'min(760px, 92vh)', overflow: 'hidden', position: 'relative' }}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close guided update"
+          className="flex items-center justify-center rounded-lg"
+          style={{
+            position: 'absolute',
+            top: 14,
+            right: 14,
+            zIndex: 2,
+            width: 34,
+            height: 34,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-bright)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          <X size={16} />
+        </button>
+        <IntakeChat onComplete={onComplete} />
+      </div>
+    </div>
+  )
+}
+
+export default function PortfolioView({ onRebalance, onboardResult, onApplied }) {
   const [showRebalance, setShowRebalance] = useState(false)
-  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? onboardResult ?? {}
-  const risk = onboardResult?.financial_analysis?.risk ?? onboardResult?.risk_profile ?? {}
-  const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
+  const [showEditor, setShowEditor] = useState(false)
+  const [showGuide, setShowGuide] = useState(false)
+  const [localResult, setLocalResult] = useState(onboardResult)
+
+  useEffect(() => {
+    setLocalResult(onboardResult)
+  }, [onboardResult])
+
+  const activeResult = localResult ?? onboardResult
+  const profile = getProfile(activeResult)
+  const portfolio = getPortfolio(activeResult)
+  const weights = useMemo(() => getSleeveWeights(activeResult), [activeResult])
+  const riskDial = inferRiskDialFromWeights(weights)
+  const estimatedMetrics = estimatePortfolioMetrics(weights, riskDial)
+  const metrics = portfolio?.metrics ?? estimatedMetrics
+  const risk = activeResult?.financial_analysis?.risk ?? activeResult?.risk_profile ?? {}
+  const snapshot = activeResult?.financial_analysis?.snapshot ?? {}
   const clientName = profile?.name ?? profile?.first_name ?? 'You'
-  const capitalOnHand = Number.isFinite(Number(profile?.capital_on_hand)) ? Number(profile.capital_on_hand) : null
-  const monthlyContrib = Number.isFinite(Number(snapshot.monthly_surplus ?? onboardResult?.optimizer_input?.monthly_surplus))
-    ? Number(snapshot.monthly_surplus ?? onboardResult?.optimizer_input?.monthly_surplus)
-    : null
+  const capitalOnHand = getCapital(activeResult)
+  const capital = Number.isFinite(capitalOnHand) && capitalOnHand > 0 ? capitalOnHand : null
+  const monthlyContrib = getMonthlyContribution(activeResult) || Number(snapshot.monthly_surplus ?? activeResult?.optimizer_input?.monthly_surplus) || null
   const userAge = Number.isFinite(Number(profile?.age)) ? Number(profile.age) : null
   const horizonYears = Number.isFinite(Number(profile?.horizon_years)) ? Number(profile.horizon_years) : null
-
-  const allocation = ILLUSTRATIVE_ALLOCATION.map(a => ({
-    ...a,
-    amount: capitalOnHand != null ? Math.round(capitalOnHand * (a.pct / 100)) : null,
-  }))
-
-  const total = capitalOnHand
+  const allocation = weightsToAllocation(weights, portfolio, capital)
+  const realPortfolioPresent = Boolean(activeResult?.portfolio)
+  const fallbackPresent = Boolean(portfolio) && !realPortfolioPresent
+  const methodLabel = portfolio?.weights?.method
+    ?? (portfolio?.weights?.blend_alpha != null ? 'blend' : realPortfolioPresent ? 'engine' : 'target')
+  const growthPct = allocation
+    .filter(a => ['us_equity', 'intl_equity', 'reits'].includes(a.key))
+    .reduce((sum, a) => sum + a.pct, 0)
 
   const chartStartAge = userAge ?? 28
   const glidepathData = GLIDEPATH.map(p => ({
@@ -86,65 +156,125 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
     age: p.age - 28 + chartStartAge,
   }))
 
-  if (showRebalance) return <RebalancePanel onboardResult={onboardResult} />
+  function handleGuideComplete(newResult) {
+    setShowGuide(false)
+    if (newResult) {
+      setLocalResult(newResult)
+      onApplied?.(newResult)
+    }
+    setShowEditor(true)
+  }
+
+  function handleEditorApplied(updatedResult) {
+    setLocalResult(updatedResult)
+    onApplied?.(updatedResult)
+  }
+
+  if (showRebalance) return <RebalancePanel onboardResult={activeResult} />
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+      {showGuide && (
+        <GuideOverlay
+          onClose={() => setShowGuide(false)}
+          onComplete={handleGuideComplete}
+        />
+      )}
+
       <div className="p-7 space-y-5">
-
-        {/* Header */}
         <div className="anim-fade-up">
-          <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-            Portfolio · {clientName} · ESG-screened
-          </div>
-          <div
-            className="font-display font-semibold"
-            style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}
-          >
-            Illustrative allocation view · optimizer target weights not returned
-          </div>
-        </div>
-
-        {/* Risk metrics row */}
-        <div
-          className="rounded-2xl p-5 grid gap-6 anim-fade-up d100"
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border)',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-          }}
-        >
-          <RiskMetric label="Target Volatility" value={risk.target_volatility_pct != null ? `${Number(risk.target_volatility_pct).toFixed(1)}%` : 'N/A'} color="var(--gold-light)" />
-          <RiskMetric label="Est. 1Y Max Loss" value={risk.estimated_max_loss_1yr_pct != null ? `${Number(risk.estimated_max_loss_1yr_pct).toFixed(1)}%` : 'N/A'} color="var(--ruby)" />
-          <RiskMetric label="Risk Aversion γ" value={risk.gamma_mid != null ? Number(risk.gamma_mid).toFixed(2) : 'N/A'} />
-          <RiskMetric label="Binding Axis" value={risk.binding_axis ?? 'N/A'} color="var(--blue)" />
-          <RiskMetric label="Capital Available" value={total != null ? `$${total.toLocaleString()}` : 'N/A'} color="var(--emerald)" />
-        </div>
-
-        {/* Allocation + Order plan */}
-        <div className="grid gap-5 anim-fade-up d150" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
-          {/* Donut */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-          >
-            <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
-              Illustrative Allocation Example
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+                Portfolio · {clientName} · Greenlight target
+              </div>
+              <div
+                className="font-display font-semibold"
+                style={{ fontSize: 28, color: 'var(--text-primary)' }}
+              >
+                {realPortfolioPresent
+                  ? 'Engine-built allocation from your profile'
+                  : fallbackPresent
+                  ? 'Saved target allocation from demo data'
+                  : 'Preview allocation ready for editing'}
+              </div>
             </div>
-            <div style={{ position: 'relative', height: 200 }}>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEditor(prev => !prev)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-bright)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <SlidersHorizontal size={16} />
+                Edit allocations
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGuide(true)}
+                className="flex items-center gap-3 px-6 py-4 rounded-xl text-base font-semibold transition-all"
+                style={{
+                  background: 'linear-gradient(135deg, var(--green, var(--emerald)), var(--green-bright))',
+                  border: '1px solid var(--green-light, var(--green))',
+                  color: '#07120d',
+                  boxShadow: '0 18px 42px rgba(30,184,122,0.28)',
+                }}
+              >
+                <MessageCircle size={20} />
+                Update with Greenlight
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="card-premium p-5 anim-fade-up d100"
+          style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))' }}
+        >
+          <RiskMetric label="Expected Volatility" value={formatMetricPct(portfolio?.metrics?.expected_vol, risk.target_volatility_pct ?? metrics?.expected_vol * 100)} color="var(--green-bright, var(--green))" />
+          <RiskMetric label="Est. 1Y Max Loss" value={formatMetricPct(portfolio?.metrics?.expected_shortfall_95, risk.estimated_max_loss_1yr_pct ?? metrics?.expected_shortfall_95 * 100)} color="var(--ruby)" />
+          <RiskMetric label="Risk Dial" value={`${Math.round(riskDial * 100)}%`} color="var(--green, var(--emerald))" />
+          <RiskMetric label="Method" value={methodLabel} color="var(--blue)" />
+          <RiskMetric label="Capital Available" value={capital != null ? formatMoney(capital) : 'N/A'} color="var(--green, var(--emerald))" />
+        </div>
+
+        {showEditor && (
+          <PortfolioEditor
+            onboardResult={activeResult}
+            onApplied={handleEditorApplied}
+          />
+        )}
+
+        <div className="grid gap-5 anim-fade-up d150" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
+          <div className="card-premium p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Target Sleeve Allocation
+              </div>
+              <div className="flex items-center gap-1.5 text-xs" style={{ color: realPortfolioPresent ? 'var(--green)' : 'var(--gold-light)' }}>
+                <CheckCircle size={13} />
+                {realPortfolioPresent ? 'engine' : 'fallback'}
+              </div>
+            </div>
+            <div style={{ position: 'relative', height: 210 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={allocation}
                     dataKey="pct"
-                    innerRadius={60}
-                    outerRadius={90}
+                    innerRadius={62}
+                    outerRadius={92}
                     paddingAngle={2}
                     startAngle={90}
                     endAngle={-270}
                   >
                     {allocation.map((a) => (
-                      <Cell key={a.label} fill={a.color} />
+                      <Cell key={a.key} fill={a.color} />
                     ))}
                   </Pie>
                   <Tooltip content={<CustomTooltipAlloc />} />
@@ -156,43 +286,38 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
                 textAlign: 'center', pointerEvents: 'none',
               }}>
                 <div className="font-display font-semibold" style={{ fontSize: 22, color: 'var(--text-primary)' }}>
-                  {allocation.filter(a => a.label.includes('Equity') || a.label === 'REITs').reduce((s, a) => s + a.pct, 0)}%
+                  {growthPct.toFixed(0)}%
                 </div>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>equity</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>growth</div>
               </div>
             </div>
             <div className="mt-3 space-y-1.5">
               {allocation.map(a => (
-                <div key={a.label} className="flex items-center gap-2 text-xs">
+                <div key={a.key} className="flex items-center gap-2 text-xs">
                   <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.color }} />
                   <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{a.label}</span>
-                  <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{a.pct}%</span>
-                  {a.esg && <span style={{ color: 'var(--emerald)', fontSize: 10 }}>ESG</span>}
+                  <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{a.pct.toFixed(1)}%</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Order plan */}
-          <div
-            className="rounded-2xl p-5"
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-          >
+          <div className="card-premium p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                Illustrative Order Plan
+                Target Order Plan
               </div>
               <div
                 className="text-xs px-2 py-1 rounded-lg font-mono"
-                style={{ background: 'rgba(30,184,122,0.1)', color: 'var(--emerald)', border: '1px solid rgba(30,184,122,0.2)' }}
+                style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))', border: '1px solid var(--green, var(--emerald))' }}
               >
-                Lump-sum + DCA
+                Sleeve target
               </div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr>
-                  {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Status'].map(h => (
+                  {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Source'].map(h => (
                     <th key={h} className="text-left pb-2 font-semibold uppercase"
                       style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: '0.08em', borderBottom: '1px solid var(--border)' }}>
                       {h}
@@ -202,19 +327,19 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
               </thead>
               <tbody>
                 {allocation.map(a => (
-                  <tr key={a.ticker} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
+                  <tr key={a.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker ?? a.key}</td>
                     <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
-                    <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct}%</td>
+                    <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
                     <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {a.amount != null ? `$${a.amount.toLocaleString()}` : 'N/A'}
+                      {a.amount != null ? formatMoney(a.amount) : 'N/A'}
                     </td>
                     <td className="py-2.5">
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{ background: 'rgba(30,184,122,0.1)', color: 'var(--emerald)' }}
+                        style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
                       >
-                        example
+                        {realPortfolioPresent ? 'engine' : 'preview'}
                       </span>
                     </td>
                   </tr>
@@ -223,7 +348,7 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
               <tfoot>
                 <tr>
                   <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
-                  <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{total != null ? `$${total.toLocaleString()}` : 'N/A'}</td>
+                  <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
                   <td />
                 </tr>
               </tfoot>
@@ -234,32 +359,28 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
             >
               <strong style={{ color: 'var(--text-secondary)' }}>Contribution capacity:</strong>{' '}
               {monthlyContrib != null && monthlyContrib > 0
-                ? `+$${monthlyContrib.toLocaleString()}/mo from analyzed monthly surplus.`
+                ? `+${formatMoney(monthlyContrib)}/mo from analyzed monthly surplus.`
                 : 'No positive monthly surplus was returned for DCA sizing.'}
             </div>
           </div>
         </div>
 
-        {/* Glidepath chart */}
-        <div
-          className="rounded-2xl p-5 anim-fade-up d200"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
+        <div className="card-premium p-5 anim-fade-up d200">
           <div className="flex items-start justify-between mb-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
                 Age Glidepath · U-Shaped Bond Tent
               </div>
               <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Illustrative equity glidepath starting from {userAge != null ? `age ${userAge}` : 'the default chart age'}{horizonYears != null ? ` with a ${horizonYears}-year horizon` : ''}.
+                Planning path starting from {userAge != null ? `age ${userAge}` : 'the default chart age'}{horizonYears != null ? ` with a ${horizonYears}-year horizon` : ''}.
               </div>
             </div>
             <div className="flex items-center gap-4 text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-px" style={{ background: 'var(--gold-light)', display: 'inline-block' }} /> Equity
+                <div className="w-3 h-px" style={{ background: 'var(--green-bright, var(--green))', display: 'inline-block' }} /> Growth
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-px" style={{ background: '#4a72e8', display: 'inline-block' }} /> Bonds + Defensive
+                <div className="w-3 h-px" style={{ background: '#4a72e8', display: 'inline-block' }} /> Defensive
               </div>
             </div>
           </div>
@@ -282,22 +403,25 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
                 />
                 <Tooltip content={<CustomTooltipGlide />} />
                 <ReferenceLine
-                  x={chartStartAge} stroke="rgba(196,154,44,0.5)" strokeDasharray="4 4"
-                  label={{ value: 'Now', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
+                  x={chartStartAge} stroke="rgba(30,184,122,0.5)" strokeDasharray="4 4"
+                  label={{ value: 'Now', position: 'top', fill: 'var(--green)', fontSize: 10, fontFamily: 'DM Mono' }}
                 />
                 <ReferenceLine
-                  x={chartStartAge + (horizonYears ?? 37)} stroke="rgba(30,184,122,0.5)" strokeDasharray="4 4"
-                  label={{ value: 'Retire', position: 'top', fill: 'var(--emerald)', fontSize: 10, fontFamily: 'DM Mono' }}
+                  x={chartStartAge + (horizonYears ?? 37)} stroke="rgba(196,154,44,0.5)" strokeDasharray="4 4"
+                  label={{ value: 'Goal', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
                 />
-                <Line type="monotone" dataKey="equity" stroke="var(--gold-light)" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="equity" stroke="var(--green-bright, var(--green))" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="bonds" stroke="#4a72e8" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Next step */}
-        <div className="flex justify-end anim-fade-up d300">
+        <div className="flex justify-between items-center gap-3 anim-fade-up d300">
+          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <Bot size={14} style={{ color: 'var(--green)' }} />
+            Greenlight can re-interview you, rebuild the target, then open the slider editor.
+          </div>
           <button
             onClick={onRebalance ?? (() => setShowRebalance(true))}
             className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all"
@@ -306,8 +430,6 @@ export default function PortfolioView({ onRebalance, onboardResult }) {
               border: '1px solid var(--border-bright)',
               color: 'var(--text-primary)',
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--gold-light)'; e.currentTarget.style.color = 'var(--gold-light)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-bright)'; e.currentTarget.style.color = 'var(--text-primary)' }}
           >
             Fast-forward a quarter → rebalance
             <ArrowRight size={14} />
