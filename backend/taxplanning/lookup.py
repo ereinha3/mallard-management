@@ -26,21 +26,31 @@ class TaxLookup:
         self._cache_ttl = timedelta(hours=24)
 
     async def get_tax_rates(
-        self, zip_code: str, filing_status: str, tax_year: int
+        self, zip_code: str | None, filing_status: str, tax_year: int, state_code: str | None = None
     ) -> TaxRateBundle:
-        normalized_zip = zip_code.strip()
-        normalized_status = filing_status.strip()
-        cache_key = (normalized_zip, normalized_status, tax_year)
+        normalized_zip = (zip_code or "").strip()
+        normalized_status = (filing_status or "single").strip() or "single"
+        normalized_state = (state_code or "").strip().upper()
+        cache_key = (normalized_zip or normalized_state, normalized_status, tax_year)
         cached = self._cache.get(cache_key)
         now = datetime.now(timezone.utc)
 
         if cached and now - cached[0] < self._cache_ttl:
             return cached[1]
 
-        state_code = self._zip_to_state(normalized_zip)
-        federal = await self._fetch_federal_rates(normalized_status, tax_year)
-        state = await self._fetch_state_rates(state_code, normalized_status, tax_year)
-        local = await self._fetch_local_rates(normalized_zip)
+        resolved_state_code = normalized_state or self._zip_to_state(normalized_zip)
+        federal = await self._safe_fetch(
+            self._fetch_federal_rates(normalized_status, tax_year),
+            self._default_federal(normalized_status, tax_year),
+        )
+        state = await self._safe_fetch(
+            self._fetch_state_rates(resolved_state_code, normalized_status, tax_year),
+            self._default_state(resolved_state_code, normalized_status, tax_year),
+        )
+        local = await self._safe_fetch(
+            self._fetch_local_rates(normalized_zip, resolved_state_code),
+            self._default_local(normalized_zip, resolved_state_code),
+        )
         bundle = TaxRateBundle(
             federal=federal,
             state=state,
@@ -87,19 +97,22 @@ class TaxLookup:
         )
         return await self._generate_json(prompt, StateTaxInfo)
 
-    async def _fetch_local_rates(self, zip_code: str) -> LocalTaxInfo:
+    async def _fetch_local_rates(self, zip_code: str, state_code: str | None = None) -> LocalTaxInfo:
         prompt = (
             "Return valid JSON only, with no markdown fences or explanatory text. "
             "Use this exact object shape: "
             '{"zip_code": str, "city": str, "county": str, "state_code": str, '
             '"local_tax_rate": float, "notes": str}. '
             f"Retrieve city and county local earned income or local income tax "
-            f"rate for ZIP code {zip_code}. If there is no local income tax, "
+            f"rate for ZIP code {zip_code or 'unknown'}"
+            f"{f' in state {state_code}' if state_code else ''}. If there is no local income tax, "
             f"return local_tax_rate as 0 and explain briefly in notes."
         )
         return await self._generate_json(prompt, LocalTaxInfo)
 
     def _zip_to_state(self, zip_code: str) -> str:
+        if not zip_code or len(zip_code) < 5 or not zip_code[:5].isdigit():
+            return ""
         zip_int = int(zip_code[:5])
         ranges = [
             (35000, 36999, "AL"),
@@ -166,12 +179,68 @@ class TaxLookup:
             model=self.model,
             contents=prompt,
         )
-        raw_text = response.text
+        raw_text = response.text or ""
 
         try:
-            data = json.loads(raw_text)
+            data = json.loads(self._strip_json_fences(raw_text))
             if hasattr(model_class, "model_validate"):
                 return model_class.model_validate(data)
             return model_class.parse_obj(data)
         except (json.JSONDecodeError, ValidationError) as exc:
             raise TaxLookupError(f"Unable to parse Gemini tax response: {raw_text}") from exc
+
+    async def _safe_fetch(self, awaitable, default):
+        try:
+            return await awaitable
+        except Exception:
+            return default
+
+    def _strip_json_fences(self, raw_text: str) -> str:
+        text = raw_text.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text
+
+    def _default_federal(self, filing_status: str, tax_year: int) -> FederalTaxInfo:
+        return FederalTaxInfo(
+            year=tax_year,
+            filing_status=filing_status,
+            brackets=[],
+            standard_deduction=0.0,
+            fica_social_security_rate=0.062,
+            fica_social_security_wage_base=176100.0,
+            fica_medicare_rate=0.0145,
+            additional_medicare_rate=0.009,
+            additional_medicare_threshold=250000.0
+            if filing_status == "married_joint"
+            else 125000.0
+            if filing_status == "married_separate"
+            else 200000.0,
+        )
+
+    def _default_state(self, state_code: str, filing_status: str, tax_year: int) -> StateTaxInfo:
+        return StateTaxInfo(
+            year=tax_year,
+            state_code=state_code,
+            filing_status=filing_status,
+            brackets=[],
+            standard_deduction=0.0,
+            has_flat_rate=False,
+            flat_rate=None,
+            no_income_tax=True,
+        )
+
+    def _default_local(self, zip_code: str, state_code: str) -> LocalTaxInfo:
+        return LocalTaxInfo(
+            zip_code=zip_code,
+            city="",
+            county="",
+            state_code=state_code,
+            local_tax_rate=0.0,
+            notes="Defaulted to no local income tax because lookup data was unavailable.",
+        )

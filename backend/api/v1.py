@@ -1468,6 +1468,7 @@ async def register(req: api_models.AuthRequest, db: Session = Depends(get_db)) -
         req.phone,
         req.address,
         req.zip_code,
+        req.home_value,
     )
     db.commit()
     return api_models.AuthResponse(
@@ -1839,7 +1840,7 @@ async def onboard(
     # gate / TLH math instead of the manual `bracket` field. If it is absent or
     # fails, the gate falls back to the deterministic default (G-03).
     tax_breakdown = None
-    if profile_input.zip_code:
+    if profile_input.zip_code or profile_input.state:
         try:
             calculator = TaxCalculator()
             tax_breakdown = await asyncio.wait_for(
@@ -1847,6 +1848,7 @@ async def onboard(
                     gross_income=profile_input.household_income,
                     filing_status=profile_input.filing_status,
                     zip_code=profile_input.zip_code,
+                    state_code=profile_input.state,
                     pretax_401k=profile_input.pretax_401k or 0.0,
                     pretax_ira=profile_input.pretax_ira or 0.0,
                     pretax_hsa=profile_input.pretax_hsa or 0.0,

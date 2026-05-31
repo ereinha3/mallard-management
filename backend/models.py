@@ -14,6 +14,7 @@ class AuthRequest(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     zip_code: Optional[str] = None
+    home_value: Optional[float] = Field(default=None, ge=0)
 
 
 class AuthResponse(BaseModel):
