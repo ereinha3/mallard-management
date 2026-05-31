@@ -7,6 +7,11 @@ import { formatCurrency } from '../lib/utils'
 const MONEY_FIELDS = new Set(['household_income', 'monthly_expenses', 'capital_on_hand', 'emergency_fund', 'goal_target'])
 const NUMBER_FIELDS = new Set(['age', 'horizon_years', 'target_volatility_pct', ...MONEY_FIELDS])
 const ARRAY_FIELDS = new Set(['goals', 'esg_exclusions', 'sector_theme_tilts'])
+const TAG_OPTIONS = {
+  goals: ['retirement', 'home purchase', 'education', 'emergency fund', 'wealth building', 'travel', 'other'],
+  esg_exclusions: ['fossil fuels', 'weapons', 'tobacco', 'gambling', 'alcohol', 'private prisons', 'none'],
+  sector_theme_tilts: ['clean energy', 'healthcare', 'technology', 'real estate', 'international', 'small cap', 'dividends', 'none'],
+}
 
 const GOAL_OPTIONS = ['retirement', 'home', 'education', 'general_wealth']
 const ESG_EXCLUSION_OPTIONS = ['fossil_fuels', 'weapons', 'tobacco', 'gambling']
@@ -31,14 +36,13 @@ const SECTOR_THEME_OPTIONS = [
 const FINANCIAL_FIELDS = [
   { key: 'household_income', label: 'Household income', type: 'money' },
   { key: 'monthly_expenses', label: 'Monthly expenses', type: 'money' },
-  { key: 'capital_on_hand', label: 'Capital on hand', type: 'money' },
-  { key: 'emergency_fund', label: 'Emergency fund', type: 'money' },
+  { key: 'capital_on_hand', label: 'Liquid savings (investable)', type: 'money' },
+  { key: 'emergency_fund', label: 'Emergency fund (set aside)', type: 'money' },
   { key: 'age', label: 'Age', type: 'number' },
-  { key: 'horizon_years', label: 'Horizon years', type: 'number' },
 ]
 
 const PREFERENCE_FIELDS = [
-  { key: 'goals', label: 'Goals', type: 'multi-select', options: GOAL_OPTIONS },
+  { key: 'goals', label: 'Goals', type: 'tags', options: [...TAG_OPTIONS.goals, ...GOAL_OPTIONS] },
   { key: 'goal_target', label: 'Goal target', type: 'money' },
   {
     key: 'universe_pref',
@@ -46,8 +50,8 @@ const PREFERENCE_FIELDS = [
     type: 'select',
     options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
   },
-  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'multi-select', options: ESG_EXCLUSION_OPTIONS },
-  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'multi-select', options: SECTOR_THEME_OPTIONS },
+  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: [...TAG_OPTIONS.esg_exclusions, ...ESG_EXCLUSION_OPTIONS] },
+  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: [...TAG_OPTIONS.sector_theme_tilts, ...SECTOR_THEME_OPTIONS] },
 ]
 
 const OPTIONAL_RISK_FIELDS = [
@@ -163,9 +167,10 @@ function mergeProfileResult(onboardResult, patch) {
 
 function Field({ field, value, onChange }) {
   const inputId = `profile-${field.key}`
+  const tagValues = field.type === 'tags' ? parseField(field.key, value) : []
   const selectedValues = field.type === 'multi-select' ? parseField(field.key, value) : []
-  const options = field.type === 'multi-select'
-    ? [...new Set([...(field.options ?? []), ...selectedValues])]
+  const options = field.type === 'multi-select' || field.type === 'tags'
+    ? [...new Set([...(field.options ?? []), ...selectedValues, ...tagValues])]
     : field.options ?? []
   const commonStyle = {
     width: '100%',
@@ -216,6 +221,34 @@ function Field({ field, value, onChange }) {
             <option key={option} value={option}>{labelize(option)}</option>
           ))}
         </select>
+      ) : field.type === 'tags' ? (
+        <div id={inputId} className="flex flex-wrap gap-2">
+          {options.map(option => {
+            const isSelected = tagValues.includes(option)
+            const nextValues = isSelected
+              ? tagValues.filter(item => item !== option)
+              : [...tagValues, option]
+
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => onChange(field.key, nextValues.join(', '))}
+                className="text-xs font-semibold transition-all"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: isSelected ? '1px solid var(--gold-light)' : '1px solid var(--border-bright)',
+                  background: isSelected ? 'rgba(218, 165, 32, 0.16)' : 'var(--bg-elevated)',
+                  color: isSelected ? 'var(--gold-light)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {labelize(option)}
+              </button>
+            )
+          })}
+        </div>
       ) : (
         <input
           id={inputId}
