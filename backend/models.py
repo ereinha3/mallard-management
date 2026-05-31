@@ -537,6 +537,20 @@ class RebalanceRequest(BaseModel):
     weights: TargetWeights
 
 
+class RebalanceExecutionRequest(BaseModel):
+    user_email: str
+    weights: TargetWeights
+
+
+class RebalanceSubmitResponse(BaseModel):
+    action: Literal["none", "steer", "trade"]
+    drifts: Dict[Sleeve, Drift]
+    steer: Optional[Steer] = None
+    trades: List[RebalanceTrade] = Field(default_factory=list)
+    fills: List[FillOut] = Field(default_factory=list)
+    positions: Positions
+
+
 class HarvestableLoss(BaseModel):
     ticker: str
     unrealized_loss: float = Field(ge=0)

@@ -1161,6 +1161,45 @@ async def execution_submit(
     )
 
 
+@router.post("/execution/rebalance/submit", response_model=api_models.RebalanceSubmitResponse)
+async def execution_rebalance_submit(
+    request: api_models.RebalanceExecutionRequest,
+    db: Session = Depends(get_db),
+) -> api_models.RebalanceSubmitResponse:
+    account = get_or_create_investment_account(db, request.user_email)
+    weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+    try:
+        _ensure_engine_data()
+        broker = get_broker(request.user_email, cash_available=account.cash_available)
+        current_positions = broker.read_positions()
+        decision = decide_rebalance(current_positions, weights)
+        fills = []
+        positions = current_positions
+        if decision.action == "trade":
+            fills = broker.place_trades(decision.trades)
+            positions = broker.read_positions()
+            update_investment_account_cash(db, request.user_email, positions.cash)
+            db.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return api_models.RebalanceSubmitResponse(
+        action=decision.action,
+        drifts={
+            sleeve: api_models.Drift.model_validate(drift.model_dump())
+            for sleeve, drift in decision.drifts.items()
+        },
+        steer=(
+            api_models.Steer.model_validate(decision.steer.model_dump())
+            if decision.steer is not None
+            else None
+        ),
+        trades=[api_models.RebalanceTrade.model_validate(trade.model_dump()) for trade in decision.trades],
+        fills=[api_models.FillOut.model_validate(fill.model_dump()) for fill in fills],
+        positions=api_models.Positions.model_validate(positions.model_dump()),
+    )
+
+
 @router.get("/positions/{user_email}", response_model=api_models.Positions)
 async def positions(user_email: str, db: Session = Depends(get_db)) -> api_models.Positions:
     account = get_or_create_investment_account(db, user_email)

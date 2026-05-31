@@ -10,7 +10,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from schemas.models import Fill, OrderPlan, Positions
+from schemas.models import Fill, OrderPlan, Positions, RebalanceTrade
 
 
 class AlpacaBroker:
@@ -57,6 +57,32 @@ class AlpacaBroker:
                 Fill(
                     ticker=buy.ticker,
                     shares=_float_attr(order, "filled_qty", buy.shares),
+                    price=_float_attr(order, "filled_avg_price", 0.0),
+                    ts=submitted_at,
+                )
+            )
+        return fills
+
+    def place_trades(self, trades: list[RebalanceTrade]) -> list[Fill]:
+        """Submit rebalance market orders and return best-effort fill records."""
+
+        fills: list[Fill] = []
+        submitted_at = datetime.now(UTC)
+        ordered_trades = [trade for trade in trades if trade.side == "sell"] + [
+            trade for trade in trades if trade.side == "buy"
+        ]
+        for trade in ordered_trades:
+            request = self._market_order_request(
+                symbol=trade.ticker,
+                qty=float(trade.shares),
+                side=self._order_side.SELL if trade.side == "sell" else self._order_side.BUY,
+                time_in_force=self._time_in_force.DAY,
+            )
+            order = self._client.submit_order(order_data=request)
+            fills.append(
+                Fill(
+                    ticker=trade.ticker,
+                    shares=_float_attr(order, "filled_qty", trade.shares),
                     price=_float_attr(order, "filled_avg_price", 0.0),
                     ts=submitted_at,
                 )
