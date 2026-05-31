@@ -71,6 +71,12 @@ class UserRecord(BaseModel):
     chat_sessions: List[ChatSessionOut] = Field(default_factory=list)
 
 
+class ResumeOnboarding(BaseModel):
+    """An in-progress elicitation session a user can resume after an interrupt."""
+    found: bool
+    session: Optional[ChatSessionOut] = None
+
+
 # ── Financial profile ─────────────────────────────────────────────────────────
 
 class DebtItem(BaseModel):

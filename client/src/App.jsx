@@ -16,20 +16,43 @@ import PageTransition from './components/visual/PageTransition'
 import TopoBackground from './components/visual/TopoBackground'
 import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
-import { getProfile } from './api/greenlightClient'
+import { getProfile, getActiveOnboarding } from './api/greenlightClient'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'accounts', 'risk', 'alerts', 'settings']
-const AUTH_LOCAL_STORAGE_KEYS = []
+const AUTH_STORAGE_KEY = 'mallard.auth'
+
+// Rehydrate the logged-in user from localStorage so a refresh mid-enrollment
+// doesn't drop the session and bounce the user back to the login screen.
+function readStoredUser() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
 
 export default function App() {
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(readStoredUser)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [onboardResult, setOnboardResult] = useState(null)
+  const [resumeSession, setResumeSession] = useState(null)
   const [activePage, setActivePage] = useState('dashboard')
   const [askMallardOpen, setAskMallardOpen] = useState(false)
   const [askMallardMounted, setAskMallardMounted] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
-  const [topoPhase, setTopoPhase] = useState('enter')
+  // If a session was rehydrated from storage, skip the landing animation.
+  const [topoPhase, setTopoPhase] = useState(() => (readStoredUser() ? 'idle' : 'enter'))
+
+  // Keep localStorage in sync with the logged-in user (persist on login, clear on logout).
+  useEffect(() => {
+    try {
+      if (user) window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user))
+      else window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+      // localStorage unavailable (private mode / SSR) — non-fatal.
+    }
+  }, [user])
 
   useEffect(() => {
     if (askMallardOpen) {
@@ -45,7 +68,9 @@ export default function App() {
     return () => window.clearTimeout(timeout)
   }, [askMallardOpen])
 
-  // When user logs in, try to fetch their existing profile
+  // When the user (re)appears, restore their state from the backend:
+  //  1. a completed profile -> go straight to the dashboard, OR
+  //  2. an interrupted onboarding -> resume the elicitation chat from the DB.
   useEffect(() => {
     if (user && !onboardResult) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -54,8 +79,16 @@ export default function App() {
         if (profile && profile.status !== 'no_profile') {
           setOnboardResult(profile)
           setOnboardingDone(true)
+          return null
         }
+        // No finished profile — check for an in-progress onboarding to resume.
+        return getActiveOnboarding(user.email).then(resume => {
+          if (resume && resume.found && resume.session) {
+            setResumeSession(resume.session)
+          }
+        })
       }).finally(() => {
+        // Set last, so OnboardingChat only mounts once resumeSession is known.
         setLoadingProfile(false)
       })
     }
@@ -74,11 +107,16 @@ export default function App() {
   }, [topoPhase])
 
   function handleLogout() {
-    AUTH_LOCAL_STORAGE_KEYS.forEach(key => window.localStorage.removeItem(key))
+    try {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+      // ignore
+    }
     setAskMallardOpen(false)
     setUser(null)
     setOnboardResult(null)
     setOnboardingDone(false)
+    setResumeSession(null)
     setActivePage('dashboard')
     setTopoPhase('enter')
   }
@@ -287,7 +325,9 @@ export default function App() {
       <div className="mallard-onboarding-shell" style={{ height: '100vh', width: '100vw' }}>
         <OnboardingChat
           user={user}
+          resumeSession={resumeSession}
           onComplete={(result) => {
+            setResumeSession(null)
             setOnboardResult(result)
             setOnboardingDone(true)
           }}
