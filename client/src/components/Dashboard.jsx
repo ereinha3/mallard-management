@@ -92,31 +92,22 @@ function getLiabilityRows(onboardResult, profile) {
     .filter(Boolean)
 }
 
-function retirementScoreFromAnalysis(onboardResult) {
-  const snapshot = onboardResult?.financial_analysis?.snapshot
-  const emergencyPct = numberOrNull(snapshot?.emergency_fund_pct_complete)
-  const savingsRate = numberOrNull(snapshot?.savings_rate_pct)
-  const debtRatio = numberOrNull(snapshot?.debt_to_income_ratio)
-  if (emergencyPct == null && savingsRate == null && debtRatio == null) return null
-
-  const emergencyScore = Math.min(emergencyPct ?? 0, 100) * 0.45
-  const savingsScore = Math.min((savingsRate ?? 0) / 20, 1) * 35
-  const debtScore = Math.max(0, 20 - (debtRatio ?? 0) * 20)
-  return Math.round(Math.max(0, Math.min(100, emergencyScore + savingsScore + debtScore)))
-}
-
 function getProjectionInputs(onboardResult, profile) {
   const optimizer = onboardResult?.optimizer_input ?? {}
-  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years) ?? 1
-  const monthlyContribution = Math.max(0, numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings) ?? 0)
-  const capitalOnHand = Math.max(0, numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand) ?? 0)
-  const goalTarget = Math.max(0, numberOrNull(optimizer.goal_target ?? profile.goal_target) ?? 0)
+  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
+  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
+  const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
+
+  if (horizonYears == null || monthlyContribution == null || capitalOnHand == null || goalTarget == null) {
+    return null
+  }
 
   return {
     horizon_years: Math.max(1, Math.round(horizonYears)),
-    monthly_contribution: monthlyContribution,
-    capital_on_hand: capitalOnHand,
-    goal_target: goalTarget,
+    monthly_contribution: Math.max(0, monthlyContribution),
+    capital_on_hand: Math.max(0, capitalOnHand),
+    goal_target: Math.max(0, goalTarget),
   }
 }
 
@@ -203,7 +194,7 @@ export default function Dashboard({ onboardResult }) {
   const monthlyIncome = numberOrNull(snapshot.monthly_income)
   const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
   const totalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
-  const score = retirementScoreFromAnalysis(onboardResult)
+  const score = numberOrNull(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
   const assets = getAssetRows(profile)
   const liabilities = getLiabilityRows(onboardResult, profile)
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
@@ -222,6 +213,13 @@ export default function Dashboard({ onboardResult }) {
       setProjectionLoading(true)
       setProjectionError(null)
       try {
+        const projectionInputs = getProjectionInputs(onboardResult, profile)
+        if (!projectionInputs) {
+          setProjection(null)
+          setProjectionError('Projection inputs were not returned by the backend.')
+          setProjectionLoading(false)
+          return
+        }
         const client = await import('../api/greenlightClient')
         const postProjection = client.postProjection
         if (typeof postProjection !== 'function') {
@@ -229,7 +227,7 @@ export default function Dashboard({ onboardResult }) {
         }
         const response = await postProjection({
           weights: portfolio.weights,
-          ...getProjectionInputs(onboardResult, profile),
+          ...projectionInputs,
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
@@ -309,7 +307,7 @@ export default function Dashboard({ onboardResult }) {
 
           <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-              Retirement Readiness
+              Risk Capacity
             </div>
             <RetirementScore score={score} />
           </div>

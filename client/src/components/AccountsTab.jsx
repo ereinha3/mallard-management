@@ -212,7 +212,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
             className="flex items-center gap-2 px-4 py-2 bg-gold text-bg-base rounded-lg text-sm font-bold hover:bg-gold-bright transition-colors"
           >
             <Plus size={16} strokeWidth={3} />
-            Link Account Demo
+            Link Account
           </button>
         </div>
       </div>

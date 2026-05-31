@@ -52,16 +52,20 @@ function numberOrNull(value) {
 function getProjectionInputs(onboardResult) {
   const optimizer = onboardResult?.optimizer_input ?? {}
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
-  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years) ?? 1
-  const monthlyContribution = Math.max(0, numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings) ?? 0)
-  const capitalOnHand = Math.max(0, numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand) ?? 0)
-  const goalTarget = Math.max(0, numberOrNull(optimizer.goal_target ?? profile.goal_target) ?? 0)
+  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
+  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
+  const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
+
+  if (horizonYears == null || monthlyContribution == null || capitalOnHand == null || goalTarget == null) {
+    return null
+  }
 
   return {
     horizon_years: Math.max(1, Math.round(horizonYears)),
-    monthly_contribution: monthlyContribution,
-    capital_on_hand: capitalOnHand,
-    goal_target: goalTarget,
+    monthly_contribution: Math.max(0, monthlyContribution),
+    capital_on_hand: Math.max(0, capitalOnHand),
+    goal_target: Math.max(0, goalTarget),
   }
 }
 
@@ -85,20 +89,7 @@ function rowsFromProjection(projection) {
   }))
 }
 
-function legacyRows(data) {
-  return Array.isArray(data)
-    ? data.map((row, i) => ({
-        year: row.year ?? i + 1,
-        p5: row.conservative ?? row.p5,
-        p25: row.p25,
-        p50: row.base ?? row.p50,
-        p75: row.p75,
-        p95: row.optimistic ?? row.p95,
-      }))
-    : []
-}
-
-export default function ProjectionChart({ data: liveData, projection: providedProjection, onboardResult, retirementYear }) {
+export default function ProjectionChart({ projection: providedProjection, onboardResult, retirementYear }) {
   const [fetchedProjection, setFetchedProjection] = useState(null)
   const [loadingProjection, setLoadingProjection] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -108,7 +99,7 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
     let cancelled = false
 
     async function loadProjection() {
-      if (providedProjection || Array.isArray(liveData)) {
+      if (providedProjection) {
         setFetchedProjection(null)
         setProjectionError(null)
         setLoadingProjection(false)
@@ -116,6 +107,13 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
       }
 
       if (!portfolio?.weights) {
+        setProjectionError(null)
+        setLoadingProjection(false)
+        return
+      }
+
+      const projectionInputs = getProjectionInputs(onboardResult)
+      if (!projectionInputs) {
         setProjectionError(null)
         setLoadingProjection(false)
         return
@@ -131,7 +129,7 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
         }
         const response = await postProjection({
           weights: portfolio.weights,
-          ...getProjectionInputs(onboardResult),
+          ...projectionInputs,
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
@@ -146,21 +144,30 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
     loadProjection()
 
     return () => { cancelled = true }
-  }, [providedProjection, liveData, onboardResult, portfolio])
+  }, [providedProjection, onboardResult, portfolio])
 
   const projection = providedProjection ?? fetchedProjection
-  const data = useMemo(() => (
-    projection ? rowsFromProjection(projection) : legacyRows(liveData)
-  ), [projection, liveData])
+  const data = useMemo(() => (projection ? rowsFromProjection(projection) : []), [projection])
   const referenceYear = projection?.horizon_years ?? retirementYear
 
-  if (!portfolio?.weights && !projection && !Array.isArray(liveData)) {
+  if (!portfolio?.weights && !projection) {
     return (
       <div
         className="flex items-center justify-center text-sm"
         style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
       >
         Portfolio weights are required before a Monte Carlo projection can run.
+      </div>
+    )
+  }
+
+  if (!projection && !getProjectionInputs(onboardResult)) {
+    return (
+      <div
+        className="flex items-center justify-center text-sm"
+        style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+      >
+        Projection inputs were not returned by the backend.
       </div>
     )
   }

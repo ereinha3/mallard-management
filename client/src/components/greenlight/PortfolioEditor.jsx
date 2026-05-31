@@ -7,9 +7,6 @@ import {
   RISKY_SLEEVES,
   SAFE_SLEEVES,
   SLEEVE_ORDER,
-  allocationFromRiskDial,
-  combineGroupWeights,
-  estimatePortfolioMetrics,
   getCapital,
   getPortfolio,
   getProfile,
@@ -83,14 +80,7 @@ function buildPortfolio(basePortfolio, weights, metrics) {
           : sleeveWeight / Math.max(1, sleeves[sleeve]?.length ?? 1)
         return acc
       }, {})
-    : {
-        VTI: normalized.us_equity,
-        VXUS: normalized.intl_equity,
-        BND: normalized.bonds,
-        SCHP: normalized.tips,
-        GLDM: normalized.gold,
-        USRT: normalized.reits,
-      }
+    : {}
 
   return {
     universe: {
@@ -110,7 +100,7 @@ function buildPortfolio(basePortfolio, weights, metrics) {
       by_sleeve: normalized,
       by_ticker: nextByTicker,
     },
-    metrics,
+    metrics: metrics ?? basePortfolio?.metrics,
   }
 }
 
@@ -135,9 +125,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
   const basePortfolio = useMemo(() => getPortfolio(onboardResult), [onboardResult])
   const baselineWeights = useMemo(() => getSleeveWeights(onboardResult), [onboardResult])
   const baselineDial = useMemo(() => inferRiskDialFromWeights(baselineWeights), [baselineWeights])
-  const baselineMetrics = useMemo(() => (
-    basePortfolio?.metrics ?? estimatePortfolioMetrics(baselineWeights, baselineDial)
-  ), [basePortfolio, baselineDial, baselineWeights])
+  const baselineMetrics = useMemo(() => basePortfolio?.metrics ?? null, [basePortfolio])
   const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
   const capital = getCapital(onboardResult)
 
@@ -168,9 +156,8 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
     setPersistenceState('idle')
   }, [baselineDial, baselineMetrics, baselineWeights, onboardResult])
 
-  const estimatedMetrics = useMemo(() => estimatePortfolioMetrics(weights, riskDial), [weights, riskDial])
-  const displayMetrics = serverMetrics ?? estimatedMetrics
-  const displaySummary = riskSummary ?? riskSummaryFromMetrics(displayMetrics)
+  const displayMetrics = serverMetrics
+  const displaySummary = riskSummary
   const allocation = useMemo(() => weightsToAllocation(weights, basePortfolio, capital), [basePortfolio, capital, weights])
   const barData = allocation.map(row => ({ ...row, value: row.pct }))
   const split = useMemo(() => portfolioSplit(weights), [weights])
@@ -183,30 +170,29 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
     const seq = analyzeSeq.current + 1
     analyzeSeq.current = seq
     setServerMetrics(null)
-    setRiskSummary(riskSummaryFromMetrics(estimatedMetrics))
+    setRiskSummary(null)
     setNetworkState('pending')
 
     const timer = window.setTimeout(async () => {
       try {
         const result = await postAnalyzeWeights({ profile, weights: { by_sleeve: weights } })
         if (analyzeSeq.current !== seq) return
-        const nextWeights = result?.weights?.by_sleeve ?? result?.weights ?? weights
-        const nextMetrics = result?.metrics ?? estimatePortfolioMetrics(nextWeights, riskDial)
+        const nextMetrics = result?.metrics ?? null
         setServerMetrics(nextMetrics)
-        setRiskSummary(riskSummaryFromMetrics(nextMetrics))
+        setRiskSummary(nextMetrics ? riskSummaryFromMetrics(nextMetrics) : null)
         setValidation(result?.validation ?? null)
         setNetworkState('ok')
       } catch {
         if (analyzeSeq.current !== seq) return
         setServerMetrics(null)
-        setRiskSummary(riskSummaryFromMetrics(estimatedMetrics))
+        setRiskSummary(null)
         setValidation(null)
-        setNetworkState('demo')
+        setNetworkState('unavailable')
       }
     }, 250)
 
     return () => window.clearTimeout(timer)
-  }, [editMode, estimatedMetrics, profile, riskDial, weights])
+  }, [editMode, profile, riskDial, weights])
 
   useEffect(() => {
     if (editMode !== 'dial') return undefined
@@ -226,16 +212,16 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
         if (nextPortfolio?.weights?.by_sleeve) {
           setWeights(normalizeSleeveWeights(nextPortfolio.weights.by_sleeve))
         }
-        const nextMetrics = nextPortfolio?.metrics ?? estimatePortfolioMetrics(nextPortfolio?.weights?.by_sleeve ?? allocationFromRiskDial(riskDial), riskDial)
+        const nextMetrics = nextPortfolio?.metrics ?? null
         setServerMetrics(nextMetrics)
-        setRiskSummary(result?.risk_summary ?? riskSummaryFromMetrics(nextMetrics))
+        setRiskSummary(result?.risk_summary ?? (nextMetrics ? riskSummaryFromMetrics(nextMetrics) : null))
         setValidation(null)
         setNetworkState('ok')
       } catch {
         if (dialSeq.current !== seq) return
         setServerMetrics(null)
-        setRiskSummary(riskSummaryFromMetrics(estimatePortfolioMetrics(allocationFromRiskDial(riskDial), riskDial)))
-        setNetworkState('demo')
+        setRiskSummary(null)
+        setNetworkState('unavailable')
       }
     }, 250)
 
@@ -244,25 +230,20 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
 
   function handleRiskDialChange(event) {
     const nextDial = Number(event.target.value) / 100
-    const currentMixes = groupWeights(weights)
-    const nextWeights = combineGroupWeights(nextDial, currentMixes.risky, currentMixes.safe)
-    const nextMetrics = estimatePortfolioMetrics(nextWeights, nextDial)
     setEditMode('dial')
     setRiskDial(nextDial)
-    setWeights(nextWeights)
     setServerMetrics(null)
-    setRiskSummary(riskSummaryFromMetrics(nextMetrics))
+    setRiskSummary(null)
   }
 
   function handleSleeveChange(sleeve, value) {
     const nextWeights = renormalizeSleeveChange(weights, sleeve, value)
     const nextRiskShare = portfolioSplit(nextWeights).risky
-    const nextMetrics = estimatePortfolioMetrics(nextWeights, nextRiskShare)
     setEditMode('weights')
     setWeights(nextWeights)
     setRiskDial(nextRiskShare)
     setServerMetrics(null)
-    setRiskSummary(riskSummaryFromMetrics(nextMetrics))
+    setRiskSummary(null)
   }
 
   function handleReset() {
@@ -279,8 +260,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
   async function handleApply() {
     setApplyState('pending')
     setPersistenceState('pending')
-    const localMetrics = displayMetrics ?? estimatedMetrics
-    let nextPortfolio = buildPortfolio(basePortfolio, weights, localMetrics)
+    let nextPortfolio = buildPortfolio(basePortfolio, weights, displayMetrics)
     let nextSummary = displaySummary
 
     try {
@@ -291,18 +271,18 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
           weights: { by_sleeve: weights },
         })
         nextPortfolio = result?.portfolio ?? nextPortfolio
-        nextSummary = result?.risk_summary ?? riskSummaryFromMetrics(nextPortfolio?.metrics ?? localMetrics)
+        nextSummary = result?.risk_summary ?? (nextPortfolio?.metrics ? riskSummaryFromMetrics(nextPortfolio.metrics) : null)
       } else {
         const result = await postAnalyzeWeights({ profile, weights: { by_sleeve: weights } })
         const nextWeights = result?.weights?.by_sleeve ?? result?.weights ?? weights
-        const nextMetrics = result?.metrics ?? localMetrics
+        const nextMetrics = result?.metrics ?? null
         nextPortfolio = buildPortfolio(basePortfolio, nextWeights, nextMetrics)
-        nextSummary = riskSummaryFromMetrics(nextMetrics)
+        nextSummary = nextMetrics ? riskSummaryFromMetrics(nextMetrics) : null
         setValidation(result?.validation ?? null)
       }
       setNetworkState('ok')
     } catch {
-      setNetworkState('demo')
+      setNetworkState('unavailable')
     }
 
     let updatedResult = mergePortfolioResult(onboardResult, nextPortfolio, nextSummary)
@@ -319,7 +299,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
         setPersistenceState('local')
       }
     } catch {
-      setNetworkState('demo')
+      setNetworkState('unavailable')
       setPersistenceState('local')
     }
 
@@ -393,11 +373,11 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
         <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
           {networkState === 'pending' && <Loader size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--green)' }} />}
           {networkState === 'ok' && <CheckCircle size={13} style={{ color: 'var(--green)' }} />}
-          {networkState === 'demo' && <AlertTriangle size={13} style={{ color: 'var(--gold-light)' }} />}
+          {networkState === 'unavailable' && <AlertTriangle size={13} style={{ color: 'var(--gold-light)' }} />}
           <span>
             {networkState === 'pending' ? 'Refreshing engine risk'
               : networkState === 'ok' ? 'Engine preview current'
-              : networkState === 'demo' ? 'Demo estimate active'
+              : networkState === 'unavailable' ? 'Backend preview unavailable'
               : 'Client preview ready'}
           </span>
         </div>
@@ -439,13 +419,13 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
               <div>
                 <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Expected volatility</div>
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--green-bright, var(--green))' }}>
-                  {formatPct(displaySummary.target_volatility_pct, 1)}
+                  {displaySummary?.target_volatility_pct != null ? formatPct(displaySummary.target_volatility_pct, 1) : 'N/A'}
                 </div>
               </div>
               <div>
                 <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Est. max 1Y loss</div>
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--ruby)' }}>
-                  {formatPct(displaySummary.estimated_max_loss_1yr_pct, 1)}
+                  {displaySummary?.estimated_max_loss_1yr_pct != null ? formatPct(displaySummary.estimated_max_loss_1yr_pct, 1) : 'N/A'}
                 </div>
               </div>
             </div>

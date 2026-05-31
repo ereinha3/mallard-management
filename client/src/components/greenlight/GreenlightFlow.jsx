@@ -193,7 +193,7 @@ export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
           />
         )}
         {step === STEPS.REBALANCE && (
-          <RebalancePanel onboardResult={gateResult} />
+          <RebalancePanel onboardResult={gateResult} userEmail={resolvedUserEmail} />
         )}
       </div>
 

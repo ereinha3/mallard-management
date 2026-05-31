@@ -21,11 +21,11 @@ export function getProfile(onboardResult) {
 
 export function getCapital(onboardResult) {
   const profile = getProfile(onboardResult)
-  return Number(
+  const capital = Number(
     profile.capital_on_hand
       ?? onboardResult?.optimizer_input?.capital_on_hand
-      ?? 0,
   )
+  return Number.isFinite(capital) ? capital : null
 }
 
 export function getPortfolio(onboardResult) {
@@ -44,16 +44,13 @@ export function getSleeveWeights(onboardResult) {
 
 export function getMonthlyContribution(onboardResult) {
   const profile = getProfile(onboardResult)
-  return Math.max(
-    0,
-    Number(
-      onboardResult?.optimizer_input?.monthly_surplus
-        ?? profile.monthly_surplus
-        ?? profile.monthly_savings
-        ?? profile.monthly_contribution
-        ?? 0,
-    ),
+  const monthly = Number(
+    onboardResult?.optimizer_input?.monthly_surplus
+      ?? profile.monthly_surplus
+      ?? profile.monthly_savings
+      ?? profile.monthly_contribution,
   )
+  return Number.isFinite(monthly) ? Math.max(0, monthly) : null
 }
 
 export function formatMoney(value, compact = false) {
@@ -84,29 +81,15 @@ export function sleeveColor(sleeve) {
 }
 
 export function normalizeSleeveWeights(weights) {
-  const source = weights && typeof weights === 'object'
-    ? weights
-    : {
-        us_equity: 0.38,
-        intl_equity: 0.2,
-        bonds: 0.18,
-        tips: 0.08,
-        gold: 0.08,
-        reits: 0.08,
-      }
+  if (!weights || typeof weights !== 'object') return {}
+  const source = weights
   const next = SLEEVE_ORDER.reduce((acc, sleeve) => {
     const value = Math.max(0, Number(source[sleeve] ?? 0))
     acc[sleeve] = Number.isFinite(value) ? value : 0
     return acc
   }, {})
   const total = Object.values(next).reduce((sum, value) => sum + value, 0)
-  if (total <= 0) {
-    const equal = 1 / SLEEVE_ORDER.length
-    return SLEEVE_ORDER.reduce((acc, sleeve) => {
-      acc[sleeve] = equal
-      return acc
-    }, {})
-  }
+  if (total <= 0) return {}
   return SLEEVE_ORDER.reduce((acc, sleeve) => {
     acc[sleeve] = next[sleeve] / total
     return acc
@@ -123,7 +106,7 @@ export function portfolioSplit(weights) {
   const risky = bucketShare(normalized, RISKY_SLEEVES)
   const safe = bucketShare(normalized, SAFE_SLEEVES)
   const total = risky + safe
-  if (total <= 0) return { risky: 0.5, safe: 0.5 }
+  if (total <= 0) return { risky: 0, safe: 0 }
   return {
     risky: risky / total,
     safe: safe / total,
@@ -133,13 +116,7 @@ export function portfolioSplit(weights) {
 export function withinGroupWeights(weights, sleeves) {
   const normalized = normalizeSleeveWeights(weights)
   const total = sleeves.reduce((sum, sleeve) => sum + Number(normalized[sleeve] ?? 0), 0)
-  if (total <= 0) {
-    const equal = 1 / sleeves.length
-    return sleeves.reduce((acc, sleeve) => {
-      acc[sleeve] = equal
-      return acc
-    }, {})
-  }
+  if (total <= 0) return {}
   return sleeves.reduce((acc, sleeve) => {
     acc[sleeve] = Number(normalized[sleeve] ?? 0) / total
     return acc
@@ -151,21 +128,6 @@ export function groupWeights(weights) {
     risky: withinGroupWeights(weights, RISKY_SLEEVES),
     safe: withinGroupWeights(weights, SAFE_SLEEVES),
   }
-}
-
-export function combineGroupWeights(riskyShare, riskyWeights, safeWeights) {
-  const growth = Math.max(0, Math.min(1, Number(riskyShare) || 0))
-  const safeShare = 1 - growth
-  return normalizeSleeveWeights({
-    ...RISKY_SLEEVES.reduce((acc, sleeve) => {
-      acc[sleeve] = growth * Number(riskyWeights?.[sleeve] ?? 0)
-      return acc
-    }, {}),
-    ...SAFE_SLEEVES.reduce((acc, sleeve) => {
-      acc[sleeve] = safeShare * Number(safeWeights?.[sleeve] ?? 0)
-      return acc
-    }, {}),
-  })
 }
 
 export function weightsToAllocation(weights, portfolio, capitalOnHand) {
@@ -188,23 +150,6 @@ export function weightsToAllocation(weights, portfolio, capitalOnHand) {
       amount: total != null ? Math.round(total * weight) : null,
     }
   })
-}
-
-export function allocationFromRiskDial(riskDial) {
-  const dial = Math.max(0, Math.min(1, Number(riskDial) || 0))
-  return combineGroupWeights(
-    dial,
-    {
-      us_equity: 0.56,
-      intl_equity: 0.28,
-      reits: 0.08,
-      gold: 0.08,
-    },
-    {
-      bonds: 0.7,
-      tips: 0.3,
-    },
-  )
 }
 
 export function inferRiskDialFromWeights(weights) {
@@ -242,40 +187,8 @@ export function renormalizeSleeveChange(weights, changedSleeve, changedPct) {
   return renormalizeWithinGroupChange(weights, changedSleeve, changedPct, group)
 }
 
-export function estimatePortfolioMetrics(weights, riskDial = null) {
-  const normalized = normalizeSleeveWeights(weights)
-  const sleeveVol = {
-    us_equity: 0.18,
-    intl_equity: 0.20,
-    bonds: 0.05,
-    tips: 0.06,
-    gold: 0.16,
-    reits: 0.19,
-  }
-  const dial = riskDial ?? inferRiskDialFromWeights(normalized)
-  const weightedVol = SLEEVE_ORDER.reduce((sum, sleeve) => (
-    sum + (normalized[sleeve] * sleeveVol[sleeve])
-  ), 0)
-  const equityWeight = normalized.us_equity + normalized.intl_equity + normalized.reits
-  const expectedVol = Math.max(0.035, weightedVol * (0.78 + (0.16 * dial)))
-  const expectedShortfall = Math.max(0.06, expectedVol * 1.75 + equityWeight * 0.06)
-  const rawRisk = SLEEVE_ORDER.reduce((acc, sleeve) => {
-    acc[sleeve] = normalized[sleeve] * sleeveVol[sleeve]
-    return acc
-  }, {})
-  const rawTotal = Object.values(rawRisk).reduce((sum, value) => sum + value, 0) || 1
-
-  return {
-    expected_vol: expectedVol,
-    expected_shortfall_95: expectedShortfall,
-    risk_contributions: SLEEVE_ORDER.reduce((acc, sleeve) => {
-      acc[sleeve] = rawRisk[sleeve] / rawTotal
-      return acc
-    }, {}),
-  }
-}
-
 export function riskSummaryFromMetrics(metrics) {
+  if (!metrics) return null
   return {
     target_volatility_pct: Number(metrics?.expected_vol ?? 0) * 100,
     estimated_max_loss_1yr_pct: Number(metrics?.expected_shortfall_95 ?? 0) * 100,
@@ -337,75 +250,4 @@ export function projectionRows(projection) {
     p75: paths.p75?.[i],
     p95: paths.p95?.[i],
   }))
-}
-
-function driftSleeveWeights(bySleeve) {
-  const entries = Object.entries(bySleeve ?? {}).filter(([, weight]) => Number(weight) > 0)
-  if (entries.length < 2) return { ...(bySleeve ?? {}) }
-
-  const [overSleeve, overTarget] = entries.reduce((best, entry) => (
-    Number(entry[1]) > Number(best[1]) ? entry : best
-  ))
-  const restTotal = entries
-    .filter(([sleeve]) => sleeve !== overSleeve)
-    .reduce((sum, [, weight]) => sum + Number(weight), 0)
-  const delta = Math.min(0.07, 1 - Number(overTarget), restTotal)
-  if (delta <= 0) return { ...(bySleeve ?? {}) }
-
-  return entries.reduce((next, [sleeve, target]) => {
-    const numericTarget = Number(target)
-    next[sleeve] = sleeve === overSleeve
-      ? numericTarget + delta
-      : Math.max(0, numericTarget - delta * (numericTarget / restTotal))
-    return next
-  }, {})
-}
-
-export function buildPositionsFromPortfolio(portfolio, capitalOnHand, { drift = false } = {}) {
-  const weights = portfolio?.weights
-  const byTicker = weights?.by_ticker ?? {}
-  const bySleeve = weights?.by_sleeve ?? {}
-  const sleeveMap = tickerSleeveMap(portfolio?.universe)
-  const sleeveWeights = drift ? driftSleeveWeights(bySleeve) : bySleeve
-  const portfolioValue = Math.max(0, Number(capitalOnHand ?? 0))
-
-  const items = Object.entries(byTicker)
-    .filter(([, targetWeight]) => Number(targetWeight) > 0)
-    .map(([ticker, targetWeight]) => {
-      const sleeve = sleeveMap[ticker]
-      const targetSleeveWeight = Number(bySleeve[sleeve] ?? targetWeight)
-      const currentSleeveWeight = Number(sleeveWeights[sleeve] ?? targetSleeveWeight)
-      const tickerShareOfSleeve = targetSleeveWeight > 0
-        ? Number(targetWeight) / targetSleeveWeight
-        : 0
-      const currentWeight = currentSleeveWeight * tickerShareOfSleeve
-      const marketValue = Math.round(portfolioValue * currentWeight * 100) / 100
-      const price = 100
-
-      return {
-        ticker,
-        shares: marketValue / price,
-        avg_cost: price,
-        market_value: marketValue,
-      }
-    })
-
-  const investedValue = Math.round(items.reduce((sum, item) => sum + item.market_value, 0) * 100) / 100
-  return {
-    items,
-    portfolio_value: investedValue,
-    cash: Math.max(0, Math.round((portfolioValue - investedValue) * 100) / 100),
-  }
-}
-
-export function buildCostBasis(positions) {
-  const preferredLoss = positions?.items?.find((item) => ['BND', 'TIP', 'SCHP'].includes(item.ticker))
-    ?? positions?.items?.find((item) => item.market_value > 0)
-  return (positions?.items ?? []).reduce((basis, item) => {
-    basis[item.ticker] = item.market_value
-    if (item.ticker === preferredLoss?.ticker) {
-      basis[item.ticker] = Math.round(item.market_value * 1.08 * 100) / 100
-    }
-    return basis
-  }, {})
 }

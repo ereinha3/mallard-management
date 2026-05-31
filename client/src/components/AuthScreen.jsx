@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Feather, Eye, EyeOff, ArrowRight, AlertCircle, FastForward } from 'lucide-react'
+import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
-  { num: '01', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
-  { num: '02', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
-  { num: '03', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
-  { num: '04', text: 'No 1% fees. No $250k minimum. No nudges to buy what you should not.' },
+  { num: '•', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
+  { num: '•', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
+  { num: '•', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
+  { num: '•', text: 'No nudges to buy what you should not.' },
 ]
 
 let _uid = 0
@@ -280,35 +280,11 @@ function SignUpForm({ onAuth }) {
 
 // ── Main AuthScreen ──────────────────────────────────────────────────────────
 
-export default function AuthScreen({ onAuth, onDevSkip }) {
+export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('signin')
 
   return (
     <div className="mallard-auth-screen" style={{ height: '100vh', minHeight: '100vh', width: '100vw', background: 'transparent', overflow: 'hidden' }}>
-
-      {/* Dev-only: skip login + onboarding, load demo data */}
-      {onDevSkip && (
-        <button
-          type="button"
-          onClick={onDevSkip}
-          title="Developer shortcut: skip login and onboarding, load demo data"
-          style={{
-            position: 'absolute', top: 20, right: 24, zIndex: 10,
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-            background: 'var(--green-soft, rgba(26,107,66,0.12))',
-            border: '1px solid var(--green, var(--emerald))',
-            color: 'var(--green-bright, var(--emerald))',
-            fontSize: 11.5, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace',
-            letterSpacing: '0.04em', transition: 'all 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--green, var(--emerald))'; e.currentTarget.style.color = '#fff' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'var(--green-soft, rgba(26,107,66,0.12))'; e.currentTarget.style.color = 'var(--green-bright, var(--emerald))' }}
-        >
-          <FastForward size={13} />
-          DEV: SKIP LOGIN
-        </button>
-      )}
 
       <div className="mallard-auth-split">
         <section className="mallard-landing-panel" aria-label="Mallard Management">
@@ -339,7 +315,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
 
             <div className="landing-reveal d3 mallard-value-list">
               {VALUE_PROPS.map((item) => (
-                <div className="mallard-value-row" key={item.num}>
+                <div className="mallard-value-row" key={item.text}>
                   <div className="mallard-value-num">{item.num}</div>
                   <div>{item.text}</div>
                 </div>
@@ -359,7 +335,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
                 <p className="mallard-form-subcopy">
                   {mode === 'signin'
                     ? 'Sign in to access your financial dashboard.'
-                    : 'Get started. It takes less than a minute.'}
+                    : 'Create your profile and run the backend analysis.'}
                 </p>
               </div>
 

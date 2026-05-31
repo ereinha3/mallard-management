@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown } from 'lucide-react'
-import { Positions, costBasis } from '../../data/seedPositions'
 
 const SLEEVE_COLORS = ['#ddb84a', '#4a72e8', '#6b7280', '#22c27e', '#f0c060', '#8b5cf6', '#e64545', '#14b8a6']
 
@@ -29,6 +28,21 @@ function toPercent(value) {
 
 function normalizeResponse(response) {
   return response?.data ?? response ?? {}
+}
+
+function costBasisFromPositions(positions) {
+  const costBasis = {}
+  asArray(positions?.items).forEach(position => {
+    const ticker = position.ticker ?? position.symbol
+    if (!ticker) return
+    const shares = pickNumber(position.shares)
+    const avgCost = pickNumber(position.avg_cost, position.avgCost, position.cost_basis_per_share)
+    const explicitBasis = Number(position.cost_basis ?? position.costBasis)
+    costBasis[ticker] = Number.isFinite(explicitBasis) && explicitBasis > 0
+      ? explicitBasis
+      : shares * avgCost
+  })
+  return costBasis
 }
 
 function DriftBar({ sleeve }) {
@@ -176,7 +190,7 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
               </div>
             )}
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Trades are generated from seeded holdings and onboarding target weights.
+              Trades are generated from backend positions and onboarding target weights.
             </div>
           </div>
         </div>
@@ -226,6 +240,25 @@ function TaxPanel({ taxReport }) {
   const tax = normalizeResponse(taxReport)
   const tlhFlags = asArray(tax.harvestable ?? tax.tlh_flags ?? tax.tax_loss_harvesting ?? tax.harvestable_losses ?? tax.losses)
   const washSales = asArray(tax.wash_sale_warnings ?? tax.wash_sales ?? tax.warnings)
+
+  if (!taxReport) {
+    return (
+      <div
+        className="rounded-2xl p-5"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingDown size={13} style={{ color: 'var(--text-muted)' }} />
+          <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            Tax-Loss Harvest Flags
+          </div>
+        </div>
+        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          No backend cost-basis data is available, so tax-loss harvesting numbers are not displayed.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -311,7 +344,7 @@ function TaxPanel({ taxReport }) {
   )
 }
 
-export default function RebalancePanel({ onboardResult }) {
+export default function RebalancePanel({ onboardResult, userEmail }) {
   const [loading, setLoading] = useState(false)
   const [serviceUnavailable, setServiceUnavailable] = useState(false)
   const [error, setError] = useState(null)
@@ -319,6 +352,7 @@ export default function RebalancePanel({ onboardResult }) {
   const [taxReportResponse, setTaxReportResponse] = useState(null)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const optimizerInput = onboardResult?.optimizer_input ?? {}
+  const filingStatus = onboardResult?.validated_profile?.filing_status ?? 'single'
   const monthly = Number(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus)
   const monthlyContrib = Number.isFinite(monthly) && monthly > 0 ? monthly : null
   const weights = useMemo(() => onboardResult?.portfolio?.weights ?? {}, [onboardResult?.portfolio?.weights])
@@ -337,7 +371,7 @@ export default function RebalancePanel({ onboardResult }) {
     let cancelled = false
 
     async function fetchAnalysis() {
-      if (!hasWeights) {
+      if (!hasWeights || !userEmail) {
         setLoading(false)
         setServiceUnavailable(false)
         setError(null)
@@ -352,21 +386,27 @@ export default function RebalancePanel({ onboardResult }) {
 
       try {
         const client = await import('../../api/greenlightClient')
+        const getPositions = client.getPositions
         const postRebalance = client.postRebalance
         const postTaxReport = client.postTaxReport
 
-        if (typeof postRebalance !== 'function' || typeof postTaxReport !== 'function') {
+        if (typeof getPositions !== 'function' || typeof postRebalance !== 'function') {
           throw new Error('Service unavailable')
         }
 
-        const [rebalanceResult, taxResult] = await Promise.all([
-          postRebalance({ positions: Positions, weights }),
-          postTaxReport({ positions: Positions, cost_basis: costBasis, filing_status: 'single' }),
-        ])
+        const positions = await getPositions(userEmail)
+        const rebalanceResult = await postRebalance({ positions, weights })
+        const taxReportResult = typeof postTaxReport === 'function'
+          ? await postTaxReport({
+            positions,
+            cost_basis: costBasisFromPositions(positions),
+            filing_status: filingStatus,
+          })
+          : null
 
         if (!cancelled) {
           setRebalanceResponse(rebalanceResult)
-          setTaxReportResponse(taxResult)
+          setTaxReportResponse(taxReportResult)
         }
       } catch (err) {
         if (!cancelled) {
@@ -383,7 +423,7 @@ export default function RebalancePanel({ onboardResult }) {
     return () => {
       cancelled = true
     }
-  }, [hasWeights, weights])
+  }, [filingStatus, hasWeights, userEmail, weights])
 
   if (!hasWeights) {
     return (
@@ -396,6 +436,27 @@ export default function RebalancePanel({ onboardResult }) {
             <Info size={16} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} />
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
               Complete onboarding to see rebalance analysis
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!userEmail) {
+    return (
+      <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+        <div className="p-7">
+          <div
+            className="rounded-2xl p-6 flex gap-3 items-start"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+          >
+            <Info size={16} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Positions unavailable</div>
+              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                A signed-in user email is required before backend positions can be loaded.
+              </div>
             </div>
           </div>
         </div>
@@ -448,7 +509,7 @@ export default function RebalancePanel({ onboardResult }) {
             className="font-display font-semibold"
             style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}
           >
-            Review seeded holdings against your onboarding target weights before taking action.
+            Review backend positions against your onboarding target weights before taking action.
           </div>
           {error && (
             <div className="mt-3 text-xs" style={{ color: 'var(--ruby)' }}>
@@ -491,7 +552,7 @@ export default function RebalancePanel({ onboardResult }) {
           <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <strong style={{ color: 'var(--text-secondary)' }}>Rebalancing policy:</strong> Drift-band (±5pp), not calendar-forced.
             Positions within band are corrected by steering the next contribution toward underweight sleeves. No trade, no transaction cost, no taxable event.
-            Only band breaches would trigger an order after live holdings are connected. The displayed positions come from seeded Module C data.
+            Only band breaches would trigger an order after backend positions are connected.
           </div>
         </div>
       </div>
