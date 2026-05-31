@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -54,7 +54,9 @@ from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
 from llm.elicitation import stream_elicitation  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
+from optimizer.black_litterman import black_litterman_weights  # noqa: E402
 from optimizer.blend import build_target_weights  # noqa: E402
+from optimizer.cvar import cvar_weights  # noqa: E402
 from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions  # noqa: E402
 from profiler.profile import build_risk_profile  # noqa: E402
 from profiler.validate import validate_profile  # noqa: E402
@@ -545,6 +547,57 @@ def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioR
     )
 
 
+def _target_weights_from_sleeves(
+    universe: Any,
+    sleeve_weights: Mapping[str, float],
+    method: str,
+) -> EngineTargetWeights:
+    by_sleeve = {sleeve: max(0.0, float(sleeve_weights.get(sleeve, 0.0))) for sleeve in universe.sleeves}
+    sleeve_total = sum(by_sleeve.values())
+    if sleeve_total <= 0.0:
+        raise HTTPException(status_code=400, detail=f"{method} optimizer returned zero weights.")
+    by_sleeve = {sleeve: weight / sleeve_total for sleeve, weight in by_sleeve.items()}
+
+    by_ticker: dict[str, float] = {}
+    for sleeve, sleeve_weight in by_sleeve.items():
+        tickers = list(universe.sleeves[sleeve])
+        ticker_weight = sleeve_weight / len(tickers)
+        for ticker in tickers:
+            by_ticker[ticker] = by_ticker.get(ticker, 0.0) + ticker_weight
+    ticker_total = sum(by_ticker.values())
+    by_ticker = {ticker: weight / ticker_total for ticker, weight in by_ticker.items()}
+
+    risky_fraction = sum(by_sleeve.get(sleeve, 0.0) for sleeve in universe.risky_sleeves)
+    return EngineTargetWeights(
+        by_ticker=by_ticker,
+        by_sleeve=by_sleeve,
+        blend_alpha=float(max(0.0, min(1.0, risky_fraction))),
+        method=method,
+    )
+
+
+def _build_alternative_portfolio(validated: Any, method: str) -> api_models.PortfolioResponse:
+    universe = _build_universe(validated)
+    sleeve_returns = returns_matrix(universe.sleeves)
+    if method == "black_litterman":
+        sleeve_weights = black_litterman_weights(
+            sleeve_returns,
+            universe.market_weights,
+            profile=validated,
+        )
+    elif method == "cvar":
+        sleeve_weights = cvar_weights(sleeve_returns, n_scenarios=750, seed=17, max_iter=800)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown portfolio method: {method}")
+
+    weights = _target_weights_from_sleeves(universe, sleeve_weights, method)
+    return api_models.PortfolioResponse(
+        universe=api_models.Universe.model_validate(universe.model_dump()),
+        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
+        metrics=_compute_risk_metrics(universe, weights),
+    )
+
+
 def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_models.PortfolioResponse:
     universe = _build_universe(validated)
     weights = build_target_weights(
@@ -557,22 +610,6 @@ def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_mod
         weights=api_models.TargetWeights.model_validate(weights.model_dump()),
         metrics=_compute_risk_metrics(universe, weights),
     )
-
-
-def _target_vol_for_dial(risk_profile: Any, risk_dial: float) -> float:
-    band = risk_profile.target_vol_band
-    low = float(band.conservative)
-    mid = float(band.mid)
-    high = float(band.aggressive)
-    dial = max(0.0, min(1.0, float(risk_dial)))
-
-    if dial <= 0.5:
-        target = low + (mid - low) * (dial / 0.5)
-    else:
-        target = mid + (high - mid) * ((dial - 0.5) / 0.5)
-
-    lower, upper = min(low, high), max(low, high)
-    return min(upper, max(lower, target))
 
 
 def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
@@ -857,7 +894,10 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
     )
 
 
-def _greenlit_portfolio(profile_input: api_models.UserProfileInput) -> api_models.PortfolioResponse:
+def _greenlit_portfolio(
+    profile_input: api_models.UserProfileInput,
+    method: str = "erc",
+) -> api_models.PortfolioResponse:
     response = _run_pipeline(profile_input)
     if response.status != "greenlight" or response.portfolio is None:
         raise HTTPException(
@@ -867,6 +907,10 @@ def _greenlit_portfolio(profile_input: api_models.UserProfileInput) -> api_model
                 "onboard": response.model_dump(),
             },
         )
+    if method != "erc":
+        if response.validated_profile is None:
+            raise HTTPException(status_code=400, detail="Validated profile is required.")
+        return _build_alternative_portfolio(response.validated_profile, method)
     return response.portfolio
 
 
@@ -1042,7 +1086,7 @@ async def recheck(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 @router.post("/portfolio", response_model=api_models.PortfolioResponse, summary="Build target portfolio")
 async def portfolio(request: api_models.PortfolioRequest) -> api_models.PortfolioResponse:
     """Build canonical engine universe, target weights, and risk metrics for a greenlit profile."""
-    return _greenlit_portfolio(request.profile)
+    return _greenlit_portfolio(request.profile, request.method or "erc")
 
 
 @router.post("/backtest", response_model=api_models.BacktestResponse, summary="Run cached walk-forward backtest")
@@ -1070,8 +1114,7 @@ async def portfolio_reoptimize(
 ) -> api_models.PortfolioReoptimizeResponse:
     """Build a greenlit portfolio with target volatility selected within the user's allowed band."""
     try:
-        validated, risk_profile = _greenlit_engine_context(request.profile)
-        target_vol = _target_vol_for_dial(risk_profile, request.risk_dial)
+        validated, _ = _greenlit_engine_context(request.profile)
         universe = _build_universe(validated)
         optimizer_target_vol = _optimizer_target_vol_for_dial(universe, request.risk_dial)
         weights = build_target_weights(
@@ -1089,11 +1132,16 @@ async def portfolio_reoptimize(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Report the portfolio's REALIZED volatility so the displayed target matches
+    # portfolio.metrics.expected_vol exactly. Previously the displayed target came
+    # from the gamma-derived band while the portfolio was built on the empirical
+    # safe/risky frontier, so the two numbers could disagree on screen.
+    realized_vol = portfolio_result.metrics.expected_vol
     return api_models.PortfolioReoptimizeResponse(
         portfolio=portfolio_result,
         risk_summary=api_models.PortfolioRiskSummary(
-            target_volatility_pct=round(target_vol * 100.0, 1),
-            estimated_max_loss_1yr_pct=round(target_vol * 2.0 * 100.0, 1),
+            target_volatility_pct=round(realized_vol * 100.0, 1),
+            estimated_max_loss_1yr_pct=round(realized_vol * 2.0 * 100.0, 1),
         ),
     )
 
