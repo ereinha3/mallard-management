@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   TrendingUp, DollarSign, Target,
   Calendar, ArrowUpRight, ArrowDownRight,
@@ -107,6 +107,21 @@ function retirementScoreFromAnalysis(onboardResult) {
   return Math.round(Math.max(0, Math.min(100, emergencyScore + savingsScore + debtScore)))
 }
 
+function getProjectionInputs(onboardResult, profile) {
+  const optimizer = onboardResult?.optimizer_input ?? {}
+  const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years) ?? 1
+  const monthlyContribution = Math.max(0, numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings) ?? 0)
+  const capitalOnHand = Math.max(0, numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand) ?? 0)
+  const goalTarget = Math.max(0, numberOrNull(optimizer.goal_target ?? profile.goal_target) ?? 0)
+
+  return {
+    horizon_years: Math.max(1, Math.round(horizonYears)),
+    monthly_contribution: monthlyContribution,
+    capital_on_hand: capitalOnHand,
+    goal_target: goalTarget,
+  }
+}
+
 function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color, delay = '' }) {
   const isPos = delta >= 0
   const displayValue = typeof value === 'number'
@@ -171,9 +186,13 @@ function AssetRow({ label, value, percent, icon: Icon, color }) {
 
 export default function Dashboard({ onboardResult }) {
   const [scenario, setScenario] = useState('base')
+  const [projection, setProjection] = useState(null)
+  const [projectionLoading, setProjectionLoading] = useState(false)
+  const [projectionError, setProjectionError] = useState(null)
   const profile = getProfile(onboardResult)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const risk = onboardResult?.financial_analysis?.risk
+  const portfolio = onboardResult?.portfolio ?? null
 
   const netWorth = numberOrNull(snapshot.net_worth_estimate)
   const totalDebt = numberOrNull(snapshot.total_debt)
@@ -186,7 +205,47 @@ export default function Dashboard({ onboardResult }) {
   const assets = getAssetRows(profile)
   const liabilities = getLiabilityRows(onboardResult, profile)
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
-  const projections = onboardResult?.financial_analysis?.projection ?? onboardResult?.optimizer_input?.projection ?? null
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!portfolio?.weights) {
+      setProjection(null)
+      setProjectionError(null)
+      setProjectionLoading(false)
+      return () => { cancelled = true }
+    }
+
+    setProjectionLoading(true)
+    setProjectionError(null)
+    import('../api/greenlightClient')
+      .then((client) => {
+        const postProjection = client.postProjection
+        if (typeof postProjection !== 'function') {
+          throw new Error('Projection endpoint wrapper is not available.')
+        }
+        return postProjection({
+          weights: portfolio.weights,
+          ...getProjectionInputs(onboardResult, profile),
+          generator: 'stationary_bootstrap',
+          n_paths: 10000,
+        })
+      })
+      .then((response) => {
+        if (!cancelled) setProjection(response)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setProjection(null)
+          setProjectionError(error?.message ?? 'Projection could not be loaded.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProjectionLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [onboardResult, portfolio, profile])
 
   const snapshotRows = [
     { label: 'Monthly Income', value: monthlyIncome, positive: true },
@@ -297,11 +356,34 @@ export default function Dashboard({ onboardResult }) {
                 </div>
                 <div className="font-display font-semibold text-lg"
                   style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-                  {projections ? 'Retirement Wealth Forecast' : 'Projection unavailable'}
+                  {portfolio ? 'Retirement Wealth Forecast' : 'Projection unavailable'}
                 </div>
               </div>
             </div>
-            <ProjectionChart data={projections} retirementYear={retirementYear} />
+            {!portfolio ? (
+              <div
+                className="flex items-center justify-center text-sm"
+                style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+              >
+                Portfolio weights are required before a projection can run.
+              </div>
+            ) : projectionLoading && !projection ? (
+              <div
+                className="flex items-center justify-center text-sm"
+                style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+              >
+                Running Monte Carlo projection...
+              </div>
+            ) : projectionError ? (
+              <div
+                className="flex items-center justify-center text-sm"
+                style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+              >
+                {projectionError}
+              </div>
+            ) : (
+              <ProjectionChart projection={projection} onboardResult={onboardResult} retirementYear={retirementYear} />
+            )}
           </div>
 
           <div className="card-premium p-5 anim-fade-up d350">

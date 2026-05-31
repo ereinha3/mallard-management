@@ -240,8 +240,8 @@ export default function OnboardingChat({ user, onComplete }) {
       messages: msgList,
       user_email: user?.email,
       session_id: sessionIdRef.current,
-      onSession: (sessionId) => {
-        sessionIdRef.current = sessionId
+      onSession: (session) => {
+        sessionIdRef.current = session?.session_id ?? session
       },
       onToken: (chunk) => {
         if (abortRef.current) return

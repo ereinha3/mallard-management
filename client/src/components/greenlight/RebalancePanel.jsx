@@ -1,29 +1,41 @@
-import { AlertTriangle, ArrowRight, Info, TrendingDown } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown } from 'lucide-react'
+import { Positions, costBasis } from '../../data/seedPositions'
 
-const ILLUSTRATIVE_SLEEVES = [
-  { label: 'US Equity',   ticker: 'VTI',  target: 38, current: 44, color: '#ddb84a' },
-  { label: 'Intl Equity', ticker: 'VXUS', target: 20, current: 18, color: '#4a72e8' },
-  { label: 'Bonds',       ticker: 'BND',  target: 18, current: 15, color: '#6b7280' },
-  { label: 'TIPS',        ticker: 'SCHP', target: 8,  current: 7,  color: '#22c27e' },
-  { label: 'Gold',        ticker: 'GLDM', target: 8,  current: 9,  color: '#f0c060' },
-  { label: 'REITs',       ticker: 'USRT', target: 8,  current: 7,  color: '#8b5cf6' },
-]
+const SLEEVE_COLORS = ['#ddb84a', '#4a72e8', '#6b7280', '#22c27e', '#f0c060', '#8b5cf6', '#e64545', '#14b8a6']
 
-const ILLUSTRATIVE_TAX_FLAGS = [
-  {
-    ticker: 'BND',
-    label: 'Bonds (BND)',
-    costBasis: 1412,
-    currentValue: 1350,
-    loss: 62,
-    washSaleWindow: '30 days',
-    replacement: 'FBND (Fidelity Total Bond)',
-  },
-]
+function asArray(value) {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') {
+    return Object.entries(value).map(([key, item]) => (
+      item && typeof item === 'object' ? { ticker: key, ...item } : { ticker: key, drift: item }
+    ))
+  }
+  return []
+}
+
+function pickNumber(...values) {
+  for (const value of values) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+  }
+  return 0
+}
+
+function toPercent(value) {
+  const numeric = pickNumber(value)
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric
+}
+
+function normalizeResponse(response) {
+  return response?.data ?? response ?? {}
+}
 
 function DriftBar({ sleeve }) {
-  const drift = sleeve.current - sleeve.target
+  const drift = Number((sleeve.drift_pp ?? sleeve.current - sleeve.target).toFixed(1))
   const breached = Math.abs(drift) > 5
+  const currentWidth = Math.max(0, Math.min(100, sleeve.current))
+  const targetLeft = Math.max(0, Math.min(100, sleeve.target))
 
   return (
     <div
@@ -59,7 +71,7 @@ function DriftBar({ sleeve }) {
         <div
           style={{
             position: 'absolute',
-            left: `${sleeve.target}%`,
+            left: `${targetLeft}%`,
             top: 0, bottom: 0,
             width: 2,
             background: 'var(--text-muted)',
@@ -82,7 +94,7 @@ function DriftBar({ sleeve }) {
           style={{
             position: 'absolute',
             left: 0,
-            width: `${sleeve.current}%`,
+            width: `${currentWidth}%`,
             top: '25%', bottom: '25%',
             background: sleeve.color,
             borderRadius: 4,
@@ -103,17 +115,25 @@ function DriftBar({ sleeve }) {
 
       <div className="mt-2 text-xs" style={{ color: breached ? 'var(--ruby)' : 'var(--text-muted)' }}>
         {breached
-          ? `⚠ Breached band: corrective trade required`
-          : Math.abs(drift) > 2
-          ? `Within band: steer next contribution to ${drift < 0 ? 'increase' : 'reduce'}`
-          : `On target`
+            ? 'Breached band: corrective trade required'
+            : Math.abs(drift) > 2
+            ? `Within band: steer next contribution to ${drift < 0 ? 'increase' : 'reduce'}`
+            : `On target`
         }
       </div>
     </div>
   )
 }
 
-function RebalancePlan({ monthlyContrib }) {
+function RebalancePlan({ monthlyContrib, rebalance }) {
+  const actions = [
+    ...(rebalance.action ? [`Action: ${rebalance.action}`] : []),
+    ...asArray(rebalance.actions ?? rebalance.recommendations),
+  ]
+  const steerTargets = rebalance.steer?.next_contribution_to ?? rebalance.steers ?? rebalance.contribution_steer ?? []
+  const steers = Array.isArray(steerTargets) ? steerTargets : asArray(steerTargets)
+  const trades = asArray(rebalance.trades ?? rebalance.trade_list ?? rebalance.orders)
+
   return (
     <div
       className="rounded-2xl p-5"
@@ -136,13 +156,27 @@ function RebalancePlan({ monthlyContrib }) {
           </div>
           <div className="flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--ruby)' }}>
-              Illustrative Corrective Trade
+              Corrective Trade
             </div>
-            <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              Example: sell an overweight sleeve and buy underweight sleeves
-            </div>
+            {trades.length > 0 ? (
+              <div className="space-y-1">
+                {trades.map((trade, index) => (
+                  <div key={`${trade.ticker ?? trade.symbol ?? 'trade'}-${index}`} className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    <span className="font-mono">{trade.action ?? trade.side ?? 'Trade'}</span>
+                    {' '}
+                    <span className="font-mono">{trade.ticker ?? trade.symbol ?? trade.asset ?? ''}</span>
+                    {trade.shares != null ? <span className="font-mono"> {Number(trade.shares).toFixed(2)} sh</span> : null}
+                    {trade.amount != null || trade.value != null ? <span className="font-mono"> ${Number(trade.amount ?? trade.value).toLocaleString()}</span> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                No corrective trades returned by the rebalance engine.
+              </div>
+            )}
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Mallard does not have live brokerage holdings yet, so this is not your real drift or a real trade.
+              Trades are generated from seeded holdings and onboarding target weights.
             </div>
           </div>
         </div>
@@ -163,12 +197,23 @@ function RebalancePlan({ monthlyContrib }) {
               Contribution Steer: Within Band
             </div>
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              {monthlyContrib != null && monthlyContrib > 0
+              {steers.length > 0
+                ? steers.map((steer, index) => (
+                  <div key={`${steer.ticker ?? steer.symbol ?? 'steer'}-${index}`}>
+                    Steer toward <span className="font-mono">{steer.ticker ?? steer.symbol ?? steer.asset ?? steer.label ?? steer}</span>
+                    {steer.amount != null || steer.value != null ? <span className="font-mono"> ${Number(steer.amount ?? steer.value).toLocaleString()}</span> : null}
+                  </div>
+                ))
+                : monthlyContrib != null && monthlyContrib > 0
                 ? <>Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> can be steered toward underweight target sleeves.</>
                 : 'No positive monthly contribution was returned by the analysis.'}
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Target sleeves can come from optimizer output when available; live underweights require brokerage holdings.
+              {actions.length > 0
+                ? actions.map((action, index) => (
+                  <div key={`action-${index}`}>{typeof action === 'string' ? action : action.message ?? action.label ?? JSON.stringify(action)}</div>
+                ))
+                : 'Target sleeves come from optimizer output when available.'}
             </div>
           </div>
         </div>
@@ -177,7 +222,11 @@ function RebalancePlan({ monthlyContrib }) {
   )
 }
 
-function TaxPanel() {
+function TaxPanel({ taxReport }) {
+  const tax = normalizeResponse(taxReport)
+  const tlhFlags = asArray(tax.harvestable ?? tax.tlh_flags ?? tax.tax_loss_harvesting ?? tax.harvestable_losses ?? tax.losses)
+  const washSales = asArray(tax.wash_sale_warnings ?? tax.wash_sales ?? tax.warnings)
+
   return (
     <div
       className="rounded-2xl p-5"
@@ -186,46 +235,65 @@ function TaxPanel() {
       <div className="flex items-center gap-2 mb-4">
         <TrendingDown size={13} style={{ color: 'var(--ruby)' }} />
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-          Tax-Loss Harvest Flags · Illustrative Only
+          Tax-Loss Harvest Flags
         </div>
       </div>
 
-      {ILLUSTRATIVE_TAX_FLAGS.map(flag => (
+      {tlhFlags.length > 0 ? tlhFlags.map((flag, index) => (
         <div
-          key={flag.ticker}
+          key={`${flag.ticker ?? flag.symbol ?? 'tlh'}-${index}`}
           className="rounded-xl p-4 mb-3"
           style={{ background: 'rgba(230,69,69,0.05)', border: '1px solid rgba(230,69,69,0.2)' }}
         >
           <div className="flex items-start justify-between mb-3">
             <div>
-              <div className="text-sm font-semibold font-mono" style={{ color: 'var(--text-primary)' }}>{flag.ticker}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{flag.label}</div>
+              <div className="text-sm font-semibold font-mono" style={{ color: 'var(--text-primary)' }}>{flag.ticker ?? flag.symbol ?? 'Position'}</div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{flag.label ?? flag.reason ?? 'Harvestable unrealized loss'}</div>
             </div>
             <div className="text-right">
-              <div className="font-mono font-semibold text-sm" style={{ color: 'var(--ruby)' }}>−${flag.loss}</div>
+              <div className="font-mono font-semibold text-sm" style={{ color: 'var(--ruby)' }}>-${Math.abs(pickNumber(flag.loss, flag.harvestable_loss, flag.unrealized_loss)).toLocaleString()}</div>
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>harvestable loss</div>
             </div>
           </div>
           <div className="grid gap-2 text-xs" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Cost basis: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${flag.costBasis}</span>
+              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.costBasis, flag.cost_basis, flag.basis).toLocaleString()}</span>
             </div>
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Current value: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${flag.currentValue}</span>
+              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.currentValue, flag.current_value, flag.market_value).toLocaleString()}</span>
             </div>
           </div>
+        </div>
+      )) : (
+        <div
+          className="rounded-xl p-4 mb-3 text-sm"
+          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+        >
+          No tax-loss harvesting flags returned.
+        </div>
+      )}
+
+      {washSales.map((warning, index) => (
+        <div
+          key={`${warning.ticker ?? warning.symbol ?? 'wash'}-${index}`}
+          className="rounded-xl p-4 mb-3"
+          style={{ background: 'rgba(196,154,44,0.08)', border: '1px solid rgba(196,154,44,0.2)' }}
+        >
           <div
-            className="mt-3 rounded-lg p-3"
-            style={{ background: 'rgba(196,154,44,0.08)', border: '1px solid rgba(196,154,44,0.2)' }}
+            className="text-xs font-semibold mb-1"
+            style={{ color: 'var(--gold-light)' }}
           >
-            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--gold-light)' }}>
-              ⚠ Wash-Sale Caveat
-            </div>
-            <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              If you harvest this loss, do <strong>not</strong> repurchase a substantially identical security within 30 days (before or after). Consider <span className="font-mono">{flag.replacement}</span> as a non-wash-sale replacement to stay exposed.
-            </div>
+            Wash-Sale Warning
+          </div>
+          <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {warning.message ?? warning.reason ?? (
+              <>
+                Selling <span className="font-mono">{warning.sold_ticker ?? warning.source ?? warning.ticker ?? 'the loss position'}</span> may conflict with recent
+                {' '}<span className="font-mono">{warning.suggested_replacement ?? warning.replacement ?? warning.replacement_ticker ?? warning.security ?? 'replacement'}</span> activity inside the {warning.window_days ?? 30}-day window.
+              </>
+            )}
           </div>
         </div>
       ))}
@@ -244,10 +312,128 @@ function TaxPanel() {
 }
 
 export default function RebalancePanel({ onboardResult }) {
+  const [loading, setLoading] = useState(false)
+  const [serviceUnavailable, setServiceUnavailable] = useState(false)
+  const [error, setError] = useState(null)
+  const [rebalanceResponse, setRebalanceResponse] = useState(null)
+  const [taxReportResponse, setTaxReportResponse] = useState(null)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const optimizerInput = onboardResult?.optimizer_input ?? {}
   const monthly = Number(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus)
   const monthlyContrib = Number.isFinite(monthly) && monthly > 0 ? monthly : null
+  const weights = useMemo(() => onboardResult?.portfolio?.weights ?? {}, [onboardResult?.portfolio?.weights])
+  const hasWeights = Object.keys(weights).length > 0
+  const rebalance = normalizeResponse(rebalanceResponse)
+  const drifts = asArray(rebalance.drifts).map((drift, index) => ({
+    label: drift.label ?? drift.name ?? drift.asset_class ?? drift.ticker ?? drift.symbol ?? `Sleeve ${index + 1}`,
+    ticker: drift.ticker ?? drift.symbol ?? drift.asset ?? drift.label ?? `S${index + 1}`,
+    target: toPercent(drift.target ?? drift.target_weight ?? drift.target_pct),
+    current: toPercent(drift.current ?? drift.current_weight ?? drift.current_pct ?? drift.actual),
+    drift_pp: pickNumber(drift.drift_pp),
+    color: drift.color ?? SLEEVE_COLORS[index % SLEEVE_COLORS.length],
+  }))
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!hasWeights) {
+      setLoading(false)
+      setServiceUnavailable(false)
+      setError(null)
+      setRebalanceResponse(null)
+      setTaxReportResponse(null)
+      return
+    }
+
+    async function fetchAnalysis() {
+      setLoading(true)
+      setServiceUnavailable(false)
+      setError(null)
+
+      try {
+        const client = await import('../../api/greenlightClient')
+        const postRebalance = client.postRebalance
+        const postTaxReport = client.postTaxReport
+
+        if (typeof postRebalance !== 'function' || typeof postTaxReport !== 'function') {
+          throw new Error('Service unavailable')
+        }
+
+        const [rebalanceResult, taxResult] = await Promise.all([
+          postRebalance({ positions: Positions, weights }),
+          postTaxReport({ positions: Positions, cost_basis: costBasis, filing_status: 'single' }),
+        ])
+
+        if (!cancelled) {
+          setRebalanceResponse(rebalanceResult)
+          setTaxReportResponse(taxResult)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          if (err?.message === 'Service unavailable') setServiceUnavailable(true)
+          else setError(err?.message ?? 'Unable to fetch rebalance analysis')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchAnalysis()
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasWeights, weights])
+
+  if (!hasWeights) {
+    return (
+      <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+        <div className="p-7">
+          <div
+            className="rounded-2xl p-6 flex gap-3 items-start"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+          >
+            <Info size={16} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} />
+            <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Complete onboarding to see rebalance analysis
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+        <div className="p-7 flex items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
+          <Loader2 size={18} className="animate-spin" />
+          <span className="text-sm">Loading rebalance and tax analysis...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (serviceUnavailable) {
+    return (
+      <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+        <div className="p-7">
+          <div
+            className="rounded-2xl p-6 flex gap-3 items-start"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+          >
+            <AlertTriangle size={16} style={{ color: 'var(--ruby)', marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Service unavailable</div>
+              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                Rebalance and tax endpoints are not exported by the Greenlight API client.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -256,30 +442,44 @@ export default function RebalancePanel({ onboardResult }) {
         {/* Header */}
         <div className="anim-fade-up">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-            Illustrative Drift-Band Rebalance
+            Drift-Band Rebalance
           </div>
           <div
             className="font-display font-semibold"
             style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}
           >
-            Live holdings are not connected, so drift and tax lots below are examples, not personal positions.
+            Review seeded holdings against your onboarding target weights before taking action.
           </div>
+          {error && (
+            <div className="mt-3 text-xs" style={{ color: 'var(--ruby)' }}>
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Drift bars */}
         <div className="anim-fade-up d100">
           <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-            Sleeve Drift Example · Current vs Target (±5pp band)
+            Sleeve Drift · Current vs Target (±5pp band)
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            {ILLUSTRATIVE_SLEEVES.map(s => <DriftBar key={s.ticker} sleeve={s} />)}
+            {drifts.length > 0
+              ? drifts.map(s => <DriftBar key={s.ticker} sleeve={s} />)
+              : (
+                <div
+                  className="rounded-xl p-4 text-sm"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                >
+                  No drift data returned.
+                </div>
+              )}
           </div>
         </div>
 
         {/* Two-column: plan + tax */}
         <div className="grid gap-5 anim-fade-up d200" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <RebalancePlan monthlyContrib={monthlyContrib} />
-          <TaxPanel />
+          <RebalancePlan monthlyContrib={monthlyContrib} rebalance={rebalance} />
+          <TaxPanel taxReport={taxReportResponse} />
         </div>
 
         {/* Bottom note */}
@@ -291,7 +491,7 @@ export default function RebalancePanel({ onboardResult }) {
           <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <strong style={{ color: 'var(--text-secondary)' }}>Rebalancing policy:</strong> Drift-band (±5pp), not calendar-forced.
             Positions within band are corrected by steering the next contribution toward underweight sleeves. No trade, no transaction cost, no taxable event.
-            Only band breaches would trigger an order after live holdings are connected. The displayed positions and tax lots are illustrative.
+            Only band breaches would trigger an order after live holdings are connected. The displayed positions come from seeded Module C data.
           </div>
         </div>
       </div>

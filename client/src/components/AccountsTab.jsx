@@ -31,6 +31,10 @@ function titleize(value) {
   return String(value || 'Other').replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
 }
 
+function firstPresent(...values) {
+  return values.find(value => value != null && value !== '')
+}
+
 function assetTypeFor(key) {
   if (key.includes('401') || key.includes('ira') || key.includes('retirement')) return 'retirement'
   if (key.includes('home') || key.includes('real_estate')) return 'home'
@@ -135,8 +139,18 @@ function LinkModal({ onClose }) {
 
 export default function AccountsTab({ onboardResult }) {
   const [showLinkModal, setShowLinkModal] = useState(false)
-  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
-  const debts = onboardResult?.financial_analysis?.debt?.debts || profile.debts || []
+  const profile = onboardResult?.validated_profile ?? {}
+  const debtAnalysis = onboardResult?.financial_analysis?.debt ?? {}
+  const debts = Array.isArray(debtAnalysis.debts) && debtAnalysis.debts.length > 0
+    ? debtAnalysis.debts
+    : Array.isArray(profile.debts) ? profile.debts : []
+  const incomeFields = [
+    { label: 'Household Income', value: numberOrNull(profile.household_income), cadence: 'Annual' },
+    { label: 'Monthly Income', value: numberOrNull(profile.monthly_income), cadence: 'Monthly' },
+    { label: 'Monthly Surplus', value: numberOrNull(profile.monthly_surplus), cadence: 'Monthly' },
+    { label: 'Monthly Savings', value: numberOrNull(profile.monthly_savings), cadence: 'Monthly' },
+    { label: 'Monthly Contribution', value: numberOrNull(profile.monthly_contribution), cadence: 'Monthly' },
+  ].filter(item => item.value != null)
 
   const assets = [
     { label: 'Liquid Cash', balance: numberOrNull(profile.capital_on_hand), type: 'savings', subtitle: 'Validated profile', sourceField: 'validated_profile.capital_on_hand' },
@@ -158,17 +172,18 @@ export default function AccountsTab({ onboardResult }) {
   const displayAssets = assets.filter(asset => asset.balance != null && asset.balance > 0)
   const liabilities = debts
     .map((debt, index) => {
-      const balance = numberOrNull(debt.balance)
+      const balance = numberOrNull(firstPresent(debt.balance, debt.current_balance, debt.total_balance))
       if (balance == null || balance <= 0) return null
-      const kind = debt.kind ?? debt.type ?? 'other'
+      const kind = firstPresent(debt.kind, debt.type, debt.category, debt.name, debt.label, 'other')
+      const apr = numberOrNull(firstPresent(debt.apr, debt.interest_rate, debt.effective_apr))
       return {
         label: titleize(kind),
         balance,
         type: kind,
-        subtitle: debt.apr != null ? `${formatPercent(Number(debt.apr) * 100)} APR` : 'Debt from profile',
-        apr: numberOrNull(debt.apr),
-        monthly_interest_cost: numberOrNull(debt.monthly_interest_cost),
-        months_to_payoff: numberOrNull(debt.months_to_payoff),
+        subtitle: apr != null ? `${formatPercent(apr * 100)} APR` : 'Debt from profile',
+        apr,
+        monthly_interest_cost: numberOrNull(firstPresent(debt.monthly_interest_cost, debt.monthly_interest)),
+        months_to_payoff: numberOrNull(firstPresent(debt.months_to_payoff, debt.payoff_months)),
         key: `${kind}-${index}`,
       }
     })
@@ -190,12 +205,38 @@ export default function AccountsTab({ onboardResult }) {
             className="flex items-center gap-2 px-4 py-2 bg-gold text-bg-base rounded-lg text-sm font-bold hover:bg-gold-bright transition-colors"
           >
             <Plus size={16} strokeWidth={3} />
-            Link Account
+            Link Account Demo
           </button>
         </div>
       </div>
 
       <div className="p-8 space-y-10 max-w-6xl">
+        <section>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-6 bg-gold rounded-full" />
+              <h2 className="font-display font-semibold text-xl text-primary">Income</h2>
+            </div>
+          </div>
+          {incomeFields.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {incomeFields.map(item => (
+                <div key={item.label} className="card-premium p-5">
+                  <div className="text-xs font-bold text-muted uppercase tracking-widest">{item.cadence}</div>
+                  <div className="mt-1 text-sm font-medium text-primary">{item.label}</div>
+                  <div className="mt-3 text-xl font-mono font-bold text-emerald">
+                    {formatCurrency(item.value, true)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="card-premium p-8 text-center text-sm text-muted">
+              No income fields were provided during onboarding.
+            </div>
+          )}
+        </section>
+
         <section>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
@@ -231,7 +272,7 @@ export default function AccountsTab({ onboardResult }) {
             <div className="text-right">
               <div className="text-[10px] font-bold text-muted uppercase tracking-widest">Total Debt</div>
               <div className="text-xl font-mono font-bold text-ruby">
-                {formatCurrency(liabilities.reduce((s, a) => s + a.balance, 0), true)}
+                {formatCurrency(numberOrNull(debtAnalysis.total_balance) ?? liabilities.reduce((s, a) => s + a.balance, 0), true)}
               </div>
             </div>
           </div>
