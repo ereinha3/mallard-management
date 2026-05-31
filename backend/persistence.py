@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -79,6 +79,26 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InvestmentAccount(Base):
+    __tablename__ = "investment_accounts"
+
+    user_email: Mapped[str] = mapped_column(String, primary_key=True)
+    cash_available: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cash_pending: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    broker_provider: Mapped[str] = mapped_column(String, nullable=False, default="simulator")
+
+
+class FundingTransaction(Base):
+    __tablename__ = "funding_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_email: Mapped[str] = mapped_column(String, nullable=False)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -234,6 +254,40 @@ def list_sessions(db: Session, email: str, kind: str | None = None) -> list[Chat
     if kind:
         query = query.filter(ChatSession.kind == kind)
     return query.order_by(ChatSession.created_at.desc()).all()
+
+
+def get_or_create_investment_account(db: Session, email: str) -> InvestmentAccount:
+    account = db.query(InvestmentAccount).filter(InvestmentAccount.user_email == email).first()
+    if account:
+        return account
+
+    account = InvestmentAccount(
+        user_email=email,
+        cash_available=0.0,
+        cash_pending=0.0,
+        broker_provider="simulator",
+    )
+    db.add(account)
+    return account
+
+
+def add_mock_deposit(db: Session, email: str, amount: float) -> FundingTransaction:
+    account = get_or_create_investment_account(db, email)
+    transaction = FundingTransaction(
+        user_email=email,
+        provider="mock_ach",
+        amount=float(amount),
+        status="succeeded",
+    )
+    db.add(transaction)
+    account.cash_available += float(amount)
+    return transaction
+
+
+def update_investment_account_cash(db: Session, email: str, cash_available: float) -> InvestmentAccount:
+    account = get_or_create_investment_account(db, email)
+    account.cash_available = max(0.0, float(cash_available))
+    return account
 
 
 init_db()

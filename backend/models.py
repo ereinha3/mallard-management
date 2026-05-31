@@ -289,6 +289,56 @@ class TargetWeights(BaseModel):
     method: Literal["erc", "black_litterman", "cvar"]
 
 
+class FundingDepositRequest(BaseModel):
+    user_email: str
+    amount: float = Field(gt=0)
+
+
+class InvestmentAccountOut(BaseModel):
+    user_email: str
+    cash_available: float = Field(ge=0)
+    cash_pending: float = Field(ge=0)
+    broker_provider: str
+
+
+class FundingTransactionOut(BaseModel):
+    id: int
+    user_email: str
+    provider: Literal["mock_ach"]
+    amount: float = Field(gt=0)
+    status: Literal["succeeded"]
+    created_at: datetime
+
+
+class BuyOrderOut(BaseModel):
+    ticker: str
+    dollars: float = Field(ge=0)
+    shares: float = Field(ge=0)
+
+
+class DcaScheduleEntryOut(BaseModel):
+    month_offset: int = Field(ge=0)
+    contribution: float = Field(ge=0)
+
+
+class OrderPlanOut(BaseModel):
+    method: Literal["lump_sum", "dca"]
+    buys: List[BuyOrderOut]
+    schedule: List[DcaScheduleEntryOut]
+
+
+class ExecutionRequest(BaseModel):
+    user_email: str
+    weights: TargetWeights
+
+
+class FillOut(BaseModel):
+    ticker: str
+    shares: float = Field(ge=0)
+    price: float = Field(ge=0)
+    ts: datetime
+
+
 class RiskMetrics(BaseModel):
     expected_vol: float = Field(ge=0)
     expected_shortfall_95: float = Field(ge=0)
@@ -431,6 +481,11 @@ class Positions(BaseModel):
     items: List[Position]
     portfolio_value: float = Field(ge=0)
     cash: float = Field(ge=0)
+
+
+class ExecutionSubmitResponse(BaseModel):
+    fills: List[FillOut]
+    positions: Positions
 
 
 class Drift(BaseModel):
