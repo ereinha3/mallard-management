@@ -174,6 +174,42 @@ export async function listChats(email, kind = null) {
   return res.json()
 }
 
+/**
+ * POST /api/v1/tax/analyze — Gilbert's full tax strategy suite.
+ * Pass the onboard result's validated_profile + optional portfolio positions.
+ */
+export async function postTaxAnalyze({
+  profile,
+  portfolioPositions = null,
+  traditionalIraBalance = 0,
+  rothIraBalance = 0,
+  nonDeductibleIraBasis = 0,
+  expectedRetirementMarginalRate = null,
+  stateLtcgRate = 0,
+  tradeCostDollars = 0,
+}) {
+  const body = {
+    profile,
+    portfolio_positions: portfolioPositions,
+    traditional_ira_balance: traditionalIraBalance,
+    roth_ira_balance: rothIraBalance,
+    non_deductible_ira_basis: nonDeductibleIraBasis,
+    expected_retirement_marginal_rate: expectedRetirementMarginalRate,
+    state_ltcg_rate: stateLtcgRate,
+    trade_cost_dollars: tradeCostDollars,
+  }
+  const res = await fetch(`${BASE}/api/v1/tax/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Tax analyze error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
 // ── Streaming advisor Q&A ─────────────────────────────────────────────────
 
 /**

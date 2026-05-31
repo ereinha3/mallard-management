@@ -491,6 +491,50 @@ class TaxReportRequest(BaseModel):
     bracket: Optional[float] = Field(default=None, ge=0)
 
 
+# ── Tax Strategy Analysis (Gilbert's full engine) ─────────────────────────────
+
+class TaxPortfolioPosition(BaseModel):
+    """A portfolio position for tax analysis (no live brokerage required)."""
+    id: str
+    ticker: str
+    name: str = ""
+    shares: float
+    cost_basis_per_share: float
+    current_price_per_share: float
+    purchase_date: str  # ISO "YYYY-MM-DD"
+    is_real_estate: bool = False
+    depreciation_taken: float = 0.0
+
+
+class TaxAnalyzeRequest(BaseModel):
+    profile: ValidatedProfile
+    portfolio_positions: Optional[List[TaxPortfolioPosition]] = None
+    traditional_ira_balance: float = Field(default=0.0, ge=0)
+    roth_ira_balance: float = Field(default=0.0, ge=0)
+    non_deductible_ira_basis: float = Field(default=0.0, ge=0)
+    expected_retirement_marginal_rate: Optional[float] = Field(default=None, ge=0, le=1)
+    state_ltcg_rate: float = Field(default=0.0, ge=0, le=0.20)
+    trade_cost_dollars: float = Field(default=0.0, ge=0)
+
+
+class TaxInsight(BaseModel):
+    type: str
+    severity: Literal["positive", "info", "warning", "error"]
+    title: str
+    message: str
+
+
+class TaxAnalysis(BaseModel):
+    tax_year: int
+    filing_status: str
+    marginal_rate: float
+    ltcg_rate: float
+    insights: List[TaxInsight]
+    harvest: Optional[Dict[str, Any]] = None
+    roth_conversion: Dict[str, Any]
+    capital_gains_timing: Dict[str, Any]
+
+
 # ── Financial analysis ────────────────────────────────────────────────────────
 
 class FinancialSnapshot(BaseModel):

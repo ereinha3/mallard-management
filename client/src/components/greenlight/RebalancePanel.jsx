@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown, RefreshCw, CheckCircle, Zap } from 'lucide-react'
 import { Positions, costBasis } from '../../data/seedPositions'
+import { postTaxAnalyze } from '../../api/greenlightClient'
 
 const SLEEVE_COLORS = ['#ddb84a', '#4a72e8', '#6b7280', '#22c27e', '#f0c060', '#8b5cf6', '#e64545', '#14b8a6']
 
@@ -65,7 +66,6 @@ function DriftBar({ sleeve }) {
         </div>
       </div>
 
-      {/* Bar */}
       <div className="relative h-5 rounded-full overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
         {/* Target marker */}
         <div
@@ -135,23 +135,13 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
   const trades = asArray(rebalance.trades ?? rebalance.trade_list ?? rebalance.orders)
 
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-    >
+    <div className="rounded-2xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
       <div className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
         Rebalance Decision
       </div>
       <div className="space-y-3">
-        {/* Corrective trade */}
-        <div
-          className="rounded-xl p-4 flex items-start gap-3"
-          style={{ background: 'rgba(230,69,69,0.06)', border: '1px solid rgba(230,69,69,0.2)' }}
-        >
-          <div
-            className="shrink-0 flex items-center justify-center rounded-lg"
-            style={{ width: 28, height: 28, background: 'rgba(230,69,69,0.15)', color: 'var(--ruby)' }}
-          >
+        <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(230,69,69,0.06)', border: '1px solid rgba(230,69,69,0.2)' }}>
+          <div className="shrink-0 flex items-center justify-center rounded-lg" style={{ width: 28, height: 28, background: 'rgba(230,69,69,0.15)', color: 'var(--ruby)' }}>
             <ArrowRight size={13} />
           </div>
           <div className="flex-1">
@@ -181,15 +171,8 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
           </div>
         </div>
 
-        {/* Contribution steer */}
-        <div
-          className="rounded-xl p-4 flex items-start gap-3"
-          style={{ background: 'rgba(74,114,232,0.06)', border: '1px solid rgba(74,114,232,0.2)' }}
-        >
-          <div
-            className="shrink-0 flex items-center justify-center rounded-lg"
-            style={{ width: 28, height: 28, background: 'rgba(74,114,232,0.15)', color: 'var(--blue)' }}
-          >
+        <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(74,114,232,0.06)', border: '1px solid rgba(74,114,232,0.2)' }}>
+          <div className="shrink-0 flex items-center justify-center rounded-lg" style={{ width: 28, height: 28, background: 'rgba(74,114,232,0.15)', color: 'var(--blue)' }}>
             <ArrowRight size={13} />
           </div>
           <div className="flex-1">
@@ -222,94 +205,169 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
   )
 }
 
-function TaxPanel({ taxReport }) {
-  const tax = normalizeResponse(taxReport)
-  const tlhFlags = asArray(tax.harvestable ?? tax.tlh_flags ?? tax.tax_loss_harvesting ?? tax.harvestable_losses ?? tax.losses)
-  const washSales = asArray(tax.wash_sale_warnings ?? tax.wash_sales ?? tax.warnings)
+// ── Insight severity styling ───────────────────────────────────────────────────
 
+const SEVERITY_STYLES = {
+  positive: {
+    bg: 'rgba(30,184,122,0.06)',
+    border: 'rgba(30,184,122,0.25)',
+    iconColor: 'var(--emerald)',
+    Icon: CheckCircle,
+  },
+  info: {
+    bg: 'rgba(74,114,232,0.06)',
+    border: 'rgba(74,114,232,0.2)',
+    iconColor: 'var(--blue)',
+    Icon: Info,
+  },
+  warning: {
+    bg: 'rgba(196,154,44,0.08)',
+    border: 'rgba(196,154,44,0.2)',
+    iconColor: 'var(--gold-light)',
+    Icon: AlertTriangle,
+  },
+  error: {
+    bg: 'rgba(230,69,69,0.06)',
+    border: 'rgba(230,69,69,0.2)',
+    iconColor: 'var(--ruby)',
+    Icon: AlertTriangle,
+  },
+}
+
+function InsightCard({ insight }) {
+  const style = SEVERITY_STYLES[insight.severity] ?? SEVERITY_STYLES.info
+  const { Icon } = style
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-    >
-      <div className="flex items-center gap-2 mb-4">
-        <TrendingDown size={13} style={{ color: 'var(--ruby)' }} />
-        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-          Tax-Loss Harvest Flags
-        </div>
-      </div>
-
-      {tlhFlags.length > 0 ? tlhFlags.map((flag, index) => (
-        <div
-          key={`${flag.ticker ?? flag.symbol ?? 'tlh'}-${index}`}
-          className="rounded-xl p-4 mb-3"
-          style={{ background: 'rgba(230,69,69,0.05)', border: '1px solid rgba(230,69,69,0.2)' }}
-        >
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <div className="text-sm font-semibold font-mono" style={{ color: 'var(--text-primary)' }}>{flag.ticker ?? flag.symbol ?? 'Position'}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{flag.label ?? flag.reason ?? 'Harvestable unrealized loss'}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-mono font-semibold text-sm" style={{ color: 'var(--ruby)' }}>-${Math.abs(pickNumber(flag.loss, flag.harvestable_loss, flag.unrealized_loss)).toLocaleString()}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>harvestable loss</div>
-            </div>
-          </div>
-          <div className="grid gap-2 text-xs" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div>
-              <span style={{ color: 'var(--text-muted)' }}>Cost basis: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.costBasis, flag.cost_basis, flag.basis).toLocaleString()}</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-muted)' }}>Current value: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.currentValue, flag.current_value, flag.market_value).toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-      )) : (
-        <div
-          className="rounded-xl p-4 mb-3 text-sm"
-          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-        >
-          No tax-loss harvesting flags returned.
-        </div>
-      )}
-
-      {washSales.map((warning, index) => (
-        <div
-          key={`${warning.ticker ?? warning.symbol ?? 'wash'}-${index}`}
-          className="rounded-xl p-4 mb-3"
-          style={{ background: 'rgba(196,154,44,0.08)', border: '1px solid rgba(196,154,44,0.2)' }}
-        >
-          <div
-            className="text-xs font-semibold mb-1"
-            style={{ color: 'var(--gold-light)' }}
-          >
-            Wash-Sale Warning
-          </div>
-          <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            {warning.message ?? warning.reason ?? (
-              <>
-                Selling <span className="font-mono">{warning.sold_ticker ?? warning.source ?? warning.ticker ?? 'the loss position'}</span> may conflict with recent
-                {' '}<span className="font-mono">{warning.suggested_replacement ?? warning.replacement ?? warning.replacement_ticker ?? warning.security ?? 'replacement'}</span> activity inside the {warning.window_days ?? 30}-day window.
-              </>
-            )}
-          </div>
-        </div>
-      ))}
-
-      <div
-        className="rounded-xl p-3 flex gap-2 items-start"
-        style={{ background: 'rgba(74,114,232,0.08)', border: '1px solid rgba(74,114,232,0.2)' }}
-      >
-        <Info size={13} style={{ color: 'var(--blue)', marginTop: 1, flexShrink: 0 }} />
-        <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Tax-loss harvesting is <strong>displayed only, never auto-executed</strong>. Realized losses offset capital gains and up to $3,000 of ordinary income annually (IRC §1091; IRS Pub. 550). Verify with a tax professional.
-        </div>
+    <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: style.bg, border: `1px solid ${style.border}` }}>
+      <Icon size={14} style={{ color: style.iconColor, marginTop: 2, flexShrink: 0 }} />
+      <div className="flex-1">
+        <div className="text-xs font-semibold mb-1" style={{ color: style.iconColor }}>{insight.title}</div>
+        <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{insight.message}</div>
       </div>
     </div>
   )
 }
+
+// ── Roth conversion scenarios ─────────────────────────────────────────────────
+
+function RothPanel({ roth }) {
+  if (!roth) return null
+  const { current_marginal_rate, next_bracket_rate, scenarios, recommended_reason, legal_notices } = roth
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="rounded-2xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-2 mb-4">
+        <Zap size={13} style={{ color: 'var(--gold-light)' }} />
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Roth Conversion Analysis · {new Date().getFullYear()}
+        </div>
+      </div>
+
+      <div className="flex gap-3 mb-4">
+        <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Marginal Rate</div>
+          <div className="text-xl font-mono font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
+            {(current_marginal_rate * 100).toFixed(0)}%
+          </div>
+        </div>
+        <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Next Bracket</div>
+          <div className="text-xl font-mono font-semibold mt-1" style={{ color: 'var(--text-muted)' }}>
+            {(next_bracket_rate * 100).toFixed(0)}%
+          </div>
+        </div>
+      </div>
+
+      <div className="text-xs leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
+        {recommended_reason}
+      </div>
+
+      {scenarios?.length > 0 && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="text-xs px-3 py-1.5 rounded-lg font-medium w-full"
+          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-bright)' }}
+        >
+          {expanded ? '▲ Hide scenarios' : `▼ Show ${scenarios.length} conversion scenario${scenarios.length > 1 ? 's' : ''}`}
+        </button>
+      )}
+
+      {expanded && scenarios?.map((s, i) => (
+        <div key={i} className="mt-3 rounded-xl p-3" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div className="text-xs font-semibold mb-2" style={{ color: s.worth_converting ? 'var(--emerald)' : 'var(--text-muted)' }}>
+            {s.label}
+          </div>
+          <div className="grid gap-1 text-xs" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div><span style={{ color: 'var(--text-muted)' }}>Convert: </span><span className="font-mono" style={{ color: 'var(--text-primary)' }}>${s.conversion_amount?.toLocaleString()}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Tax cost: </span><span className="font-mono" style={{ color: 'var(--ruby)' }}>${s.tax_cost_this_year?.toLocaleString()}</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Rate paid: </span><span className="font-mono">{(s.marginal_rate_on_conversion * 100).toFixed(0)}%</span></div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Future value: </span><span className="font-mono" style={{ color: 'var(--emerald)' }}>${s.projected_future_value?.toLocaleString()}</span></div>
+          </div>
+          {s.bracket_warning && (
+            <div className="mt-2 text-xs" style={{ color: 'var(--gold-light)' }}>⚠ {s.bracket_warning}</div>
+          )}
+        </div>
+      ))}
+
+      <div className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+        {legal_notices?.[0]}
+      </div>
+    </div>
+  )
+}
+
+// ── Capital gains timing ──────────────────────────────────────────────────────
+
+function GainsTimingPanel({ gains }) {
+  if (!gains) return null
+  const { current_ltcg_rate, zero_rate_opportunity, zero_rate_room_remaining, zero_rate_explanation, room_until_next_ltcg_bracket } = gains
+
+  return (
+    <div className="rounded-2xl p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-2 mb-4">
+        <TrendingDown size={13} style={{ color: zero_rate_opportunity ? 'var(--emerald)' : 'var(--text-muted)' }} />
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Capital Gains Timing · IRC §1(h)
+        </div>
+      </div>
+
+      <div className="flex gap-3 mb-4">
+        <div className="flex-1 rounded-xl p-3 text-center" style={{
+          background: zero_rate_opportunity ? 'rgba(30,184,122,0.08)' : 'var(--bg-elevated)',
+          border: `1px solid ${zero_rate_opportunity ? 'rgba(30,184,122,0.25)' : 'var(--border)'}`,
+        }}>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Your LTCG Rate</div>
+          <div className="text-xl font-mono font-semibold mt-1" style={{ color: zero_rate_opportunity ? 'var(--emerald)' : 'var(--text-primary)' }}>
+            {(current_ltcg_rate * 100).toFixed(0)}%
+          </div>
+        </div>
+        {zero_rate_opportunity && (
+          <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'rgba(30,184,122,0.08)', border: '1px solid rgba(30,184,122,0.25)' }}>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>0% Headroom</div>
+            <div className="text-xl font-mono font-semibold mt-1" style={{ color: 'var(--emerald)' }}>
+              ${zero_rate_room_remaining?.toLocaleString()}
+            </div>
+          </div>
+        )}
+        {!zero_rate_opportunity && room_until_next_ltcg_bracket < 1_000_000 && (
+          <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Until Next Bracket</div>
+            <div className="text-xl font-mono font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
+              ${room_until_next_ltcg_bracket?.toLocaleString()}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+        {zero_rate_explanation}
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function RebalancePanel({ onboardResult }) {
   const [loading, setLoading] = useState(false)
@@ -317,12 +375,17 @@ export default function RebalancePanel({ onboardResult }) {
   const [error, setError] = useState(null)
   const [rebalanceResponse, setRebalanceResponse] = useState(null)
   const [taxReportResponse, setTaxReportResponse] = useState(null)
+  const [taxData, setTaxData] = useState(null)
+  const [taxLoading, setTaxLoading] = useState(false)
+  const [taxError, setTaxError] = useState(null)
+
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const optimizerInput = onboardResult?.optimizer_input ?? {}
   const monthly = Number(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus)
   const monthlyContrib = Number.isFinite(monthly) && monthly > 0 ? monthly : null
   const weights = useMemo(() => onboardResult?.portfolio?.weights ?? {}, [onboardResult?.portfolio?.weights])
   const hasWeights = Object.keys(weights).length > 0
+  const profile = onboardResult?.validated_profile ?? onboardResult?.profile
   const rebalance = normalizeResponse(rebalanceResponse)
   const drifts = asArray(rebalance.drifts).map((drift, index) => ({
     label: drift.label ?? drift.name ?? drift.asset_class ?? drift.ticker ?? drift.symbol ?? `Sleeve ${index + 1}`,
@@ -380,10 +443,19 @@ export default function RebalancePanel({ onboardResult }) {
 
     fetchAnalysis()
 
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [hasWeights, weights])
+
+  useEffect(() => {
+    if (!profile) return
+    let cancelled = false
+    setTaxLoading(true)
+    setTaxError(null)
+    postTaxAnalyze({ profile })
+      .then(data => { if (!cancelled) { setTaxData(data); setTaxLoading(false) } })
+      .catch(err => { if (!cancelled) { setTaxError(err.message); setTaxLoading(false) } })
+    return () => { cancelled = true }
+  }, [profile])
 
   if (!hasWeights) {
     return (
@@ -442,13 +514,12 @@ export default function RebalancePanel({ onboardResult }) {
         {/* Header */}
         <div className="anim-fade-up">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-            Drift-Band Rebalance
+            Drift-Band Rebalance · Tax Strategy
           </div>
-          <div
-            className="font-display font-semibold"
-            style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}
-          >
-            Review seeded holdings against your onboarding target weights before taking action.
+          <div className="font-display font-semibold" style={{ fontSize: 28, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
+            {profile
+              ? 'Personalized tax analysis based on your profile'
+              : 'Live holdings are not connected — drift and tax lots below are examples'}
           </div>
           {error && (
             <div className="mt-3 text-xs" style={{ color: 'var(--ruby)' }}>
@@ -457,10 +528,47 @@ export default function RebalancePanel({ onboardResult }) {
           )}
         </div>
 
+        {/* Tax insights — real data from Gilbert's strategies */}
+        {taxLoading && (
+          <div className="rounded-2xl p-5 flex items-center gap-3 anim-fade-up" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <RefreshCw size={14} style={{ color: 'var(--text-muted)', animation: 'spin 1s linear infinite' }} />
+            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Running tax analysis…</span>
+          </div>
+        )}
+
+        {taxError && (
+          <div className="rounded-2xl p-4 flex gap-3 items-start anim-fade-up" style={{ background: 'rgba(230,69,69,0.06)', border: '1px solid rgba(230,69,69,0.2)' }}>
+            <AlertTriangle size={14} style={{ color: 'var(--ruby)', marginTop: 1 }} />
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Tax analysis unavailable: {taxError}</div>
+          </div>
+        )}
+
+        {taxData && (
+          <>
+            {/* Insights strip */}
+            {taxData.insights?.length > 0 && (
+              <div className="space-y-3 anim-fade-up">
+                <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                  Tax Strategy Insights · {taxData.tax_year}
+                </div>
+                {taxData.insights.map((ins, i) => (
+                  <InsightCard key={i} insight={ins} />
+                ))}
+              </div>
+            )}
+
+            {/* Roth + Gains timing two-column */}
+            <div className="grid gap-5 anim-fade-up d100" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <RothPanel roth={taxData.roth_conversion} />
+              <GainsTimingPanel gains={taxData.capital_gains_timing} />
+            </div>
+          </>
+        )}
+
         {/* Drift bars */}
-        <div className="anim-fade-up d100">
+        <div className="anim-fade-up d200">
           <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-            Sleeve Drift · Current vs Target (±5pp band)
+            Sleeve Drift Example · Current vs Target (±5pp band) · Illustrative
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
             {drifts.length > 0
@@ -476,17 +584,21 @@ export default function RebalancePanel({ onboardResult }) {
           </div>
         </div>
 
-        {/* Two-column: plan + tax */}
-        <div className="grid gap-5 anim-fade-up d200" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        {/* Rebalance plan */}
+        <div className="anim-fade-up d300">
           <RebalancePlan monthlyContrib={monthlyContrib} rebalance={rebalance} />
-          <TaxPanel taxReport={taxReportResponse} />
+        </div>
+
+        {/* Harvesting notice */}
+        <div className="rounded-2xl p-4 flex gap-3 items-start anim-fade-up d300" style={{ background: 'rgba(230,69,69,0.05)', border: '1px solid rgba(230,69,69,0.2)' }}>
+          <TrendingDown size={14} style={{ color: 'var(--ruby)', marginTop: 1, flexShrink: 0 }} />
+          <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            <strong style={{ color: 'var(--text-primary)' }}>Tax-Loss Harvesting:</strong> Realized losses offset capital gains and up to $3,000 of ordinary income annually (IRC §1091; §1212). Per-lot harvesting analysis requires connecting your brokerage holdings. Wash-sale rule applies: do not repurchase a substantially identical security within 30 days before or after the sale.
+          </div>
         </div>
 
         {/* Bottom note */}
-        <div
-          className="rounded-2xl p-4 flex gap-3 items-start anim-fade-up d300"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
+        <div className="rounded-2xl p-4 flex gap-3 items-start anim-fade-up d400" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <Info size={14} style={{ color: 'var(--text-muted)', marginTop: 1, flexShrink: 0 }} />
           <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <strong style={{ color: 'var(--text-secondary)' }}>Rebalancing policy:</strong> Drift-band (±5pp), not calendar-forced.

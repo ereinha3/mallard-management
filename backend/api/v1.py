@@ -67,6 +67,7 @@ from schemas.models import (  # noqa: E402
     UserProfile as EngineUserProfile,
 )
 from tax.report import tax_report  # noqa: E402
+from tax.strategies import full_tax_analysis  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
 router = APIRouter()
@@ -1217,6 +1218,35 @@ async def tax_report_endpoint(request: api_models.TaxReportRequest) -> api_model
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return api_models.TaxReport.model_validate(report.model_dump())
+
+
+@router.post("/tax/analyze", summary="Full tax strategy analysis from user profile")
+async def tax_analyze_endpoint(request: api_models.TaxAnalyzeRequest) -> api_models.TaxAnalysis:
+    """
+    Run Gilbert's full tax strategy suite against the user's validated profile.
+
+    Returns:
+      - Tax-loss harvesting candidates (if portfolio positions provided)
+      - Roth conversion scenarios
+      - Capital gains timing analysis
+      - Actionable insights (debt, bracket, zero-rate opportunity)
+    """
+    try:
+        profile_dict = request.profile.model_dump()
+        positions = [p.model_dump() for p in request.portfolio_positions] if request.portfolio_positions else []
+        result = full_tax_analysis(
+            profile=profile_dict,
+            portfolio_positions=positions if positions else None,
+            traditional_ira_balance=request.traditional_ira_balance,
+            roth_ira_balance=request.roth_ira_balance,
+            non_deductible_ira_basis=request.non_deductible_ira_basis,
+            expected_retirement_marginal_rate=request.expected_retirement_marginal_rate,
+            state_ltcg_rate=request.state_ltcg_rate,
+            trade_cost_dollars=request.trade_cost_dollars,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return api_models.TaxAnalysis(**result)
 
 
 @router.post("/chat", summary="Elicitation chat - streams tokens then emits profile_ready")
