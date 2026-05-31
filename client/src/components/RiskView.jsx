@@ -61,7 +61,7 @@ export default function RiskView({ onboardResult }) {
               <div key={item.label} className="mb-4">
                 <div className="flex justify-between text-sm mb-2">
                   <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                  <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{item.value ?? 'Not available'}</span>
+                  <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{item.value != null ? Math.round(item.value) : 'Not available'}</span>
                 </div>
                 <div className="h-2 rounded-full" style={{ background: 'var(--bg-elevated)' }}>
                   <div
