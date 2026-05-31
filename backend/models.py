@@ -206,6 +206,12 @@ class GateMath(BaseModel):
     debt: Optional[DebtGateMath] = None
 
 
+class GateCheck(BaseModel):
+    key: str
+    status: Literal["pass", "fail", "warn"]
+    detail: str
+
+
 class GateResult(BaseModel):
     status: Literal["greenlight", "halt"]
     failed_check: Optional[Literal["emergency_fund", "high_interest_debt", "none"]] = None
@@ -214,6 +220,7 @@ class GateResult(BaseModel):
     recommended_action: str = ""
     notes: List[str] = Field(default_factory=list)
     preview_next_checks: List[str] = Field(default_factory=list)
+    checks: List[GateCheck] = Field(default_factory=list)
 
 
 # ── Optimizer boundary ────────────────────────────────────────────────────────

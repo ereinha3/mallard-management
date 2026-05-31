@@ -1,0 +1,12 @@
+{
+  "gate": {
+    "emergency_fund_months_required": 3,
+    "high_apr_threshold": 0.08,
+    "low_apr_threshold": 0.05
+  },
+  "market_assumptions": {
+    "expected_after_tax_market_return": 0.059500000000000004,
+    "expected_market_return": 0.07,
+    "ltcg_rate": 0.15
+  }
+}

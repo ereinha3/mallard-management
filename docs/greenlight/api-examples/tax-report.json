@@ -1,0 +1,41 @@
+{
+  "after_tax_notes": [
+    "Net capital losses can offset capital gains and up to $3,000 of ordinary income per year, with unused losses carried forward.",
+    "Wash-sale rules can disallow a loss if a substantially identical security is bought within 30 days before or after the sale.",
+    "This report is advisory and read-only; it does not place trades."
+  ],
+  "harvestable": [
+    {
+      "note": "VTI is $1,264.00 below basis; review tax-loss harvesting, but do not auto-execute.",
+      "ticker": "VTI",
+      "unrealized_loss": 1264.0
+    },
+    {
+      "note": "BND is $410.00 below basis; review tax-loss harvesting, but do not auto-execute.",
+      "ticker": "BND",
+      "unrealized_loss": 410.0
+    },
+    {
+      "note": "VNQ is $195.00 below basis; review tax-loss harvesting, but do not auto-execute.",
+      "ticker": "VNQ",
+      "unrealized_loss": 195.0
+    }
+  ],
+  "wash_sale_warnings": [
+    {
+      "suggested_replacement": "ESGV",
+      "ticker": "VTI",
+      "window_days": 30
+    },
+    {
+      "suggested_replacement": "AGG",
+      "ticker": "BND",
+      "window_days": 30
+    },
+    {
+      "suggested_replacement": "SCHH",
+      "ticker": "VNQ",
+      "window_days": 30
+    }
+  ]
+}

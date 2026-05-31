@@ -1,0 +1,92 @@
+{
+  "metrics": {
+    "expected_shortfall_95": 0.20380679481492064,
+    "expected_vol": 0.09573102891739797,
+    "risk_contributions": {
+      "bonds": 0.0005821126934235131,
+      "gold": 0.24702227606699065,
+      "intl_equity": 0.25076273528399406,
+      "reits": 0.25079789398229424,
+      "tips": 7.489780676497909e-05,
+      "us_equity": 0.2507600841665326
+    }
+  },
+  "universe": {
+    "excluded": [
+      {
+        "reason": "fossil_fuels",
+        "ticker": "VEA"
+      },
+      {
+        "reason": "fossil_fuels",
+        "ticker": "VTI"
+      }
+    ],
+    "market_weights": {
+      "bonds": 0.2,
+      "gold": 0.05,
+      "intl_equity": 0.2,
+      "reits": 0.05,
+      "tips": 0.05,
+      "us_equity": 0.45
+    },
+    "risky_sleeves": [
+      "us_equity",
+      "intl_equity",
+      "reits",
+      "gold"
+    ],
+    "safe_sleeves": [
+      "bonds",
+      "tips"
+    ],
+    "sleeves": {
+      "bonds": [
+        "BND"
+      ],
+      "gold": [
+        "GLD"
+      ],
+      "intl_equity": [
+        "ESGD"
+      ],
+      "reits": [
+        "VNQ"
+      ],
+      "tips": [
+        "TIP"
+      ],
+      "us_equity": [
+        "ESGV"
+      ]
+    },
+    "tickers": [
+      "BND",
+      "ESGD",
+      "ESGV",
+      "GLD",
+      "TIP",
+      "VNQ"
+    ]
+  },
+  "weights": {
+    "blend_alpha": 0.97,
+    "by_sleeve": {
+      "bonds": 0.02400000000000002,
+      "gold": 0.3907911482069447,
+      "intl_equity": 0.19156760530154263,
+      "reits": 0.1824519543210781,
+      "tips": 0.006000000000000005,
+      "us_equity": 0.20518929217043447
+    },
+    "by_ticker": {
+      "BND": 0.02400000000000002,
+      "ESGD": 0.19156760530154263,
+      "ESGV": 0.20518929217043447,
+      "GLD": 0.3907911482069447,
+      "TIP": 0.006000000000000005,
+      "VNQ": 0.1824519543210781
+    },
+    "method": "erc"
+  }
+}

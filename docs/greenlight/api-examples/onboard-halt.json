@@ -1,0 +1,101 @@
+{
+  "clarification_requests": [],
+  "financial_analysis": null,
+  "gate_result": {
+    "checks": [
+      {
+        "detail": "Emergency fund covers 0.47 months; target_balance is $9,600.00 for 3 months; shortfall is $8,100.00.",
+        "key": "emergency_fund",
+        "status": "fail"
+      },
+      {
+        "detail": "Highest debt APR is 22.0% on credit card debt; high-interest threshold is 8% APR.",
+        "key": "high_interest_debt",
+        "status": "fail"
+      }
+    ],
+    "failed_check": "emergency_fund",
+    "math": {
+      "check": "emergency_fund",
+      "debt": null,
+      "emergency_fund": {
+        "current_balance": 1500.0,
+        "monthly_expenses": 3200.0,
+        "months_covered": 0.47,
+        "required_months": 3.0,
+        "shortfall": 8100.0,
+        "target_balance": 9600.0
+      }
+    },
+    "notes": [],
+    "preview_next_checks": [
+      "After building your emergency fund, your 22% APR credit card would also block investing; it is accruing about $1,980/yr in interest."
+    ],
+    "reason": "Emergency fund is below 3 months of expenses.",
+    "recommended_action": "Build liquid reserves to $9,600 before investing.",
+    "status": "halt"
+  },
+  "optimizer_input": null,
+  "portfolio": null,
+  "risk_profile": null,
+  "status": "halt",
+  "validated_profile": {
+    "age": 28,
+    "capital_on_hand": 6000.0,
+    "confidence": {
+      "risk": 0.6
+    },
+    "debts": [
+      {
+        "apr": 0.22,
+        "balance": 9000.0,
+        "kind": "credit_card"
+      },
+      {
+        "apr": 0.045,
+        "balance": 14000.0,
+        "kind": "student"
+      }
+    ],
+    "dependents": 0,
+    "emergency_fund": 1500.0,
+    "emergency_fund_months": 0.469,
+    "esg_exclusions": [
+      "fossil_fuels",
+      "weapons"
+    ],
+    "filing_status": "single",
+    "goal_target": 1000000.0,
+    "goals": [
+      "retirement"
+    ],
+    "horizon_years": 37,
+    "household_income": 78000.0,
+    "income_stability": "mixed",
+    "loss_aversion_probe": 250.0,
+    "loss_scenario_response": "sell_some",
+    "monthly_expenses": 3200.0,
+    "monthly_surplus": 3300.0,
+    "required_emergency_fund": 9600.0,
+    "risk_instrument_responses": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3
+    ],
+    "sector_theme_tilts": [],
+    "uncertainty_flags": [
+      "risk_tolerance"
+    ],
+    "universe_pref": "etf"
+  }
+}

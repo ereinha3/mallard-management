@@ -219,6 +219,34 @@ def _preview_next_checks(validated: Any, failed_check: str) -> list[str]:
 
 def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
     math_payload: api_models.GateMath | None = None
+    target_balance = validated.monthly_expenses * EF_MONTHS
+    shortfall = max(0.0, target_balance - validated.emergency_fund)
+    months_covered = validated.emergency_fund / validated.monthly_expenses
+    emergency_status = "pass" if shortfall <= 0 else "fail"
+    debt = max(validated.debts, key=lambda item: item.apr) if validated.debts else None
+    debt_status = "pass"
+    debt_detail = f"No debt reported; high-interest threshold is {HIGH_APR:.0%} APR."
+    if debt is not None:
+        debt_status = "fail" if debt.apr > HIGH_APR else "warn"
+        debt_detail = (
+            f"Highest debt APR is {debt.apr:.1%} on {debt.kind.replace('_', ' ')} debt; "
+            f"high-interest threshold is {HIGH_APR:.0%} APR."
+        )
+    checks = [
+        api_models.GateCheck(
+            key="emergency_fund",
+            status=emergency_status,
+            detail=(
+                f"Emergency fund covers {months_covered:.2f} months; target_balance is "
+                f"${target_balance:,.2f} for {EF_MONTHS} months; shortfall is ${shortfall:,.2f}."
+            ),
+        ),
+        api_models.GateCheck(
+            key="high_interest_debt",
+            status=debt_status,
+            detail=debt_detail,
+        ),
+    ]
 
     if gate_result.math is not None and gate_result.failed_check == "emergency_fund":
         target = gate_result.math.target_amount
@@ -259,6 +287,7 @@ def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
         recommended_action=gate_result.recommended_action,
         notes=list(gate_result.notes),
         preview_next_checks=_preview_next_checks(validated, gate_result.failed_check),
+        checks=checks,
     )
 
 

@@ -1,0 +1,295 @@
+{
+  "clarification_requests": [],
+  "financial_analysis": {
+    "debt": {
+      "avalanche_order": [
+        "Student - 4.5% APR"
+      ],
+      "debts": [
+        {
+          "apr": 0.045,
+          "balance": 14000.0,
+          "gate_status": "allow",
+          "kind": "student",
+          "monthly_interest_cost": 52.5,
+          "months_to_payoff": 5,
+          "priority_rank": 1,
+          "total_interest_cost": 2500.0
+        }
+      ],
+      "total_balance": 14000.0,
+      "total_monthly_interest": 52.5
+    },
+    "emergency_fund": {
+      "current_balance": 10000.0,
+      "current_months": 3.125,
+      "months_to_target": null,
+      "pct_complete": 100.0,
+      "shortfall": 0.0,
+      "target_balance": 9600.0,
+      "target_months": 3.0
+    },
+    "path_to_greenlight": {
+      "already_green": true,
+      "steps": [],
+      "total_months_estimated": 0
+    },
+    "risk": {
+      "binding_axis": "tolerance",
+      "capacity_score": 72.82508558195731,
+      "contradiction_note": null,
+      "estimated_max_loss_1yr_pct": 29.0,
+      "gamma_mid": 2.754607293875593,
+      "label": "Moderate-Aggressive",
+      "loss_aversion_flag": false,
+      "target_volatility_pct": 14.5,
+      "tolerance_score": 30.0
+    },
+    "snapshot": {
+      "annual_surplus": 39600.0,
+      "debt_to_income_ratio": 0.179,
+      "emergency_fund_months": 3.125,
+      "emergency_fund_pct_complete": 100.0,
+      "emergency_fund_shortfall": 0.0,
+      "emergency_fund_target_months": 3.0,
+      "monthly_expenses": 3200.0,
+      "monthly_income": 6500.0,
+      "monthly_surplus": 3300.0,
+      "net_worth_estimate": -6500.0,
+      "savings_rate_pct": 50.8,
+      "total_debt": 14000.0,
+      "total_high_apr_debt": 0.0,
+      "total_low_apr_debt": 14000.0
+    }
+  },
+  "gate_result": {
+    "checks": [
+      {
+        "detail": "Emergency fund covers 3.12 months; target_balance is $9,600.00 for 3 months; shortfall is $0.00.",
+        "key": "emergency_fund",
+        "status": "pass"
+      },
+      {
+        "detail": "Highest debt APR is 4.5% on student debt; high-interest threshold is 8% APR.",
+        "key": "high_interest_debt",
+        "status": "warn"
+      }
+    ],
+    "failed_check": "none",
+    "math": null,
+    "notes": [
+      "student debt at 4.5% APR is low-interest and can be managed alongside investing."
+    ],
+    "preview_next_checks": [],
+    "reason": "Responsibility checks cleared.",
+    "recommended_action": "",
+    "status": "greenlight"
+  },
+  "optimizer_input": {
+    "age": 28,
+    "capital_on_hand": 7500.0,
+    "esg_exclusions": [
+      "fossil_fuels",
+      "weapons"
+    ],
+    "filing_status": "single",
+    "gate_notes": [
+      "student debt at 4.5% APR is low-interest and can be managed alongside investing."
+    ],
+    "goal_target": 1000000.0,
+    "horizon_years": 37,
+    "human_capital_beta": "mixed",
+    "monthly_surplus": 3300.0,
+    "risk_profile": {
+      "binding_axis": "tolerance",
+      "capacity_gamma": 2.3640275922149447,
+      "capacity_score": 72.82508558195731,
+      "gamma_band": {
+        "aggressive": 2.3640275922149447,
+        "conservative": 3.7758136842347354,
+        "mid": 2.754607293875593
+      },
+      "loss_aversion_flag": false,
+      "target_vol_band": {
+        "aggressive": 0.16920276282614166,
+        "conservative": 0.10593743056500156,
+        "mid": 0.145211261470676
+      },
+      "tolerance_gamma": {
+        "aggressive": 2.108200535171997,
+        "conservative": 3.7758136842347354,
+        "mid": 2.754607293875593
+      },
+      "tolerance_score": 30.0
+    },
+    "sector_theme_tilts": [],
+    "universe_pref": "etf"
+  },
+  "portfolio": {
+    "metrics": {
+      "expected_shortfall_95": 0.20380679481492064,
+      "expected_vol": 0.09573102891739797,
+      "risk_contributions": {
+        "bonds": 0.0005821126934235131,
+        "gold": 0.24702227606699065,
+        "intl_equity": 0.25076273528399406,
+        "reits": 0.25079789398229424,
+        "tips": 7.489780676497909e-05,
+        "us_equity": 0.2507600841665326
+      }
+    },
+    "universe": {
+      "excluded": [
+        {
+          "reason": "fossil_fuels",
+          "ticker": "VEA"
+        },
+        {
+          "reason": "fossil_fuels",
+          "ticker": "VTI"
+        }
+      ],
+      "market_weights": {
+        "bonds": 0.2,
+        "gold": 0.05,
+        "intl_equity": 0.2,
+        "reits": 0.05,
+        "tips": 0.05,
+        "us_equity": 0.45
+      },
+      "risky_sleeves": [
+        "us_equity",
+        "intl_equity",
+        "reits",
+        "gold"
+      ],
+      "safe_sleeves": [
+        "bonds",
+        "tips"
+      ],
+      "sleeves": {
+        "bonds": [
+          "BND"
+        ],
+        "gold": [
+          "GLD"
+        ],
+        "intl_equity": [
+          "ESGD"
+        ],
+        "reits": [
+          "VNQ"
+        ],
+        "tips": [
+          "TIP"
+        ],
+        "us_equity": [
+          "ESGV"
+        ]
+      },
+      "tickers": [
+        "BND",
+        "ESGD",
+        "ESGV",
+        "GLD",
+        "TIP",
+        "VNQ"
+      ]
+    },
+    "weights": {
+      "blend_alpha": 0.97,
+      "by_sleeve": {
+        "bonds": 0.02400000000000002,
+        "gold": 0.3907911482069447,
+        "intl_equity": 0.19156760530154263,
+        "reits": 0.1824519543210781,
+        "tips": 0.006000000000000005,
+        "us_equity": 0.20518929217043447
+      },
+      "by_ticker": {
+        "BND": 0.02400000000000002,
+        "ESGD": 0.19156760530154263,
+        "ESGV": 0.20518929217043447,
+        "GLD": 0.3907911482069447,
+        "TIP": 0.006000000000000005,
+        "VNQ": 0.1824519543210781
+      },
+      "method": "erc"
+    }
+  },
+  "risk_profile": {
+    "binding_axis": "tolerance",
+    "capacity_gamma": 2.3640275922149447,
+    "capacity_score": 72.82508558195731,
+    "gamma_band": {
+      "aggressive": 2.3640275922149447,
+      "conservative": 3.7758136842347354,
+      "mid": 2.754607293875593
+    },
+    "loss_aversion_flag": false,
+    "target_vol_band": {
+      "aggressive": 0.16920276282614166,
+      "conservative": 0.10593743056500156,
+      "mid": 0.145211261470676
+    },
+    "tolerance_gamma": {
+      "aggressive": 2.108200535171997,
+      "conservative": 3.7758136842347354,
+      "mid": 2.754607293875593
+    },
+    "tolerance_score": 30.0
+  },
+  "status": "greenlight",
+  "validated_profile": {
+    "age": 28,
+    "capital_on_hand": 7500.0,
+    "confidence": {
+      "risk": 0.9
+    },
+    "debts": [
+      {
+        "apr": 0.045,
+        "balance": 14000.0,
+        "kind": "student"
+      }
+    ],
+    "dependents": 0,
+    "emergency_fund": 10000.0,
+    "emergency_fund_months": 3.125,
+    "esg_exclusions": [
+      "fossil_fuels",
+      "weapons"
+    ],
+    "filing_status": "single",
+    "goal_target": 1000000.0,
+    "goals": [
+      "retirement"
+    ],
+    "horizon_years": 37,
+    "household_income": 78000.0,
+    "income_stability": "mixed",
+    "loss_aversion_probe": 250.0,
+    "loss_scenario_response": "hold",
+    "monthly_expenses": 3200.0,
+    "monthly_surplus": 3300.0,
+    "required_emergency_fund": 9600.0,
+    "risk_instrument_responses": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3
+    ],
+    "sector_theme_tilts": [],
+    "uncertainty_flags": [],
+    "universe_pref": "etf"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "items": [
+    {
+      "ticker": "VTI",
+      "shares": 42.0,
+      "avg_cost": 242.0,
+      "market_value": 8900.0
+    },
+    {
+      "ticker": "VEA",
+      "shares": 150.0,
+      "avg_cost": 48.0,
+      "market_value": 7350.0
+    },
+    {
+      "ticker": "BND",
+      "shares": 105.0,
+      "avg_cost": 82.0,
+      "market_value": 8200.0
+    },
+    {
+      "ticker": "TIP",
+      "shares": 70.0,
+      "avg_cost": 109.0,
+      "market_value": 7900.0
+    },
+    {
+      "ticker": "GLD",
+      "shares": 18.0,
+      "avg_cost": 176.0,
+      "market_value": 3450.0
+    },
+    {
+      "ticker": "VNQ",
+      "shares": 55.0,
+      "avg_cost": 89.0,
+      "market_value": 4700.0
+    }
+  ],
+  "portfolio_value": 42500.0,
+  "cash": 2000.0,
+  "cost_basis": {
+    "VTI": 10164.0,
+    "VEA": 7200.0,
+    "BND": 8610.0,
+    "TIP": 7630.0,
+    "GLD": 3168.0,
+    "VNQ": 4895.0
+  }
+}

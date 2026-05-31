@@ -6,6 +6,282 @@ This is the precision layer for implementation. Where [01-e2e-design.md](./01-e2
 
 **Design refinement flagged here (new):** the **risky/safe sleeve split** that makes the capital-allocation-line blend (01 §3.6) actually work. See §4.
 
+## UI-Contract (frontend integration -- single source of truth)
+
+Base path for the live frontend is `/api/v1`. The frontend consumes these shapes verbatim. In `gate_result.math.emergency_fund`, the emergency-fund target field is **`target_balance`**, not `target_amount`.
+
+### Shared objects
+
+```json
+UserProfileInput = {
+  "household_income": "number",
+  "monthly_expenses": "number",
+  "capital_on_hand": "number",
+  "emergency_fund": "number",
+  "debts": [{ "balance": "number", "apr": "number", "kind": "credit_card|student|mortgage|auto|personal|other" }],
+  "age": "number",
+  "horizon_years": "number",
+  "goals": ["string"],
+  "goal_target": "number",
+  "dependents": "number",
+  "filing_status": "single|married_joint|married_separate|head_of_household",
+  "risk_instrument_responses": ["number"],
+  "loss_scenario_response": "sell_all|sell_some|hold|buy_more",
+  "loss_aversion_probe": "number|null",
+  "income_stability": "bond_like|mixed|stock_like",
+  "universe_pref": "etf|stock|mix",
+  "esg_exclusions": ["fossil_fuels|weapons|tobacco|gambling|none"],
+  "sector_theme_tilts": ["string"],
+  "confidence": { "field": "number" },
+  "uncertainty_flags": ["string"]
+}
+
+TargetWeights = {
+  "by_ticker": { "TICKER": "number" },
+  "by_sleeve": { "us_equity|intl_equity|bonds|tips|gold|reits": "number" },
+  "blend_alpha": "number",
+  "method": "erc|black_litterman|cvar"
+}
+
+Positions = {
+  "items": [{ "ticker": "string", "shares": "number", "avg_cost": "number", "market_value": "number" }],
+  "portfolio_value": "number",
+  "cash": "number"
+}
+
+PortfolioResponse = {
+  "universe": {
+    "tickers": ["string"],
+    "sleeves": { "us_equity|intl_equity|bonds|tips|gold|reits": ["string"] },
+    "risky_sleeves": ["us_equity|intl_equity|bonds|tips|gold|reits"],
+    "safe_sleeves": ["us_equity|intl_equity|bonds|tips|gold|reits"],
+    "market_weights": { "us_equity|intl_equity|bonds|tips|gold|reits": "number" },
+    "excluded": [{ "ticker": "string", "reason": "string" }]
+  },
+  "weights": TargetWeights,
+  "metrics": {
+    "expected_vol": "number",
+    "expected_shortfall_95": "number",
+    "risk_contributions": { "us_equity|intl_equity|bonds|tips|gold|reits": "number" }
+  }
+}
+```
+
+### POST `/onboard` -> `OnboardResponse`
+
+Request body is `UserProfileInput`. Optional query: `user_email`.
+
+```json
+{
+  "status": "greenlight|halt|needs_clarification|no_profile",
+  "validated_profile": "ValidatedProfile|null",
+  "risk_profile": "RiskProfile|null",
+  "gate_result": {
+    "status": "greenlight|halt",
+    "failed_check": "emergency_fund|high_interest_debt|none|null",
+    "reason": "string|null",
+    "recommended_action": "string",
+    "math": {
+      "check": "emergency_fund|high_interest_debt",
+      "emergency_fund": {
+        "current_balance": "number",
+        "monthly_expenses": "number",
+        "months_covered": "number",
+        "required_months": "number",
+        "target_balance": "number",
+        "shortfall": "number"
+      },
+      "debt": {
+        "debt_balance": "number",
+        "apr": "number",
+        "debt_kind": "string",
+        "guaranteed_return": "number",
+        "expected_after_tax_market_return": "number",
+        "interest_accruing_annual": "number",
+        "net_advantage_annual": "number",
+        "verdict": "string"
+      }
+    },
+    "notes": ["string"],
+    "preview_next_checks": ["string"],
+    "checks": [
+      { "key": "emergency_fund", "status": "pass|fail|warn", "detail": "string" },
+      { "key": "high_interest_debt", "status": "pass|fail|warn", "detail": "string" }
+    ]
+  },
+  "financial_analysis": "FinancialAnalysis|null",
+  "optimizer_input": "OptimizerInput|null",
+  "portfolio": "PortfolioResponse|null",
+  "clarification_requests": [{ "field": "string", "issue": "string", "suggested_question": "string" }]
+}
+```
+
+`gate_result.math` is `null` when `status` is `greenlight`. On an emergency-fund halt, `math.emergency_fund` is populated and `math.debt` is `null`; on a high-interest-debt halt, `math.debt` is populated and `math.emergency_fund` is `null`.
+
+### Finance endpoints
+
+`POST /portfolio`
+
+```json
+Request = { "profile": UserProfileInput }
+Response = PortfolioResponse
+```
+
+`POST /projection`
+
+```json
+Request = {
+  "weights": TargetWeights,
+  "horizon_years": "number",
+  "monthly_contribution": "number",
+  "capital_on_hand": "number",
+  "goal_target": "number",
+  "generator": "stationary_bootstrap|gaussian",
+  "seed": "number|null",
+  "n_paths": "number"
+}
+
+Response = {
+  "p_success": "number",
+  "generator": "stationary_bootstrap|gaussian",
+  "horizon_years": "number",
+  "percentile_paths": { "p5": ["number"], "p25": ["number"], "p50": ["number"], "p75": ["number"], "p95": ["number"] },
+  "bad_case_terminal": "number",
+  "median_terminal": "number",
+  "n_paths": "number"
+}
+```
+
+`POST /rebalance`
+
+```json
+Request = { "positions": Positions, "weights": TargetWeights }
+Response = {
+  "action": "none|steer|trade",
+  "drifts": { "us_equity|intl_equity|bonds|tips|gold|reits": { "current": "number", "target": "number", "drift_pp": "number" } },
+  "steer": { "next_contribution_to": ["us_equity|intl_equity|bonds|tips|gold|reits"] },
+  "trades": [{ "ticker": "string", "side": "buy|sell", "shares": "number" }]
+}
+```
+
+`steer` may be `null`; `trades` is an empty array unless action is `trade`.
+
+`POST /tax/report`
+
+```json
+Request = {
+  "positions": Positions,
+  "cost_basis": { "TICKER": "number" },
+  "filing_status": "single|married_joint|married_separate|head_of_household",
+  "bracket": "number|null"
+}
+
+Response = {
+  "harvestable": [{ "ticker": "string", "unrealized_loss": "number", "note": "string" }],
+  "wash_sale_warnings": [{ "ticker": "string", "window_days": "number", "suggested_replacement": "string" }],
+  "after_tax_notes": ["string"]
+}
+```
+
+### User/profile endpoints
+
+`GET /profile/{email}` returns `OnboardResponse`. If no profile exists, response is `{ "status": "no_profile", "validated_profile": null, "risk_profile": null, "gate_result": null, "financial_analysis": null, "optimizer_input": null, "portfolio": null, "clarification_requests": [] }`.
+
+`GET /users/{email}/record`
+
+```json
+{
+  "account": { "email": "string", "name": "string", "created_at": "string|null" },
+  "profile_input": "UserProfileInput|null",
+  "onboard_result": "OnboardResponse|null",
+  "chat_sessions": [
+    {
+      "id": "string",
+      "kind": "elicitation|advisor",
+      "status": "string",
+      "created_at": "string|null",
+      "updated_at": "string|null",
+      "extracted_profile": "object|null",
+      "messages": [{ "role": "user|assistant", "content": "string", "seq": "number", "created_at": "string|null" }]
+    }
+  ]
+}
+```
+
+`GET /users/{email}/chats` returns the same `chat_sessions[]` item shape with `messages: []`. Optional query: `kind=elicitation|advisor`.
+
+`GET /config`
+
+```json
+{
+  "gate": {
+    "emergency_fund_months_required": "number",
+    "high_apr_threshold": "number",
+    "low_apr_threshold": "number"
+  },
+  "market_assumptions": {
+    "expected_market_return": "number",
+    "ltcg_rate": "number",
+    "expected_after_tax_market_return": "number"
+  }
+}
+```
+
+### SSE event protocol
+
+Both chat endpoints use `Content-Type: text/event-stream`. Each event frame is `data: <json-or-[DONE]>\n\n`.
+
+`POST /chat` request:
+
+```json
+{
+  "messages": [{ "role": "user|assistant", "content": "string" }],
+  "user_email": "string|null",
+  "session_id": "string|null"
+}
+```
+
+`POST /chat` events:
+
+```json
+{ "type": "session", "session_id": "string" }
+{ "type": "token", "content": "string" }
+{ "type": "profile_ready", "profile": UserProfileInput }
+{ "type": "error", "content": "string" }
+[DONE]
+```
+
+`POST /advisor/chat` request:
+
+```json
+{
+  "messages": [{ "role": "user|assistant", "content": "string" }],
+  "user_email": "string|null",
+  "session_id": "string|null",
+  "context": "OnboardResponse|null"
+}
+```
+
+`POST /advisor/chat` events:
+
+```json
+{ "type": "session", "session_id": "string" }
+{ "type": "token", "content": "string" }
+{ "type": "error", "content": "string" }
+[DONE]
+```
+
+### Frontend client SDK to implement
+
+Backend team does not edit frontend for this backend-only module. Frontend team must add these wrappers to `client/src/api/greenlightClient.js`, using the existing host-relative `BASE` and fetch/error pattern:
+
+```js
+postPortfolio(profile)   // POST `${BASE}/api/v1/portfolio` with body { profile }
+postProjection(input)    // POST `${BASE}/api/v1/projection` with body input
+postRebalance(input)     // POST `${BASE}/api/v1/rebalance` with body input
+postTaxReport(input)     // POST `${BASE}/api/v1/tax/report` with body input
+```
+
 ---
 
 ## 1. Conventions
