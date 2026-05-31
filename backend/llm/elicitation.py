@@ -24,10 +24,11 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from llm.instrument import next_directive, step_from_messages
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -382,11 +383,37 @@ def _stream_sync(messages: list[ChatMessage]) -> Generator[dict, None, None]:
         role = "model" if msg.role == "assistant" else "user"
         contents.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
 
+    step = step_from_messages(messages)
+    directive = next_directive(step)
+    if directive is not None:
+        turn_control_block = (
+            "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "TURN CONTROL — THIS OVERRIDES THE ORDERING GUIDANCE ABOVE. OBEY EXACTLY.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Ask EXACTLY ONE question this turn — the one specified below. Do NOT ask\n"
+            "anything else, do NOT skip ahead, and do NOT re-ask anything already answered\n"
+            "earlier in this conversation. If the user's previous answer was too vague to\n"
+            "score, you may briefly re-ask THIS item for clarification instead — but never\n"
+            "switch to a different topic.\n\n"
+            f"{directive}"
+        )
+    else:
+        turn_control_block = (
+            "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "TURN CONTROL — SCRIPT COMPLETE\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Every scripted question has been asked. Do NOT ask anything further. Map the\n"
+            "full conversation to the structured fields and call the submit_profile\n"
+            "function now."
+        )
+    effective_system = SYSTEM_PROMPT + turn_control_block
+
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
+        system_instruction=effective_system,
         tools=[SUBMIT_PROFILE_TOOL],
         temperature=0.4,
         max_output_tokens=2048,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),  # disable thinking to preserve streaming + function-calling
     )
 
     function_call_args = None
