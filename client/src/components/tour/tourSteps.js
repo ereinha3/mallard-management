@@ -13,7 +13,7 @@ const tourSteps = [
   {
     selector: "[data-tour='nav-greenlight']",
     title: 'Greenlight',
-    body: 'Use Mallard’s stock screening workflow to evaluate ideas with structured checks before you act.',
+    body: 'Run the responsibility gate, review your target allocation, and adjust portfolio preferences in one place.',
     page: 'greenlight',
   },
   {
@@ -33,12 +33,6 @@ const tourSteps = [
     title: 'Accounts',
     body: 'Review linked brokerage accounts and keep your account picture organized in one place.',
     page: 'accounts',
-  },
-  {
-    selector: "[data-tour='nav-portfolio']",
-    title: 'Portfolio',
-    body: 'Explore holdings, allocation, and performance so you can understand what you own and how it is moving.',
-    page: 'portfolio',
   },
   {
     selector: "[data-tour='nav-risk']",

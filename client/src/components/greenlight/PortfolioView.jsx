@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } from 'lucide-react'
 import IntakeChat from './IntakeChat'
 import PortfolioEditor from './PortfolioEditor'
+import { postPortfolio } from '../../api/greenlightClient'
 import { CountUpNumber, PortfolioRevealStyles, RevealItem, usePrefersReducedMotion } from './PortfolioReveal'
 import RebalancePanel from './RebalancePanel'
 import {
@@ -115,7 +116,7 @@ function RiskMetric({ label, value, color, countConfig, reducedMotion, delay = 0
   )
 }
 
-function GuideOverlay({ onClose, onComplete }) {
+function GuideOverlay({ onClose, onComplete, userEmail }) {
   return (
     <div
       style={{
@@ -153,13 +154,13 @@ function GuideOverlay({ onClose, onComplete }) {
         >
           <X size={16} />
         </button>
-        <IntakeChat onComplete={onComplete} />
+        <IntakeChat onComplete={onComplete} userEmail={userEmail} />
       </div>
     </div>
   )
 }
 
-export default function PortfolioView({ onRebalance, onboardResult, onApplied }) {
+export default function PortfolioView({ onRebalance, onboardResult, onApplied, userEmail }) {
   const reducedMotion = usePrefersReducedMotion()
   const [showRebalance, setShowRebalance] = useState(false)
   const [showEditor, setShowEditor] = useState(false)
@@ -233,14 +234,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
 
     setLoadingPortfolio(true)
     setPortfolioError(null)
-    import('../../api/greenlightClient')
-      .then((client) => {
-        const postPortfolio = client.postPortfolio
-        if (typeof postPortfolio !== 'function') {
-          throw new Error('Portfolio endpoint wrapper is not available.')
-        }
-        return postPortfolio(profile)
-      })
+    postPortfolio(profile)
       .then((response) => {
         if (!cancelled) setFetchedPortfolio(portfolioFromResponse(response))
       })
@@ -332,6 +326,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
         <GuideOverlay
           onClose={() => setShowGuide(false)}
           onComplete={handleGuideComplete}
+          userEmail={userEmail}
         />
       )}
 
@@ -450,6 +445,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
             {showEditor && (
               <PortfolioEditor
                 onboardResult={activeResult}
+                userEmail={userEmail}
                 onApplied={handleEditorApplied}
               />
             )}
