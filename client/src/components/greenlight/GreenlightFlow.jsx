@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react'
 import IntakeChat from './IntakeChat'
+import GateFixForm from './GateFixForm'
 import GateScreen from './GateScreen'
 import PortfolioView from './PortfolioView'
 import RebalancePanel from './RebalancePanel'
@@ -175,7 +176,7 @@ export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
           />
         )}
         {step === STEPS.INTAKE_FIX && (
-          <IntakeChat onComplete={handleIntakeComplete} userEmail={resolvedUserEmail} />
+          <GateFixForm gateResult={gateResult} userEmail={resolvedUserEmail} onComplete={handleIntakeComplete} />
         )}
         {step === STEPS.GATE_GREEN && (
           <GateScreen
