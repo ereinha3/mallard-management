@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import Date, Float, ForeignKey, String, create_engine
+from sqlalchemy import Date, Float, ForeignKey, String, create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -92,10 +92,36 @@ def get_engine(db_url: str | None = None) -> Engine:
     engine = _ENGINES.get(url)
     if engine is None:
         _ensure_sqlite_parent(url)
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        is_sqlite = url.startswith("sqlite")
+        # `timeout` is the sqlite3 driver busy-timeout (seconds): a blocked
+        # connection waits for the lock to clear instead of immediately raising
+        # "database is locked".
+        connect_args = {"check_same_thread": False, "timeout": 30.0} if is_sqlite else {}
         engine = create_engine(url, future=True, connect_args=connect_args)
+        if is_sqlite:
+            _enable_sqlite_concurrency(engine)
         _ENGINES[url] = engine
     return engine
+
+
+def _enable_sqlite_concurrency(engine: Engine) -> None:
+    """Enable WAL + busy_timeout so concurrent readers don't hit lock errors.
+
+    The default rollback journal makes a read fail with "database is locked"
+    whenever any connection holds a write lock. WAL lets readers proceed
+    alongside a writer, and busy_timeout makes the rare contention wait rather
+    than error — important because every projection scans the full prices table.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
 
 
 def get_session(db_url: str | None = None) -> Session:
