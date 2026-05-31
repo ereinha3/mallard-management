@@ -52,6 +52,35 @@
 
 ---
 
+## 1a. Re-audit delta — 2026-05-31 (post-merge into `main`)
+
+Re-verified by two read-only Codex re-auditors after merging recent work (`2ade255 Hybrid elicitation`, `9460314 Editable settings`, `ethan2`). **The in-flight backtest / Monte-Carlo agent has NOT landed in this repo** — zero commits to `engine/backtest` or `engine/montecarlo`, working tree clean — so all engine MC/backtest gaps (`G-02`, `G-23`, `G-24`, `G-25`) and the other engine gaps (`G-03`, `G-04`) are **unchanged**.
+
+**Closed / improved**
+- ✅ **Elicitation MVP constraint (01 §3.1) — CLOSED.** Intake is now a server-driven hybrid question order via `backend/llm/instrument.py` (`SCRIPT`: `income_stability`, GL1–GL13, loss-scenario, Dohmen, loss-aversion, goal, prefs). Order is driven by `step_from_messages` selecting `SCRIPT[step]` (`instrument.py:184,203`) + an injected turn-control block (`elicitation.py:386`); GL item order pinned + tested (`test_instrument.py:60`). *(Caveat: stateless turn-count control, not content-aware completion.)*
+- 🟡 **G-07 improved → still PARTIAL.** Exact GL1–GL13 order now pinned in code (`instrument.py:23`, presented "VERBATIM" `instrument.py:224`), but the **13–47 scoring-range mismatch remains** (schema allows 1–4 ×13 = max 52 at `backend/models.py:110,141`).
+
+**Still open**
+- ❌ **G-01 — STILL OPEN (top priority).** `greenlightClient.js` was edited (added `getActiveOnboarding`, address in `register`) but **`postProjection` / `postRebalance` / `postTaxReport` are still absent and `postPortfolio` still posts a raw `profile` body** (`greenlightClient.js:137,141`). MC fan chart / rebalance / tax panels still cannot reach the engine; consumers still guard against the missing wrappers (`Dashboard.jsx:225`, `RebalancePanel.jsx:355`).
+- ❌ **G-05** (validity firewall still not enforced before `profile_ready` — `elicitation.py:440` emits straight from `function_call_args`; range/length checks only later at `/onboard`), **G-06** (raw `RiskSignals` contract still not modeled), **G-09** (engine builds the re-ask note at `fusion.py:87` but the chat stream never re-asks — `v1.py:1604`) — **unchanged**.
+- ❌ **G-02, G-04, G-23, G-24, G-25** — unchanged (no commits in those areas).
+- ✅ **G-03 — CLOSED (this session, `ethan3`).** Bracket-aware tax + gate math implemented: new `engine/tax/rates.py` (ordinary→LTCG map, loss-offset caps), `bracket` threaded through `tax_report`/`evaluate_gate`/`_debt_math` and the API (`/tax/report`, `/onboard`, gate). Adversarial Codex test pass surfaced + fixed a real bug (`TaxReportRequest.bracket` was missing `le=1`, accepting `1.01`) and added engine-boundary hardening (clamp + NaN→None). Engine 69 / backend 57 green; regression tests added.
+
+**Mitigated (not closed as written)**
+- 🟡 **G-38.** `SettingsView` still ignores `onboardResult` (`SettingsView.jsx:49` destructures only `user`/handlers), but a **new editable `ProfileView`** consumes `validated_profile ?? profile` and saves via `postUpdateProfile` (`ProfileView.jsx:45,451`) — the product need (edit the validated profile) is now met on a different screen. Settings became editable for account fields.
+- 🟡 **G-36.** `PortfolioView` now attempts a live `postPortfolio` fetch when `onboardResult.portfolio` is absent (`PortfolioView.jsx:231`), but the hardcoded `GLIDEPATH` (`PortfolioView.jsx:28`) and estimated-metric fallback (`engineData.js:245`) remain.
+
+**New undocumented additions (decide: document in specs or remove)**
+- `backend/llm/instrument.py` — hybrid-elicitation `SCRIPT` controller (`ScriptItem`/`SCRIPT` at `instrument.py:7`).
+- **Advisor account tools** — `get_account_summary`, `get_my_settings`, `get_my_profile_inputs` (`advisor.py:125`, impls `explain_tools.py:245,264,313`, tested `test_account_tools.py:56`). Expands function-tool explainability; **`G-31` (MCP) still open** — still Gemini function-tools, not MCP.
+- New endpoint `GET /api/v1/users/{email}/active-onboarding` + client `getActiveOnboarding`.
+- New editable `ProfileView` (tag/dropdown controls) saving via `postUpdateProfile`; address capture in signup.
+- LLM model pinned to `gemini-3.5-flash` (`elicitation.py:31`, `advisor.py:31`) — config, not in specs.
+
+> **Net:** of the two in-flight agents, the **chat-intake agent's guided-order work is merged and closes the 01 §3.1 intake constraint**; the **backtest/MC agent's work is not in this repo yet**. The single highest-impact gap (`G-01`) is **still open** — the frontend remains unable to call the live Projection/Rebalance/Tax endpoints despite `greenlightClient.js` being touched.
+
+---
+
 ## 2. Cross-cutting verdict by spec principle
 
 The README names six non-negotiable commitments. Status of each:

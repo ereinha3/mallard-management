@@ -79,6 +79,10 @@ from schemas.models import (  # noqa: E402
     UserProfile as EngineUserProfile,
 )
 from sizing.sizer import size_orders  # noqa: E402
+from tax.rates import (  # noqa: E402
+    expected_after_tax_market_return,
+    ltcg_rate_for_bracket,
+)
 from tax.report import tax_report  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
@@ -200,13 +204,19 @@ def _to_api_risk(risk_profile: Any) -> api_models.RiskProfile:
     return api_models.RiskProfile.model_validate(payload)
 
 
-def _debt_verdict(debt: Any) -> str:
+def _debt_verdict(
+    debt: Any,
+    bracket: float | None = None,
+    filing_status: str | None = None,
+) -> str:
+    after_tax_return = expected_after_tax_market_return(bracket, filing_status)
+    ltcg_rate = ltcg_rate_for_bracket(bracket, filing_status)
     return (
         f"Paying off your {debt.apr * 100:.0f}% APR debt is a guaranteed, "
         f"tax-free {debt.apr * 100:.0f}% return. Equities return "
         f"~{EXPECTED_MARKET_RETURN * 100:.0f}% nominally, or "
-        f"~{EXPECTED_AFTER_TAX_MARKET_RETURN * 100:.1f}% after a "
-        f"{LTCG_RATE * 100:.0f}% capital-gains rate, and that return is uncertain."
+        f"~{after_tax_return * 100:.1f}% after a "
+        f"{ltcg_rate * 100:.0f}% capital-gains rate, and that return is uncertain."
     )
 
 
@@ -237,8 +247,13 @@ def _preview_next_checks(validated: Any, failed_check: str) -> list[str]:
     return []
 
 
-def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
+def _to_api_gate(
+    gate_result: Any,
+    validated: Any,
+    bracket: float | None = None,
+) -> api_models.GateResult:
     math_payload: api_models.GateMath | None = None
+    effective_bracket = bracket if bracket is not None else getattr(validated, "bracket", None)
     target_balance = validated.monthly_expenses * EF_MONTHS
     shortfall = max(0.0, target_balance - validated.emergency_fund)
     months_covered = validated.emergency_fund / validated.monthly_expenses
@@ -295,7 +310,11 @@ def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
                 expected_after_tax_market_return=gate_result.math.expected_after_tax_market_return,
                 interest_accruing_annual=gate_result.math.interest_accruing_annual,
                 net_advantage_annual=gate_result.math.net_advantage_annual,
-                verdict=_debt_verdict(debt),
+                verdict=_debt_verdict(
+                    debt,
+                    effective_bracket,
+                    getattr(validated, "filing_status", None),
+                ),
             ),
         )
 
@@ -773,13 +792,13 @@ def _greenlit_engine_context(profile_input: api_models.UserProfileInput) -> tupl
             },
         )
 
-    gate_result = evaluate_gate(validated)
+    gate_result = evaluate_gate(validated, validated.bracket)
     if gate_result.status != "greenlight":
         raise HTTPException(
             status_code=400,
             detail={
                 "message": "Profile must pass the responsibility gate before portfolio construction.",
-                "gate_result": _to_api_gate(gate_result, validated).model_dump(),
+                "gate_result": _to_api_gate(gate_result, validated, validated.bracket).model_dump(),
             },
         )
 
@@ -979,13 +998,13 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 
     validated = validate_profile(engine_profile)
     if isinstance(validated, dict):
-        gate_result = evaluate_gate(engine_profile)
+        gate_result = evaluate_gate(engine_profile, engine_profile.bracket)
         if gate_result.status == "halt":
             api_validated = _to_api_validated_from_profile(engine_profile, profile_input)
             return api_models.OnboardResponse(
                 status="halt",
                 validated_profile=api_validated,
-                gate_result=_to_api_gate(gate_result, engine_profile),
+                gate_result=_to_api_gate(gate_result, engine_profile, engine_profile.bracket),
             )
         return api_models.OnboardResponse(
             status="needs_clarification",
@@ -999,11 +1018,11 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
             validated_profile=_to_api_validated(validated, profile_input),
             clarification_requests=_engine_clarifications(risk_profile),
         )
-    gate_result = evaluate_gate(validated)
+    gate_result = evaluate_gate(validated, validated.bracket)
 
     api_validated = _to_api_validated(validated, profile_input)
     api_risk = _to_api_risk(risk_profile)
-    api_gate = _to_api_gate(gate_result, validated)
+    api_gate = _to_api_gate(gate_result, validated, validated.bracket)
     financial_analysis = _compute_financial_analysis(api_validated, api_risk, api_gate)
 
     optimizer_input = None
@@ -1713,7 +1732,7 @@ async def tax_report_endpoint(request: api_models.TaxReportRequest) -> api_model
     try:
         _ensure_engine_data()
         positions = EnginePositions.model_validate(request.positions.model_dump())
-        report = tax_report(positions, request.cost_basis, request.filing_status)
+        report = tax_report(positions, request.cost_basis, request.filing_status, request.bracket)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return api_models.TaxReport.model_validate(report.model_dump())
