@@ -18,6 +18,9 @@ data/etf-universe.json
 data/clients/
 data/optimization-reports/
 
+# Historical market data — too large for git, share directly with Ethan
+data/market-data/
+
 # Misc
 **/.codex-tasks
 client-integration/
