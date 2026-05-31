@@ -1302,12 +1302,23 @@ def _json_dt(value: Any) -> str | None:
     return value.isoformat() if value else None
 
 
+def _effective_broker_provider() -> str:
+    """The broker actually in use this run (env), not the stored column.
+
+    `get_broker` resolves the provider from BROKER_PROVIDER at call time, so the
+    funding-account response must reflect the same value or the UI can't tell
+    whether it's driving the simulator or real Alpaca.
+    """
+    provider = os.environ.get("BROKER_PROVIDER", "simulator").strip().lower()
+    return provider or "simulator"
+
+
 def _investment_account_out(account: InvestmentAccount) -> api_models.InvestmentAccountOut:
     return api_models.InvestmentAccountOut(
         user_email=account.user_email,
         cash_available=account.cash_available,
         cash_pending=account.cash_pending,
-        broker_provider=account.broker_provider,
+        broker_provider=_effective_broker_provider(),
         alpaca_account_id=account.alpaca_account_id,
     )
 

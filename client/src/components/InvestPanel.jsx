@@ -4,6 +4,7 @@ import {
   getFundingAccount,
   postBrokerageAccount,
   postBrokerageJournal,
+  postMockDeposit,
   postExecutionPreview,
   postExecutionSubmit,
   getPositions,
@@ -61,7 +62,12 @@ export default function InvestPanel({ userEmail, portfolio }) {
   const [queued, setQueued] = useState(false)
 
   const cash = numberOrNull(account?.cash_available) ?? 0
-  const hasAccount = Boolean(account?.alpaca_account_id)
+  const provider = account?.broker_provider ?? null
+  const isSimulator = provider === 'simulator'
+  // Simulator needs no Alpaca account; the real broker requires one to exist.
+  const accountReady = isSimulator || Boolean(account?.alpaca_account_id)
+  // Simulator has no funding cap; real Alpaca sandbox journal is capped at $1k/user.
+  const fundingCap = isSimulator ? 100000 : SANDBOX_FUNDING_CAP
   const invested = useMemo(
     () => (positions?.items ?? []).reduce((sum, item) => sum + (numberOrNull(item.market_value) ?? 0), 0),
     [positions],
@@ -124,9 +130,15 @@ export default function InvestPanel({ userEmail, portfolio }) {
   })
 
   const handleFund = () => run('fund', async () => {
-    const amt = Math.min(SANDBOX_FUNDING_CAP, Math.max(1, Number(amount) || 0))
-    const res = await postBrokerageJournal({ user_email: userEmail, amount: amt })
-    setAccount((prev) => ({ ...(prev ?? {}), cash_available: res.cash_available }))
+    const amt = Math.min(fundingCap, Math.max(1, Number(amount) || 0))
+    if (isSimulator) {
+      // Offline simulator: a mock deposit credits local cash instantly.
+      await postMockDeposit({ user_email: userEmail, amount: amt })
+      await refreshAccount()
+    } else {
+      const res = await postBrokerageJournal({ user_email: userEmail, amount: amt })
+      setAccount((prev) => ({ ...(prev ?? {}), cash_available: res.cash_available }))
+    }
   })
 
   const handlePreview = () => run('preview', async () => {
@@ -139,7 +151,8 @@ export default function InvestPanel({ userEmail, portfolio }) {
     setPositions(res.positions)
     setPlan(null)
     const filledValue = (res.positions?.items ?? []).reduce((s, i) => s + (numberOrNull(i.market_value) ?? 0), 0)
-    setQueued(filledValue <= 0) // orders accepted but not yet filled (market closed)
+    // Real Alpaca: orders accepted but unfilled (market closed). Simulator always fills.
+    setQueued(!isSimulator && filledValue <= 0)
     await refreshAccount()
   })
 
@@ -156,7 +169,7 @@ export default function InvestPanel({ userEmail, portfolio }) {
 
   return (
     <div data-tour="invest" className="card-premium p-5 anim-fade-up d375">
-      <PanelHeader cash={cash} hasAccount={hasAccount} invested={invested} />
+      <PanelHeader cash={cash} hasAccount={accountReady} invested={invested} />
 
       {loading ? (
         <StatusNote icon={Loader2}>Loading your brokerage account…</StatusNote>
@@ -164,8 +177,8 @@ export default function InvestPanel({ userEmail, portfolio }) {
         <StatusNote icon={AlertCircle}>Sign in to open a brokerage account.</StatusNote>
       ) : (
         <div className="mt-4 space-y-4">
-          {/* Step 1 — open account */}
-          {!hasAccount && (
+          {/* Step 1 — open account (real Alpaca only; simulator needs none) */}
+          {!accountReady && (
             <div>
               <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
                 Open an Alpaca <span style={{ color: 'var(--gold-light)' }}>sandbox</span> brokerage account
@@ -178,18 +191,19 @@ export default function InvestPanel({ userEmail, portfolio }) {
           )}
 
           {/* Step 2 — fund */}
-          {hasAccount && cash <= 0 && (
+          {accountReady && cash <= 0 && (
             <div>
               <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
-                Add funds to invest. Instantly journaled from the firm sweep account
-                (sandbox cap {formatCurrency(SANDBOX_FUNDING_CAP)}).
+                {isSimulator
+                  ? 'Add simulated cash to invest. Credited instantly to your paper account.'
+                  : `Add funds to invest. Instantly journaled from the firm sweep account (sandbox cap ${formatCurrency(SANDBOX_FUNDING_CAP)}).`}
               </p>
               <div className="flex items-center gap-2 mb-3">
                 <div className="flex items-center flex-1 rounded-lg px-3"
                   style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                   <span className="text-sm font-mono" style={{ color: 'var(--text-muted)' }}>$</span>
                   <input
-                    type="number" min={1} max={SANDBOX_FUNDING_CAP} value={amount}
+                    type="number" min={1} max={fundingCap} value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     className="w-full bg-transparent py-2.5 px-2 text-sm font-mono outline-none"
                     style={{ color: 'var(--text-primary)' }}
@@ -197,13 +211,13 @@ export default function InvestPanel({ userEmail, portfolio }) {
                 </div>
               </div>
               <PrimaryButton onClick={handleFund} busy={busy === 'fund'}>
-                <Wallet size={15} /> Add {formatCurrency(Math.min(SANDBOX_FUNDING_CAP, Math.max(1, Number(amount) || 0)))}
+                <Wallet size={15} /> Add {formatCurrency(Math.min(fundingCap, Math.max(1, Number(amount) || 0)))}
               </PrimaryButton>
             </div>
           )}
 
           {/* Step 3 — invest */}
-          {hasAccount && cash > 0 && !plan && (
+          {accountReady && cash > 0 && !plan && (
             <div>
               <div className="flex items-center justify-between rounded-lg p-3 mb-3"
                 style={{ background: 'var(--bg-elevated)' }}>
@@ -248,7 +262,7 @@ export default function InvestPanel({ userEmail, portfolio }) {
                   </PrimaryButton>
                 </div>
               </div>
-              {!open && (
+              {!open && !isSimulator && (
                 <StatusNote icon={Clock}>
                   Market is closed — orders will be accepted now and fill at the next open.
                 </StatusNote>
