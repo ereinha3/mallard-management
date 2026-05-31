@@ -19,14 +19,16 @@ from typing import Any, AsyncGenerator, Generator, Optional
 try:
     from google import genai
     from google.genai import types
+    from google.genai.types import ThinkingConfig
 except ImportError:
     genai = None
     types = None
+    ThinkingConfig = None
 
 from models import ChatMessage
 from llm import explain_tools
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
 _MAX_TOOL_TURNS = 5
 
 _ADVISOR_SYSTEM_PROMPT = """
@@ -58,10 +60,11 @@ WHAT YOU CAN DO
 • Explain financial concepts relevant to their situation
 • Discuss the analysis numbers that are already computed (reference them directly)
 
-You have read-only tools for live Greenlight engine data, deterministic projections,
-portfolio/risk internals, and research citations. Use tools for user-specific numbers
-and method backing. The tools return numbers; you narrate them. Do not compute new
-allocations, projections, risk scores, or advice yourself.
+You have read-only tools for live Greenlight engine data, account/settings/profile
+intake data, deterministic projections, portfolio/risk internals, and research
+citations. Use tools for user-specific numbers and method backing. The tools
+return numbers; you narrate them. Do not compute new allocations, projections,
+risk scores, or advice yourself.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TONE
@@ -119,6 +122,21 @@ def _build_advisor_tools() -> Any:
     )
     return types.Tool(
         function_declarations=[
+            types.FunctionDeclaration(
+                name="get_account_summary",
+                description="Use when the user asks about their account, name, email, cash balance, broker, or when the account was created.",
+                parameters=empty_params,
+            ),
+            types.FunctionDeclaration(
+                name="get_my_settings",
+                description="Use when the user asks about their current settings, preferences, time horizon, goal target, risk level, contribution, universe or ESG exclusions.",
+                parameters=empty_params,
+            ),
+            types.FunctionDeclaration(
+                name="get_my_profile_inputs",
+                description="Use when the user asks what information they provided during onboarding, their income, expenses, age, dependents, debts, or capital.",
+                parameters=empty_params,
+            ),
             types.FunctionDeclaration(
                 name="get_my_gate_status",
                 description="Read the requesting user's responsibility-gate status, checks, and supporting math.",
@@ -215,6 +233,8 @@ def _stream_sync(
     config = types.GenerateContentConfig(
         system_instruction=system,
         tools=[ADVISOR_TOOLS] if ADVISOR_TOOLS is not None else None,
+        # disable thinking for streaming parity with elicitation.py
+        thinking_config=ThinkingConfig(thinking_budget=0),
         temperature=0.5,
         max_output_tokens=1024,
     )

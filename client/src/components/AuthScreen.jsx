@@ -3,19 +3,19 @@ import { Feather, Eye, EyeOff, ArrowRight, AlertCircle, FastForward } from 'luci
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
-  { num: '01', text: 'Tells you not to invest when that is the right answer.' },
-  { num: '02', text: 'Shows the math, not just the verdict.' },
-  { num: '03', text: 'Builds a portfolio sized to what you can actually afford.' },
-  { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
+  { num: '01', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
+  { num: '02', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
+  { num: '03', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
+  { num: '04', text: 'No 1% fees. No $250k minimum. No nudges to buy what you should not.' },
 ]
 
 let _uid = 0
-function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete }) {
+function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false }) {
   const [id] = useState(() => `f-${++_uid}`)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <label htmlFor={id} style={{
-        fontSize: 10, fontWeight: 600, letterSpacing: '0.12em',
+        fontSize: 11, fontWeight: 600, letterSpacing: '0.12em',
         color: 'var(--text-muted)', textTransform: 'uppercase',
       }}>
         {label}
@@ -28,17 +28,19 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          required={required}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-err` : undefined}
           style={{
             width: '100%', boxSizing: 'border-box',
-            padding: '11px 14px',
-            paddingRight: rightEl ? 42 : 14,
+            minHeight: 62,
+            padding: '19px 22px',
+            paddingRight: rightEl ? 58 : 22,
             background: 'var(--bg-elevated)',
             border: `1px solid ${error ? 'rgba(200,60,60,0.65)' : 'var(--border-bright)'}`,
             borderRadius: 7,
             color: 'var(--text-primary)',
-            fontSize: 13.5,
+            fontSize: 17,
             fontFamily: 'DM Sans, sans-serif',
             outline: 'none',
             transition: 'border-color 0.15s, box-shadow 0.15s',
@@ -53,7 +55,7 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
           }}
         />
         {rightEl && (
-          <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)' }}>
+          <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)' }}>
             {rightEl}
           </div>
         )}
@@ -85,7 +87,7 @@ function PwField({ label, value, onChange, error, placeholder, autoComplete }) {
           aria-label={show ? 'Hide password' : 'Show password'}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}
         >
-          {show ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
+          {show ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
         </button>
       }
     />
@@ -99,12 +101,12 @@ function SubmitBtn({ loading, label }) {
       disabled={loading}
       aria-busy={loading}
       style={{
-        width: '100%', padding: '13px',
+        width: '100%', minHeight: 58, padding: '17px 20px',
         borderRadius: 8, border: 'none',
         cursor: loading ? 'not-allowed' : 'pointer',
         background: loading ? 'var(--bg-elevated)' : 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
         color: loading ? 'var(--text-muted)' : '#070604',
-        fontSize: 13.5, fontWeight: 700,
+        fontSize: 15.5, fontWeight: 700,
         fontFamily: 'DM Sans, sans-serif',
         letterSpacing: '0.03em',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -114,7 +116,7 @@ function SubmitBtn({ loading, label }) {
     >
       {loading
         ? <><Spinner /> Verifying...</>
-        : <>{label} <ArrowRight size={14} /></>
+        : <>{label} <ArrowRight size={16} /></>
       }
     </button>
   )
@@ -161,7 +163,7 @@ function SignInForm({ onAuth }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {errors.form && (
         <div role="alert" style={{ padding: '10px 12px', background: 'rgba(217,64,64,0.1)', border: '1px solid var(--ruby)', borderRadius: 8, color: 'var(--ruby)', fontSize: 13 }}>
           {errors.form}
@@ -184,21 +186,33 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const setPhone = (e) => {
+    const digits = e.target.value.replace(/\D/g, '')
+    const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
+    let phone = nationalDigits
+    if (nationalDigits.length > 6) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3, 6)}-${nationalDigits.slice(6)}`
+    else if (nationalDigits.length > 3) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3)}`
+    else if (nationalDigits.length > 0) phone = `(${nationalDigits}`
+    if (digits.length === 11 && digits[0] === '1') phone = `1 ${phone}`
+    setForm(f => ({ ...f, phone }))
+  }
 
   function validate() {
     const e = {}
+    const phoneDigits = form.phone.replace(/\D/g, '')
     if (!form.name.trim())    e.name    = 'Full name is required'
     if (!form.email.trim())   e.email   = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email'
     if (!form.phone.trim())   e.phone   = 'Phone number is required'
-    else if (form.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number'
+    else if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1'))) e.phone = 'Please enter a valid 10-digit US phone number'
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
+    if (!form.address.trim()) e.address = 'Street address is required'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -218,8 +232,9 @@ function SignUpForm({ onAuth }) {
         name: form.name,
         phone: form.phone.trim(),
         zip: form.zip.trim(),
+        address: form.address.trim(),
       })
-      onAuth({ ...user, isNewUser: true })
+      onAuth({ ...user, address: user.address ?? form.address.trim(), isNewUser: true })
     } catch (err) {
       setErrors({ form: err.message })
     } finally {
@@ -228,7 +243,7 @@ function SignUpForm({ onAuth }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {errors.form && (
         <div role="alert" style={{ padding: '10px 12px', background: 'rgba(217,64,64,0.1)', border: '1px solid var(--ruby)', borderRadius: 8, color: 'var(--ruby)', fontSize: 13 }}>
           {errors.form}
@@ -241,11 +256,15 @@ function SignUpForm({ onAuth }) {
         placeholder="you@example.com" error={errors.email} autoComplete="email" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Phone Number" type="tel" value={form.phone} onChange={set('phone')}
+        <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
           placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
           placeholder="94105" error={errors.zip} autoComplete="postal-code" />
       </div>
+
+      <Field label="Street Address" value={form.address} onChange={set('address')}
+        required
+        placeholder="123 Main St" error={errors.address} autoComplete="street-address" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}
@@ -265,7 +284,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
   const [mode, setMode] = useState('signin')
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg-base)', overflow: 'hidden' }}>
+    <div className="mallard-auth-screen" style={{ height: '100vh', minHeight: '100vh', width: '100vw', background: 'transparent', overflow: 'hidden' }}>
 
       {/* Dev-only: skip login + onboarding, load demo data */}
       {onDevSkip && (
@@ -291,215 +310,444 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
         </button>
       )}
 
-      {/* Left brand panel */}
-      <div style={{
-        width: '48%', minWidth: 480,
-        position: 'relative',
-        background: 'var(--bg-surface)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        padding: '60px 72px',
-        overflow: 'hidden',
-      }}>
-        {/* Vertical gold rule */}
-        <div style={{
-          position: 'absolute', top: 0, right: 0, width: 1, height: '100%',
-          background: 'linear-gradient(to bottom, transparent, rgba(180,128,16,0.28) 40%, rgba(180,128,16,0.12) 70%, transparent)',
-          pointerEvents: 'none',
-        }} />
-
-        {/* Geometric grid */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.038, pointerEvents: 'none' }}
-          viewBox="0 0 500 900" preserveAspectRatio="xMidYMid slice">
-          {Array.from({ length: 14 }, (_, i) => (
-            <line key={`h${i}`} x1="0" y1={i * 68} x2="500" y2={i * 68} stroke="#b08010" strokeWidth="0.5" />
-          ))}
-          {Array.from({ length: 9 }, (_, i) => (
-            <line key={`v${i}`} x1={i * 68} y1="0" x2={i * 68} y2="900" stroke="#b08010" strokeWidth="0.5" />
-          ))}
-          <circle cx="250" cy="450" r="250" fill="none" stroke="#b08010" strokeWidth="0.5" />
-          <circle cx="250" cy="450" r="160" fill="none" stroke="#b08010" strokeWidth="0.5" />
-        </svg>
-
-        {/* Glow */}
-        <div style={{
-          position: 'absolute', bottom: '-80px', left: '-80px',
-          width: 500, height: 500, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(176,128,16,0.11) 0%, rgba(176,128,16,0.04) 50%, transparent 70%)',
-          filter: 'blur(80px)', pointerEvents: 'none',
-        }} />
-
-        {/* Logo Section */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18, position: 'relative', zIndex: 1 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 13,
-            background: 'linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 50%, #8c640d 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 6px 24px rgba(176, 128, 16, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.4)',
-            position: 'relative'
-          }}>
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: 13,
-              background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)',
-              pointerEvents: 'none'
-            }} />
-            <Feather size={24} color="#070604" strokeWidth={2.5} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ 
-              fontFamily: 'Playfair Display, serif', 
-              fontWeight: 700, 
-              fontSize: 22, 
-              color: 'var(--text-primary)', 
-              letterSpacing: '-0.01em', 
-              lineHeight: 1.1 
-            }}>
-              Mallard
-            </div>
-            <div style={{ 
-              fontSize: 10, 
-              fontWeight: 700,
-              letterSpacing: '0.28em', 
-              color: 'var(--gold-light)', 
-              fontFamily: 'JetBrains Mono, monospace',
-              opacity: 0.9,
-              marginTop: 2
-            }}>
-              MANAGEMENT
-            </div>
-          </div>
-        </div>
-
-        {/* Hero copy */}
-        <div style={{ position: 'relative', zIndex: 1, marginTop: 60 }}>
-          <div style={{
-            fontFamily: 'Playfair Display, serif',
-            fontSize: 72, fontWeight: 600,
-            lineHeight: 1.02, letterSpacing: '-0.045em',
-            color: 'var(--text-primary)',
-            marginBottom: 52,
-          }}>
-            Fly to<br />
-            financial<br />
-            <span style={{ 
-              color: 'var(--gold-light)', 
-              position: 'relative',
-              display: 'inline-block'
-            }}>
-              freedom!
-              <svg style={{ position: 'absolute', bottom: -12, left: 0, width: '100%', height: 16, opacity: 0.7 }} viewBox="0 0 100 12" preserveAspectRatio="none">
-                <path d="M0,10 Q50,0 100,10" fill="none" stroke="var(--gold)" strokeWidth="3" strokeLinecap="round" />
-              </svg>
-            </span>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-            {VALUE_PROPS.map(vp => (
-              <div key={vp.num} style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-                <div style={{ 
-                  width: 32, height: 32, borderRadius: '50%', 
-                  background: 'rgba(176, 128, 16, 0.08)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--gold)',
-                  border: '1px solid rgba(176, 128, 16, 0.15)',
-                  flexShrink: 0
-                }}>
-                  {vp.num}
-                </div>
-                <span style={{ 
-                  fontSize: 16, 
-                  color: 'var(--text-secondary)', 
-                  lineHeight: 1.5,
-                  fontWeight: 450,
-                  maxWidth: '85%'
-                }}>
-                  {vp.text}
-                </span>
+      <div className="mallard-auth-split">
+        <section className="mallard-landing-panel" aria-label="Mallard Management">
+          <div className="mallard-landing-content">
+            <div className="landing-reveal mallard-logo-row">
+              <div className="mallard-logo-mark">
+                <Feather size={30} color="#070604" strokeWidth={2.5} />
               </div>
-            ))}
-          </div>
-        </div>
+              <div>
+                <div className="mallard-logo-name">Mallard</div>
+                <div className="mallard-logo-subtitle">MANAGEMENT</div>
+                <div className="mallard-logo-tagline">Fiduciary-grade advice. Free by default.</div>
+              </div>
+            </div>
 
-        {/* Footer */}
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ height: 1, background: 'var(--border)', marginBottom: 20 }} />
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            Demonstration only. Not financial advice.<br />Not a registered investment adviser.
-          </div>
-        </div>
-      </div>
+            <div className="landing-reveal d2 mallard-hero-copy">
+              <h1>
+                Fly to<br />
+                financial<br />
+                <span>
+                  freedom!
+                  <svg viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                    <path d="M4 23C43 8 87 5 131 11C162 15 190 18 216 9" />
+                  </svg>
+                </span>
+              </h1>
+            </div>
 
-      {/* Right form panel */}
-      <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '40px 56px', position: 'relative', overflow: 'hidden auto',
-      }}>
-        <div style={{ width: '100%', maxWidth: 440, position: 'relative', zIndex: 1 }}>
-          {/* Heading */}
-          <div style={{ marginBottom: 28 }}>
-            <h1 style={{
-              fontFamily: 'Playfair Display, serif', fontSize: 34,
-              fontWeight: 600, letterSpacing: '-0.03em',
-              color: 'var(--text-primary)', margin: 0, lineHeight: 1, marginBottom: 8,
-            }}>
-              {mode === 'signin' ? 'Welcome back.' : 'Create your account.'}
-            </h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-              {mode === 'signin'
-                ? 'Sign in to access your financial dashboard.'
-                : 'Get started. It takes less than a minute.'}
-            </p>
-          </div>
+            <div className="landing-reveal d3 mallard-value-list">
+              {VALUE_PROPS.map((item) => (
+                <div className="mallard-value-row" key={item.num}>
+                  <div className="mallard-value-num">{item.num}</div>
+                  <div>{item.text}</div>
+                </div>
+              ))}
+            </div>
 
-          {/* Mode toggle */}
-          <div style={{
-            display: 'flex', background: 'var(--bg-elevated)',
-            borderRadius: 9, padding: 4, marginBottom: 26,
-            border: '1px solid var(--border)',
-          }}>
-            {[{ id: 'signin', label: 'Sign In' }, { id: 'signup', label: 'Create Account' }].map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setMode(id)}
-                type="button"
-                aria-pressed={mode === id}
-                style={{
-                  flex: 1, padding: '9px 12px', borderRadius: 6, border: 'none',
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                  fontFamily: 'DM Sans, sans-serif', transition: 'all 0.15s',
-                  background: mode === id ? 'linear-gradient(135deg, var(--gold), var(--gold-bright))' : 'transparent',
-                  color: mode === id ? '#070604' : 'var(--text-muted)',
-                }}
-              >
-                {label}
-              </button>
-            ))}
           </div>
+        </section>
 
-          {/* Form */}
-          <div key={mode} style={{ animation: 'fadeUp 0.25s ease both' }}>
-            {mode === 'signin'
-              ? <SignInForm onAuth={onAuth} />
-              : <SignUpForm onAuth={onAuth} />
-            }
+        <section className="mallard-auth-form-half" aria-label="Account access">
+          <div className="landing-reveal d2 mallard-auth-card">
+            <div className="mallard-form-panel">
+              <div style={{ marginBottom: 28 }}>
+                <h2 className="mallard-form-heading">
+                  {mode === 'signin' ? 'Welcome back.' : 'Create your account.'}
+                </h2>
+                <p className="mallard-form-subcopy">
+                  {mode === 'signin'
+                    ? 'Sign in to access your financial dashboard.'
+                    : 'Get started. It takes less than a minute.'}
+                </p>
+              </div>
+
+              <div className="mallard-mode-toggle">
+                {[{ id: 'signin', label: 'Sign In' }, { id: 'signup', label: 'Create Account' }].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => setMode(id)}
+                    type="button"
+                    aria-pressed={mode === id}
+                    style={{
+                      flex: 1, padding: '11px 14px', borderRadius: 6, border: 'none',
+                      cursor: 'pointer', fontSize: 13.5, fontWeight: 600,
+                      fontFamily: 'DM Sans, sans-serif', transition: 'all 0.15s',
+                      background: mode === id ? 'linear-gradient(135deg, var(--gold), var(--gold-bright))' : 'transparent',
+                      color: mode === id ? '#070604' : 'var(--text-muted)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div key={mode} style={{ animation: 'fadeUp 0.25s ease both' }}>
+                {mode === 'signin'
+                  ? <SignInForm onAuth={onAuth} />
+                  : <SignUpForm onAuth={onAuth} />
+                }
+              </div>
+
+              <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)', marginTop: 24 }}>
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-light)', fontSize: 12.5, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', padding: 0 }}
+                >
+                  {mode === 'signin' ? 'Create one' : 'Sign in'}
+                </button>
+              </p>
+            </div>
           </div>
-
-          <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)', marginTop: 24 }}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-            <button
-              type="button"
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-light)', fontSize: 12.5, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', padding: 0 }}
-            >
-              {mode === 'signin' ? 'Create one' : 'Sign in'}
-            </button>
-          </p>
-        </div>
+        </section>
       </div>
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes landingContentReveal {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .mallard-auth-screen {
+          --landing-panel-bg: #faf8f3;
+          --auth-card-bg: rgba(255, 255, 255, 0.94);
+          --auth-card-border: rgba(0, 0, 0, 0.12);
+          --auth-card-shadow: 0 28px 80px rgba(32, 27, 18, 0.18);
+          --landing-reveal-duration: 0.58s;
+          position: relative;
+          z-index: 1;
+        }
+
+        .mallard-auth-screen::before {
+          content: '';
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 6px;
+          z-index: 20;
+          background: #17130d;
+          pointer-events: none;
+        }
+
+        [data-theme="dark"] .mallard-auth-screen {
+          --landing-panel-bg: #050403;
+          --auth-card-bg: rgba(8, 7, 5, 0.92);
+          --auth-card-border: rgba(255, 255, 255, 0.12);
+          --auth-card-shadow: 0 30px 90px rgba(0, 0, 0, 0.58);
+        }
+
+        .mallard-auth-screen .landing-reveal {
+          opacity: 0;
+          animation: landingContentReveal var(--landing-reveal-duration) cubic-bezier(0.2, 0.78, 0.2, 1) both;
+          animation-delay: var(--landing-stagger, 80ms);
+          will-change: opacity, transform;
+        }
+
+        .mallard-auth-screen .landing-reveal.d2 { --landing-stagger: 140ms; }
+        .mallard-auth-screen .landing-reveal.d3 { --landing-stagger: 220ms; }
+        .mallard-auth-screen .landing-reveal.d4 { --landing-stagger: 300ms; }
+
+        .mallard-auth-split {
+          height: 100%;
+          min-height: 0;
+          width: 100%;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          background: transparent;
+          overflow: hidden;
+        }
+
+        .mallard-landing-panel {
+          min-width: 0;
+          min-height: 0;
+          height: 100%;
+          display: flex;
+          align-items: stretch;
+          justify-content: center;
+          padding: clamp(52px, 5.2vw, 76px) clamp(44px, 5.8vw, 78px);
+          background: var(--landing-panel-bg);
+          border-right: 1px solid var(--border);
+          box-shadow: 16px 0 54px rgba(24, 20, 14, 0.10);
+          overflow: hidden;
+        }
+
+        [data-theme="dark"] .mallard-landing-panel {
+          box-shadow: 18px 0 68px rgba(0, 0, 0, 0.62);
+        }
+
+        .mallard-landing-content {
+          width: min(100%, 620px);
+          min-height: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+        }
+
+        .mallard-auth-form-half {
+          min-width: 0;
+          min-height: 0;
+          height: 100%;
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+          padding: clamp(42px, 5vw, 72px);
+          background: transparent;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+        }
+
+        .mallard-auth-card {
+          width: min(100%, 620px);
+          min-height: min(720px, calc(100vh - clamp(84px, 10vw, 144px)));
+          padding: clamp(36px, 4.2vw, 52px);
+          border: 1px solid var(--auth-card-border);
+          border-top-color: var(--border-gold);
+          border-radius: 8px;
+          background: var(--auth-card-bg);
+          box-shadow: var(--auth-card-shadow);
+          backdrop-filter: blur(18px) saturate(1.04);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-block: auto;
+        }
+
+        .mallard-logo-row {
+          display: flex;
+          align-items: center;
+          gap: 18px;
+        }
+
+        .mallard-logo-mark {
+          width: 60px;
+          height: 60px;
+          border-radius: 16px;
+          background: linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 52%, #8c640d 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 10px 28px rgba(176, 128, 16, 0.26), inset 0 1px 1px rgba(255, 255, 255, 0.42);
+          flex-shrink: 0;
+        }
+
+        .mallard-logo-name {
+          font-family: 'Playfair Display', serif;
+          font-size: 28px;
+          font-weight: 700;
+          line-height: 1.05;
+          color: var(--text-primary);
+        }
+
+        .mallard-logo-subtitle {
+          margin-top: 3px;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.28em;
+          color: var(--gold-light);
+        }
+
+        .mallard-logo-tagline {
+          margin-top: 9px;
+          color: var(--text-secondary);
+          font-size: 13.5px;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+
+        .mallard-hero-copy {
+          margin-top: clamp(54px, 8vh, 92px);
+        }
+
+        .mallard-hero-copy h1 {
+          margin: 0;
+          font-family: 'Playfair Display', serif;
+          font-size: clamp(64px, 7vw, 92px);
+          font-weight: 600;
+          line-height: 1.02;
+          letter-spacing: -0.045em;
+          color: var(--text-primary);
+        }
+
+        .mallard-hero-copy h1 span {
+          position: relative;
+          display: inline-block;
+          color: var(--gold-light);
+        }
+
+        .mallard-hero-copy h1 svg {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: -19px;
+          width: 100%;
+          height: 20px;
+          overflow: visible;
+        }
+
+        .mallard-hero-copy h1 path {
+          fill: none;
+          stroke: var(--gold);
+          stroke-width: 5;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          opacity: 0.82;
+        }
+
+        .mallard-value-list {
+          display: flex;
+          flex-direction: column;
+          gap: clamp(20px, 2.5vh, 28px);
+          margin-top: clamp(56px, 7vh, 78px);
+          max-width: 560px;
+        }
+
+        .mallard-value-row {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          color: var(--text-secondary);
+          font-size: 16px;
+          line-height: 1.5;
+          font-weight: 500;
+        }
+
+        .mallard-value-num {
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          border: 1px solid rgba(176, 128, 16, 0.28);
+          background: rgba(176, 128, 16, 0.08);
+          color: var(--gold);
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 11px;
+          font-weight: 500;
+        }
+
+        .mallard-form-panel {
+          width: 100%;
+          max-width: 520px;
+        }
+
+        .mallard-form-heading {
+          margin: 0 0 8px;
+          font-family: 'Playfair Display', serif;
+          font-size: 40px;
+          font-weight: 600;
+          letter-spacing: -0.03em;
+          line-height: 1;
+          color: var(--text-primary);
+        }
+
+        .mallard-form-subcopy {
+          margin: 0;
+          color: var(--text-muted);
+          font-size: 14.5px;
+        }
+
+        .mallard-mode-toggle {
+          display: flex;
+          margin-bottom: 26px;
+          padding: 4px;
+          border: 1px solid var(--border);
+          border-radius: 9px;
+          background: var(--bg-elevated);
+        }
+
+        @media (max-width: 1120px) {
+          .mallard-auth-screen {
+            height: auto !important;
+            min-height: 100vh !important;
+            overflow: hidden auto !important;
+          }
+
+          .mallard-auth-split {
+            grid-template-columns: 1fr;
+            height: auto;
+            min-height: 100vh;
+            overflow: visible;
+          }
+
+          .mallard-landing-panel {
+            height: auto;
+            min-height: auto;
+            padding-top: 88px;
+            border-bottom: 1px solid var(--border);
+            border-right: 0;
+            box-shadow: 0 18px 54px rgba(0, 0, 0, 0.08);
+            overflow: visible;
+          }
+
+          .mallard-landing-content {
+            height: auto;
+            min-height: auto;
+            justify-content: flex-start;
+          }
+
+          .mallard-auth-form-half {
+            height: auto;
+            min-height: auto;
+            padding: 42px 28px 64px;
+            overflow: visible;
+          }
+        }
+
+        @media (max-width: 620px) {
+          .mallard-landing-panel {
+            padding: 82px 20px 34px;
+          }
+
+          .mallard-auth-form-half {
+            padding: 28px 16px 52px;
+          }
+
+          .mallard-auth-card {
+            min-height: auto;
+            padding: 28px 20px;
+            width: min(100%, 620px);
+          }
+
+          .mallard-hero-copy {
+            margin-top: 52px;
+          }
+
+          .mallard-hero-copy h1 {
+            font-size: clamp(52px, 16vw, 70px);
+          }
+
+          .mallard-value-list {
+            margin-top: 52px;
+          }
+
+          .mallard-value-row {
+            align-items: flex-start;
+            font-size: 15px;
+          }
+
+          .mallard-form-heading {
+            font-size: 34px;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .mallard-auth-screen .landing-reveal {
+            opacity: 1;
+            transform: none;
+            animation: none;
+          }
+        }
+
         input::placeholder { color: var(--text-muted); opacity: 1; }
         
         /* Prevent browser autofill from turning fields white/blue */

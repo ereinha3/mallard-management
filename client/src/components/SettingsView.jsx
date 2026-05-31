@@ -1,6 +1,9 @@
-import { Settings, User, SlidersHorizontal, Sun, Moon, LogOut } from 'lucide-react'
-import { formatCurrency } from '../lib/utils'
+import { useEffect, useState } from 'react'
+import { User, Sun, Moon, LogOut, RotateCcw } from 'lucide-react'
 import { useTheme } from '../theme/ThemeProvider'
+import { useTour } from './tour/TourProvider'
+
+const AUTH_STORAGE_KEY = 'mallard.auth'
 
 function formatValue(value) {
   if (value == null || value === '') return 'Not provided'
@@ -9,16 +12,14 @@ function formatValue(value) {
   return String(value).replace(/_/g, ' ')
 }
 
-function ReadOnlyField({ label, value, currency = false }) {
-  const displayValue = currency && typeof value === 'number' ? formatCurrency(value) : formatValue(value)
-
+function ReadOnlyField({ label, value }) {
   return (
     <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
       <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
       <input
         type="text"
         disabled
-        value={displayValue}
+        value={formatValue(value)}
         className="w-full bg-transparent text-sm font-mono disabled:opacity-100"
         style={{ color: 'var(--text-primary)' }}
       />
@@ -26,25 +27,125 @@ function ReadOnlyField({ label, value, currency = false }) {
   )
 }
 
-export default function SettingsView({ onboardResult, user: signedInUser, onLogout }) {
-  const profile = onboardResult?.validated_profile ?? {}
-  const user = signedInUser ?? onboardResult?.user ?? {}
+function EditableField({ label, value, onChange, type = 'text', autoComplete }) {
+  return (
+    <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+      <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        className="w-full bg-transparent text-sm font-mono"
+        style={{
+          color: 'var(--text-primary)',
+          outline: 'none',
+        }}
+      />
+    </label>
+  )
+}
+
+function accountFormFromUser(user) {
+  return {
+    name: user.name ?? '',
+    phone: user.phone ?? '',
+    address: user.address ?? '',
+    zip_code: user.zip_code ?? user.zip ?? '',
+  }
+}
+
+function readStoredUser() {
+  try {
+    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : {}
+  } catch {
+    return {}
+  }
+}
+
+export default function SettingsView({ user: signedInUser, onLogout, onNavigate, onUserUpdated }) {
+  const user = signedInUser ?? {}
+  const userName = user.name ?? ''
+  const userPhone = user.phone ?? ''
+  const userAddress = user.address ?? ''
+  const userZip = user.zip_code ?? user.zip ?? ''
+  const [accountForm, setAccountForm] = useState(() => accountFormFromUser(user))
   const { theme, setTheme } = useTheme()
+  const { startTour } = useTour()
+
+  useEffect(() => {
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setAccountForm({
+          name: userName,
+          phone: userPhone,
+          address: userAddress,
+          zip_code: userZip,
+        })
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [userName, userPhone, userAddress, userZip])
+
+  function handleReplayTour() {
+    startTour({ onNavigate })
+  }
+
+  function updateAccountField(field) {
+    return (event) => {
+      setAccountForm(current => ({ ...current, [field]: event.target.value }))
+    }
+  }
+
+  function updatePhone(event) {
+    const digits = event.target.value.replace(/\D/g, '')
+    const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
+    let phone = nationalDigits
+    if (nationalDigits.length > 6) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3, 6)}-${nationalDigits.slice(6)}`
+    else if (nationalDigits.length > 3) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3)}`
+    else if (nationalDigits.length > 0) phone = `(${nationalDigits}`
+    if (digits.length === 11 && digits[0] === '1') phone = `1 ${phone}`
+    setAccountForm(current => ({ ...current, phone }))
+  }
+
+  function handleSaveAccount() {
+    const storedUser = readStoredUser()
+
+    const updatedUser = {
+      ...user,
+      ...storedUser,
+      name: accountForm.name.trim(),
+      phone: accountForm.phone.trim(),
+      address: accountForm.address.trim(),
+      zip: accountForm.zip_code.trim(),
+      zip_code: accountForm.zip_code.trim(),
+    }
+
+    try {
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser))
+    } catch {
+      // localStorage unavailable (private mode / SSR) - keep UI update local.
+    }
+
+    onUserUpdated?.(updatedUser)
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
       <header className="px-8 py-6" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <h1 className="font-display font-semibold text-2xl" style={{ color: 'var(--text-primary)' }}>Settings</h1>
         <p className="text-xs text-muted mt-2 uppercase tracking-wide font-semibold">
-          Profile and preferences from your signed-in account and onboarding record
+          Account, appearance, and session controls
         </p>
       </header>
 
       <div className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <div className="card-premium p-4 text-sm font-semibold" style={{ gridColumn: '1 / -1', color: 'var(--gold-light)' }}>
-          Save coming soon.
-        </div>
-
         <section className="card-premium p-5">
           <div className="flex items-center gap-2 mb-4">
             <User size={14} style={{ color: 'var(--gold-light)' }} />
@@ -52,13 +153,28 @@ export default function SettingsView({ onboardResult, user: signedInUser, onLogo
               Account
             </div>
           </div>
-          <ReadOnlyField label="Name" value={user.name ?? profile.name} />
-          <ReadOnlyField label="Email" value={user.email ?? profile.email} />
-          <ReadOnlyField label="Filing status" value={profile.filing_status} />
-          <ReadOnlyField label="Dependents" value={profile.dependents} />
+          <EditableField label="Name" value={accountForm.name} onChange={updateAccountField('name')} autoComplete="name" />
+          <ReadOnlyField label="Email" value={user.email} />
+          <EditableField label="Phone" type="tel" value={accountForm.phone} onChange={updatePhone} autoComplete="tel" />
+          <EditableField label="Street Address" value={accountForm.address} onChange={updateAccountField('address')} autoComplete="street-address" />
+          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" />
+          <button
+            type="button"
+            onClick={handleSaveAccount}
+            className="mt-5 inline-flex items-center justify-center h-10 px-4 text-sm font-semibold transition-colors"
+            style={{
+              border: '1px solid var(--border-gold)',
+              borderRadius: 8,
+              background: 'var(--gold)',
+              color: '#070604',
+              cursor: 'pointer',
+            }}
+          >
+            Save Changes
+          </button>
         </section>
 
-        <section className="card-premium p-5">
+        <section className="card-premium p-5" data-tour="settings-appearance">
           <div className="flex items-center gap-2 mb-4">
             <Sun size={14} style={{ color: 'var(--green-light)' }} />
             <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -103,38 +219,7 @@ export default function SettingsView({ onboardResult, user: signedInUser, onLogo
           </div>
         </section>
 
-        <section className="card-premium p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Settings size={14} style={{ color: 'var(--gold-light)' }} />
-            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              Financial Profile
-            </div>
-          </div>
-          <ReadOnlyField label="Household income" value={profile.household_income} currency />
-          <ReadOnlyField label="Monthly expenses" value={profile.monthly_expenses} currency />
-          <ReadOnlyField label="Capital on hand" value={profile.capital_on_hand} currency />
-          <ReadOnlyField label="Emergency fund" value={profile.emergency_fund} currency />
-          <ReadOnlyField label="Age" value={profile.age} />
-          <ReadOnlyField label="Horizon years" value={profile.horizon_years} />
-        </section>
-
-        <section className="card-premium p-5" style={{ gridColumn: '1 / -1' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <SlidersHorizontal size={14} style={{ color: 'var(--gold-light)' }} />
-            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              Investing Preferences
-            </div>
-          </div>
-          <div className="grid gap-x-8" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <ReadOnlyField label="Goals" value={profile.goals} />
-            <ReadOnlyField label="Goal target" value={profile.goal_target} currency />
-            <ReadOnlyField label="Universe preference" value={profile.universe_pref} />
-            <ReadOnlyField label="ESG exclusions" value={profile.esg_exclusions} />
-            <ReadOnlyField label="Sector/theme tilts" value={profile.sector_theme_tilts} />
-          </div>
-        </section>
-
-        <section className="card-premium p-5" style={{ gridColumn: '1 / -1' }}>
+        <section className="card-premium p-5" data-tour="settings-session" style={{ gridColumn: '1 / -1' }}>
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -144,21 +229,40 @@ export default function SettingsView({ onboardResult, user: signedInUser, onLogo
                 Sign out of this Mallard Management session.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
-              style={{
-                border: '1px solid rgba(217, 64, 64, 0.75)',
-                borderRadius: 8,
-                background: 'transparent',
-                color: 'var(--ruby)',
-                cursor: 'pointer',
-              }}
-            >
-              <LogOut size={15} />
-              Sign Out
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                data-tour="tour-replay"
+                onClick={handleReplayTour}
+                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                style={{
+                  border: '1px solid var(--border-bright)',
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={15} />
+                Replay Tutorial
+              </button>
+              <button
+                type="button"
+                data-tour="settings-logout"
+                onClick={onLogout}
+                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                style={{
+                  border: '1px solid rgba(217, 64, 64, 0.75)',
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: 'var(--ruby)',
+                  cursor: 'pointer',
+                }}
+              >
+                <LogOut size={15} />
+                Sign Out
+              </button>
+            </div>
           </div>
         </section>
       </div>

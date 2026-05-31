@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle, Loader, RotateCcw, SlidersHorizontal, Zap } from 'lucide-react'
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { postAnalyzeWeights, postReoptimize } from '../../api/greenlightClient'
+import { postAnalyzeWeights, postReoptimize, postSavePortfolio } from '../../api/greenlightClient'
 import {
   RISKY_SLEEVES,
   SAFE_SLEEVES,
@@ -58,6 +58,15 @@ function mergePortfolioResult(baseResult, portfolio, riskSummary = null) {
       },
     },
   }
+}
+
+function getUserEmail(result, propEmail) {
+  return propEmail
+    ?? result?.validated_profile?.email
+    ?? result?.profile?.email
+    ?? result?.user?.email
+    ?? result?.email
+    ?? null
 }
 
 function buildPortfolio(basePortfolio, weights, metrics) {
@@ -122,7 +131,7 @@ function riskLabel(riskDial) {
   return DIAL_LABELS[2]
 }
 
-export default function PortfolioEditor({ onboardResult, onApplied }) {
+export default function PortfolioEditor({ onboardResult, onApplied, userEmail }) {
   const basePortfolio = useMemo(() => getPortfolio(onboardResult), [onboardResult])
   const baselineWeights = useMemo(() => getSleeveWeights(onboardResult), [onboardResult])
   const baselineDial = useMemo(() => inferRiskDialFromWeights(baselineWeights), [baselineWeights])
@@ -139,6 +148,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
   const [editMode, setEditMode] = useState('weights')
   const [networkState, setNetworkState] = useState('idle')
   const [applyState, setApplyState] = useState('idle')
+  const [persistenceState, setPersistenceState] = useState('idle')
   const [validation, setValidation] = useState(null)
   const analyzeSeq = useRef(0)
   const dialSeq = useRef(0)
@@ -155,6 +165,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
     setRiskSummary(summaryFromResult(onboardResult, baselineMetrics))
     setValidation(null)
     setNetworkState('idle')
+    setPersistenceState('idle')
   }, [baselineDial, baselineMetrics, baselineWeights, onboardResult])
 
   const estimatedMetrics = useMemo(() => estimatePortfolioMetrics(weights, riskDial), [weights, riskDial])
@@ -165,6 +176,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
   const split = useMemo(() => portfolioSplit(weights), [weights])
   const mixes = useMemo(() => groupWeights(weights), [weights])
   const validationWarnings = validation?.warnings ?? []
+  const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
 
   useEffect(() => {
     if (editMode === 'dial') return undefined
@@ -261,10 +273,12 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
     setRiskSummary(summaryFromResult(onboardResult, baselineMetrics))
     setValidation(null)
     setApplyState('idle')
+    setPersistenceState('idle')
   }
 
   async function handleApply() {
     setApplyState('pending')
+    setPersistenceState('pending')
     const localMetrics = displayMetrics ?? estimatedMetrics
     let nextPortfolio = buildPortfolio(basePortfolio, weights, localMetrics)
     let nextSummary = displaySummary
@@ -291,7 +305,24 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
       setNetworkState('demo')
     }
 
-    const updatedResult = mergePortfolioResult(onboardResult, nextPortfolio, nextSummary)
+    let updatedResult = mergePortfolioResult(onboardResult, nextPortfolio, nextSummary)
+    try {
+      if (resolvedUserEmail) {
+        updatedResult = await postSavePortfolio({
+          user_email: resolvedUserEmail,
+          portfolio: nextPortfolio,
+          risk_summary: nextSummary,
+        })
+        setNetworkState('ok')
+        setPersistenceState('saved')
+      } else {
+        setPersistenceState('local')
+      }
+    } catch {
+      setNetworkState('demo')
+      setPersistenceState('local')
+    }
+
     setApplyState('ok')
     onApplied?.(updatedResult)
   }
@@ -348,7 +379,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
   }
 
   return (
-    <section className="card-premium p-5 anim-fade-up" aria-label="Portfolio allocation editor">
+    <section data-tour="greenlight-editor" className="card-premium p-5 anim-fade-up" aria-label="Portfolio allocation editor">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--green, var(--emerald))' }}>
@@ -374,7 +405,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
 
       <div className="grid gap-5" style={{ gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(360px, 1.3fr)' }}>
         <div className="space-y-4">
-          <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div data-tour="greenlight-risk-dial" className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <label htmlFor="risk-dial" className="flex items-center justify-between gap-3 mb-3">
               <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Growth vs Safe Split</span>
               <span className="font-mono text-sm font-semibold" style={{ color: 'var(--green-bright, var(--green))' }}>
@@ -420,8 +451,10 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
             </div>
           </div>
 
-          {renderSleeveGroup('Growth Assets (Risky)', RISKY_SLEEVES, mixes.risky)}
-          {renderSleeveGroup('Safe Assets', SAFE_SLEEVES, mixes.safe)}
+          <div data-tour="greenlight-sleeves" className="space-y-4">
+            {renderSleeveGroup('Growth Assets (Risky)', RISKY_SLEEVES, mixes.risky)}
+            {renderSleeveGroup('Safe Assets', SAFE_SLEEVES, mixes.safe)}
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -494,6 +527,12 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {applyState === 'ok' && (
+              <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: persistenceState === 'local' ? 'var(--gold-light)' : 'var(--green)' }}>
+                {persistenceState === 'local' ? <AlertTriangle size={13} /> : <CheckCircle size={13} />}
+                {persistenceState === 'local' ? 'Applied locally' : 'Saved'}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleReset}
@@ -505,6 +544,7 @@ export default function PortfolioEditor({ onboardResult, onApplied }) {
             </button>
             <button
               type="button"
+              data-tour="greenlight-apply"
               onClick={handleApply}
               disabled={isApplying}
               className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all"

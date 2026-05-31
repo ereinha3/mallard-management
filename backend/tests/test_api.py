@@ -188,6 +188,81 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
 
 
+def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
+    client = _client(test_app)
+    email = "portfolio-save@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    portfolio = onboard_response.json()["portfolio"]
+    tickers = list(portfolio["weights"]["by_ticker"])
+    first, second = tickers[:2]
+    edited_by_ticker = dict(portfolio["weights"]["by_ticker"])
+    shift = min(0.01, edited_by_ticker[second] / 2.0)
+    edited_by_ticker[first] += shift
+    edited_by_ticker[second] -= shift
+    portfolio["weights"]["by_ticker"] = edited_by_ticker
+
+    save_response = client.post(
+        f"/api/v1/portfolio/save?user_email={email}",
+        json={
+            "portfolio": portfolio,
+            "risk_summary": {
+                "target_volatility_pct": 7.7,
+                "estimated_max_loss_1yr_pct": 12.3,
+            },
+        },
+    )
+
+    assert save_response.status_code == 200
+    assert save_response.json()["portfolio"]["weights"]["by_ticker"] == edited_by_ticker
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+    assert profile_response.status_code == 200
+    saved = profile_response.json()
+    assert saved["portfolio"]["weights"]["by_ticker"] == edited_by_ticker
+    assert saved["financial_analysis"]["risk"]["target_volatility_pct"] == 7.7
+    assert saved["financial_analysis"]["risk"]["estimated_max_loss_1yr_pct"] == 12.3
+
+
+def test_profile_update_persists_input_and_reweights_portfolio(test_app: FastAPI):
+    client = _client(test_app)
+    email = "profile-update@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    before_weights = onboard_response.json()["portfolio"]["weights"]["by_ticker"]
+
+    update_response = client.post(
+        f"/api/v1/profile/update?user_email={email}",
+        json={"profile_patch": {"esg_exclusions": []}},
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    after_weights = updated["portfolio"]["weights"]["by_ticker"]
+    assert updated["validated_profile"]["esg_exclusions"] == []
+    assert after_weights != before_weights
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+    assert profile_response.status_code == 200
+    saved = profile_response.json()
+    assert saved["validated_profile"]["esg_exclusions"] == []
+    assert saved["portfolio"]["weights"]["by_ticker"] == after_weights
+
+    record_response = client.get(f"/api/v1/users/{email}/record")
+    assert record_response.status_code == 200
+    assert record_response.json()["profile_input"]["esg_exclusions"] == []
+
+
 def test_onboard_halt_persona_returns_emergency_fund_math(test_app: FastAPI):
     client = _client(test_app)
     response = client.post("/api/v1/onboard", json=_persona("persona_halt.json"))
@@ -228,6 +303,8 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert "/api/v1/advisor/chat" in paths
     assert "/api/v1/auth/register" in paths
     assert "/api/v1/auth/login" in paths
+    assert "/api/v1/portfolio/save" in paths
+    assert "/api/v1/profile/update" in paths
     assert "/api/v1/portfolio/reoptimize" in paths
     assert "/api/v1/portfolio/analyze-weights" in paths
     assert "/api/v1/users/{email}/record" in paths
@@ -509,3 +586,60 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["weights"]["by_sleeve"]["tips"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
+
+
+def test_active_onboarding_returns_found_false_when_no_session(test_app: FastAPI):
+    client = _client(test_app)
+    email = "no-resume@example.com"
+    _register(client, email)
+
+    response = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert response.status_code == 200
+    assert response.json() == {"found": False, "session": None}
+
+
+def test_interrupted_onboarding_is_resumable_then_cleared_on_complete(test_app: FastAPI):
+    """An elicitation session persisted mid-flow must be resumable by email (transcript
+    intact), and completing /onboard with its session_id must mark it complete so it is
+    no longer surfaced as resumable."""
+    from persistence import append_message, get_or_create_session, get_session
+
+    client = _client(test_app)
+    email = "resume@example.com"
+    _register(client, email)
+
+    # Simulate an interrupted intake: /chat persists the session + messages up front,
+    # then the stream is cut off. Recreate that DB state directly (no live LLM).
+    db = get_session()
+    try:
+        session = get_or_create_session(db, None, email, "elicitation")
+        db.flush()
+        session_id = session.id
+        append_message(db, session_id, "user", "intake seed")
+        append_message(db, session_id, "assistant", "What is your time horizon?")
+        db.commit()
+    finally:
+        db.close()
+
+    # Resume-by-email surfaces the in-progress session WITH its transcript.
+    resume = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert resume.status_code == 200
+    body = resume.json()
+    assert body["found"] is True
+    assert body["session"]["id"] == session_id
+    assert body["session"]["status"] == "active"
+    assert [m["role"] for m in body["session"]["messages"]] == ["user", "assistant"]
+
+    # Completing onboard for that session marks it complete.
+    onboard = client.post(
+        f"/api/v1/onboard?user_email={email}&session_id={session_id}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard.status_code == 200
+
+    # It is no longer resumable, and the transcript records the completed status.
+    resume_after = client.get(f"/api/v1/users/{email}/active-onboarding")
+    assert resume_after.json() == {"found": False, "session": None}
+    transcript = client.get(f"/api/v1/chats/{session_id}")
+    assert transcript.status_code == 200
+    assert transcript.json()["status"] == "complete"

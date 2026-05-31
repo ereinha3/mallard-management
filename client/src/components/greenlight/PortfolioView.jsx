@@ -4,7 +4,10 @@ import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } from 'lucide-react'
 import IntakeChat from './IntakeChat'
 import PortfolioEditor from './PortfolioEditor'
+import { postPortfolio } from '../../api/greenlightClient'
+import { CountUpNumber, PortfolioRevealStyles, RevealItem, usePrefersReducedMotion } from './PortfolioReveal'
 import RebalancePanel from './RebalancePanel'
+import { useTour } from '../tour/TourProvider'
 import {
   SLEEVE_ORDER,
   estimatePortfolioMetrics,
@@ -44,6 +47,26 @@ function numberOrNull(value) {
   return Number.isFinite(num) ? num : null
 }
 
+function metricCountConfig(decimalValue, pctValue, digits = 1) {
+  const decimalNumber = numberOrNull(decimalValue)
+  if (decimalNumber != null) {
+    return {
+      value: decimalNumber,
+      format: v => formatPercent(v, digits),
+    }
+  }
+
+  const pctNumber = numberOrNull(pctValue)
+  if (pctNumber != null) {
+    return {
+      value: pctNumber,
+      format: v => `${Number(v).toFixed(digits)}%`,
+    }
+  }
+
+  return null
+}
+
 function portfolioFromResponse(response) {
   return response?.portfolio ?? response ?? null
 }
@@ -73,21 +96,28 @@ const CustomTooltipGlide = ({ active, payload, label }) => {
   )
 }
 
-function RiskMetric({ label, value, color }) {
+function RiskMetric({ label, value, color, countConfig, reducedMotion, delay = 0 }) {
   return (
     <div className="text-center">
       <div
         className="font-display font-semibold"
         style={{ fontSize: 28, lineHeight: 1, color: color || 'var(--text-primary)' }}
       >
-        {value}
+        {countConfig ? (
+          <CountUpNumber
+            value={countConfig.value}
+            format={countConfig.format}
+            delay={delay}
+            reducedMotion={reducedMotion}
+          />
+        ) : value}
       </div>
       <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{label}</div>
     </div>
   )
 }
 
-function GuideOverlay({ onClose, onComplete }) {
+function GuideOverlay({ onClose, onComplete, userEmail }) {
   return (
     <div
       style={{
@@ -125,13 +155,15 @@ function GuideOverlay({ onClose, onComplete }) {
         >
           <X size={16} />
         </button>
-        <IntakeChat onComplete={onComplete} />
+        <IntakeChat onComplete={onComplete} userEmail={userEmail} />
       </div>
     </div>
   )
 }
 
-export default function PortfolioView({ onRebalance, onboardResult, onApplied }) {
+export default function PortfolioView({ onRebalance, onboardResult, onApplied, userEmail }) {
+  const reducedMotion = usePrefersReducedMotion()
+  const { isActive: tourActive } = useTour()
   const [showRebalance, setShowRebalance] = useState(false)
   const [showEditor, setShowEditor] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
@@ -143,6 +175,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
   useEffect(() => {
     setLocalResult(onboardResult)
   }, [onboardResult])
+
+  useEffect(() => {
+    if (tourActive) setShowEditor(true)
+  }, [tourActive])
 
   const baseResult = localResult ?? onboardResult
   const profile = useMemo(() => getProfile(baseResult), [baseResult])
@@ -180,6 +216,17 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
   const growthPct = allocation
     .filter(a => ['us_equity', 'intl_equity', 'reits'].includes(a.key))
     .reduce((sum, a) => sum + a.pct, 0)
+  const revealSignature = useMemo(() => {
+    if (!portfolio) return 'no-portfolio'
+    const bySleeve = portfolio?.weights?.by_sleeve ?? weights
+    const byTicker = portfolio?.weights?.by_ticker ?? {}
+    return JSON.stringify({
+      method: methodLabel,
+      blendAlpha,
+      bySleeve,
+      byTicker,
+    })
+  }, [blendAlpha, methodLabel, portfolio, weights])
 
   useEffect(() => {
     let cancelled = false
@@ -193,14 +240,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
 
     setLoadingPortfolio(true)
     setPortfolioError(null)
-    import('../../api/greenlightClient')
-      .then((client) => {
-        const postPortfolio = client.postPortfolio
-        if (typeof postPortfolio !== 'function') {
-          throw new Error('Portfolio endpoint wrapper is not available.')
-        }
-        return postPortfolio(profile)
-      })
+    postPortfolio(profile)
       .then((response) => {
         if (!cancelled) setFetchedPortfolio(portfolioFromResponse(response))
       })
@@ -266,6 +306,8 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
     ...p,
     age: p.age - 28 + chartStartAge,
   }))
+  const volatilityCount = metricCountConfig(metrics.expected_vol, risk.target_volatility_pct)
+  const lossCount = metricCountConfig(metrics.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)
 
   function handleGuideComplete(newResult) {
     setShowGuide(false)
@@ -285,10 +327,12 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
+      <PortfolioRevealStyles />
       {showGuide && (
         <GuideOverlay
           onClose={() => setShowGuide(false)}
           onComplete={handleGuideComplete}
+          userEmail={userEmail}
         />
       )}
 
@@ -314,6 +358,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
+                data-tour="greenlight-editor-toggle"
                 onClick={() => setShowEditor(prev => !prev)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
                 style={{
@@ -357,27 +402,64 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
         )}
 
         {portfolio && (
-          <>
+          <div key={revealSignature} className="space-y-5">
             <div
-              className="card-premium p-5 anim-fade-up d100"
+              data-tour="greenlight-portfolio"
+              className="card-premium p-5 anim-fade-up d100 portfolio-reveal-card"
               style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))' }}
             >
-              <RiskMetric label="Expected Volatility" value={formatMetricPct(metrics.expected_vol, risk.target_volatility_pct)} color="var(--green-bright, var(--green))" />
-              <RiskMetric label="Est. 1Y Max Loss" value={formatMetricPct(metrics.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)} color="var(--ruby)" />
-              <RiskMetric label="Risk Dial" value={`${Math.round(riskDial * 100)}%`} color="var(--green, var(--emerald))" />
-              <RiskMetric label={blendAlpha != null ? 'Blend α' : 'Method'} value={blendAlpha != null ? Number(blendAlpha).toFixed(2) : methodLabel} color="var(--blue)" />
-              <RiskMetric label="Capital Available" value={capital != null ? formatMoney(capital) : 'N/A'} color="var(--green, var(--emerald))" />
+              <RiskMetric
+                label="Expected Volatility"
+                value={formatMetricPct(metrics.expected_vol, risk.target_volatility_pct)}
+                countConfig={volatilityCount}
+                reducedMotion={reducedMotion}
+                delay={120}
+                color="var(--green-bright, var(--green))"
+              />
+              <RiskMetric
+                label="Est. 1Y Max Loss"
+                value={formatMetricPct(metrics.expected_shortfall_95, risk.estimated_max_loss_1yr_pct)}
+                countConfig={lossCount}
+                reducedMotion={reducedMotion}
+                delay={190}
+                color="var(--ruby)"
+              />
+              <RiskMetric
+                label="Risk Dial"
+                value={`${Math.round(riskDial * 100)}%`}
+                countConfig={{ value: riskDial * 100, format: v => `${Math.round(v)}%` }}
+                reducedMotion={reducedMotion}
+                delay={260}
+                color="var(--green, var(--emerald))"
+              />
+              <RiskMetric
+                label={blendAlpha != null ? 'Blend α' : 'Method'}
+                value={blendAlpha != null ? Number(blendAlpha).toFixed(2) : methodLabel}
+                countConfig={blendAlpha != null ? { value: Number(blendAlpha), format: v => Number(v).toFixed(2) } : null}
+                reducedMotion={reducedMotion}
+                delay={330}
+                color="var(--blue)"
+              />
+              <RiskMetric
+                label="Capital Available"
+                value={capital != null ? formatMoney(capital) : 'N/A'}
+                countConfig={capital != null ? { value: capital, format: v => formatMoney(v) } : null}
+                reducedMotion={reducedMotion}
+                delay={400}
+                color="var(--green, var(--emerald))"
+              />
             </div>
 
             {showEditor && (
               <PortfolioEditor
                 onboardResult={activeResult}
+                userEmail={userEmail}
                 onApplied={handleEditorApplied}
               />
             )}
 
             <div className="grid gap-5 anim-fade-up d150" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
-              <div className="card-premium p-5">
+              <div className="card-premium p-5 portfolio-reveal-card">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                     Target Sleeve Allocation
@@ -387,7 +469,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                     {realPortfolioPresent ? 'engine' : 'live fetch'}
                   </div>
                 </div>
-                <div style={{ position: 'relative', height: 210 }}>
+                <div className="portfolio-reveal-donut" style={{ position: 'relative', height: 210 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -398,6 +480,9 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                         paddingAngle={2}
                         startAngle={90}
                         endAngle={-270}
+                        isAnimationActive={!reducedMotion}
+                        animationBegin={120}
+                        animationDuration={850}
                       >
                         {allocation.map((a) => (
                           <Cell key={a.key} fill={a.color} />
@@ -406,29 +491,34 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                       <Tooltip content={<CustomTooltipAlloc />} />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div style={{
+                  <div className="portfolio-reveal-center" style={{
                     position: 'absolute', top: '50%', left: '50%',
                     transform: 'translate(-50%, -50%)',
                     textAlign: 'center', pointerEvents: 'none',
                   }}>
                     <div className="font-display font-semibold" style={{ fontSize: 22, color: 'var(--text-primary)' }}>
-                      {growthPct.toFixed(0)}%
+                      <CountUpNumber
+                        value={growthPct}
+                        format={v => `${Number(v).toFixed(0)}%`}
+                        delay={360}
+                        reducedMotion={reducedMotion}
+                      />
                     </div>
                     <div className="text-xs" style={{ color: 'var(--text-muted)' }}>growth</div>
                   </div>
                 </div>
                 <div className="mt-3 space-y-1.5">
-                  {allocation.map(a => (
-                    <div key={a.key} className="flex items-center gap-2 text-xs">
+                  {allocation.map((a, index) => (
+                    <RevealItem key={a.key} className="flex items-center gap-2 text-xs" index={index} reducedMotion={reducedMotion}>
                       <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.color }} />
                       <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{a.label}</span>
                       <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{a.pct.toFixed(1)}%</span>
-                    </div>
+                    </RevealItem>
                   ))}
                 </div>
               </div>
 
-              <div className="card-premium p-5">
+              <div className="card-premium p-5 portfolio-reveal-card">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                     Ticker Breakdown
@@ -452,8 +542,14 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                     </tr>
                   </thead>
                   <tbody>
-                    {targetRows.map(a => (
-                      <tr key={`${a.ticker}-${a.sleeve}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                    {targetRows.map((a, index) => (
+                      <RevealItem
+                        as="tr"
+                        key={`${a.ticker}-${a.sleeve}`}
+                        index={index}
+                        reducedMotion={reducedMotion}
+                        style={{ borderBottom: '1px solid var(--border)' }}
+                      >
                         <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
                         <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
                         <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
@@ -468,7 +564,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                             {realPortfolioPresent ? 'engine' : 'live fetch'}
                           </span>
                         </td>
-                      </tr>
+                      </RevealItem>
                     ))}
                   </tbody>
                   <tfoot>
@@ -492,7 +588,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
             </div>
 
             {riskContributions.length > 0 && (
-              <div className="card-premium p-5 anim-fade-up d200">
+              <div className="card-premium p-5 anim-fade-up d200 portfolio-reveal-card">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
@@ -504,16 +600,16 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {riskContributions.map((item) => (
-                    <div key={item.sleeve}>
+                  {riskContributions.map((item, index) => (
+                    <RevealItem key={item.sleeve} index={index} reducedMotion={reducedMotion}>
                       <div className="flex items-center justify-between text-xs mb-1.5">
                         <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
                         <span className="font-mono" style={{ color: item.color }}>{formatPercent(item.value)}</span>
                       </div>
                       <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-elevated)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, item.value * 100))}%`, background: item.color }} />
+                        <div className="h-full rounded-full portfolio-risk-fill" style={{ width: `${Math.min(100, Math.max(0, item.value * 100))}%`, background: item.color }} />
                       </div>
-                    </div>
+                    </RevealItem>
                   ))}
                 </div>
               </div>
@@ -570,7 +666,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
                 </ResponsiveContainer>
               </div>
             </div>
-          </>
+          </div>
         )}
 
         <div className="flex justify-between items-center gap-3 anim-fade-up d300">
@@ -579,6 +675,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied })
             Greenlight can re-interview you, rebuild the target, then open the slider editor.
           </div>
           <button
+            data-tour="greenlight-rebalance"
             onClick={onRebalance ?? (() => setShowRebalance(true))}
             disabled={!portfolio}
             className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all"

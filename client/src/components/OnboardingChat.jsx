@@ -178,12 +178,17 @@ function UserBubble({ text }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function OnboardingChat({ user, onComplete }) {
+export default function OnboardingChat({ user, onComplete, resumeSession }) {
 
-  const [step, setStep] = useState('form') // 'form' | 'chat'
+  // Resume an interrupted enrollment: restore the saved transcript + session id from
+  // the DB so the user continues where they left off instead of starting over.
+  const resumeMessages = resumeSession?.messages?.map(m => ({ role: m.role, content: m.content })) ?? []
+  const isResume = resumeMessages.length > 0
+
+  const [step, setStep] = useState(isResume ? 'chat' : 'form') // 'form' | 'chat'
 
   // Conversation state
-  const [messages, setMessages] = useState([]) // {role:'user'|'assistant', content:string}[]
+  const [messages, setMessages] = useState(isResume ? resumeMessages : []) // {role:'user'|'assistant', content:string}[]
   const [streamingText, setStreamingText] = useState('') // partial AI response
   const [isStreaming, setIsStreaming] = useState(false)
   const [inputVal, setInputVal] = useState('')
@@ -197,8 +202,9 @@ export default function OnboardingChat({ user, onComplete }) {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const abortRef = useRef(false)
-  const initializedRef = useRef(false)
-  const sessionIdRef = useRef(null)
+  const initializedRef = useRef(isResume) // resumed sessions are already initialized (don't re-seed)
+  const sessionIdRef = useRef(resumeSession?.id ?? null)
+  const resumeKickedRef = useRef(false)
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -216,7 +222,7 @@ export default function OnboardingChat({ user, onComplete }) {
     ;(async () => {
       setBuilding(true)
       try {
-        const result = await postOnboard(profile, user?.email)
+        const result = await postOnboard(profile, user?.email, sessionIdRef.current)
         setOnboardResult(result)
         // Give the building screen 1.8s to animate, then complete
         await new Promise(r => setTimeout(r, 1800))
@@ -283,6 +289,18 @@ export default function OnboardingChat({ user, onComplete }) {
     })
   }, [user?.email])
 
+  // On resume: if the saved transcript ends on a user turn, the assistant reply never
+  // arrived before the interrupt — continue the stream so the conversation advances.
+  useEffect(() => {
+    if (!isResume || resumeKickedRef.current) return
+    resumeKickedRef.current = true
+    const last = messages[messages.length - 1]
+    if (last && last.role === 'user') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      callBackend(messages)
+    }
+  }, [isResume, messages, callBackend])
+
   function handleIntakeSubmit(data) {
     if (initializedRef.current) return
     initializedRef.current = true
@@ -293,6 +311,8 @@ export default function OnboardingChat({ user, onComplete }) {
       liquidCapital: data.liquidCapital,
       emergencyFund: data.emergencyFund,
       age: data.age,
+      filingStatus: data.filing_status,
+      dependents: data.dependents,
       employerCompany: data.employerCompany,
       jobTitle: data.jobTitle,
       companyTenure: data.companyTenure,
@@ -301,7 +321,7 @@ export default function OnboardingChat({ user, onComplete }) {
     }
     setStep('chat')
 
-    const seedContent = `The user has already provided: income=$${capturedFields.annualIncome}, monthly expenses=$${capturedFields.monthlyExpenses}, liquid capital=$${capturedFields.liquidCapital}, emergency fund=$${capturedFields.emergencyFund}, age=${capturedFields.age}. User works at ${capturedFields.employerCompany} as ${capturedFields.jobTitle}, has been there ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, employment type is ${capturedFields.employmentType}. Please skip asking about these and focus only on understanding their risk tolerance and investing goals in 2-3 questions.`
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}. Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)

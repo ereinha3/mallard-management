@@ -13,11 +13,11 @@ const BASE =
  * AUTH ENDPOINTS
  */
 
-export async function register({ email, password, name, phone, zip }) {
+export async function register({ email, password, name, phone, zip, address }) {
   const res = await fetch(`${BASE}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name, phone, zip }),
+    body: JSON.stringify({ email, password, name, phone, zip, address }),
   })
   if (!res.ok) {
     const err = await res.json()
@@ -41,6 +41,17 @@ export async function login({ email, password }) {
 
 export async function getProfile(email) {
   const res = await fetch(`${BASE}/api/v1/profile/${email}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
+/**
+ * GET /api/v1/users/{email}/active-onboarding — the latest in-progress elicitation
+ * session for this user (transcript + extracted profile), so an interrupted
+ * enrollment can be resumed by email alone. Returns { found, session } or null.
+ */
+export async function getActiveOnboarding(email) {
+  const res = await fetch(`${BASE}/api/v1/users/${encodeURIComponent(email)}/active-onboarding`)
   if (!res.ok) return null
   return res.json()
 }
@@ -99,11 +110,15 @@ export async function streamChat({ messages, user_email, session_id, onSession, 
 /**
  * POST /api/v1/onboard — validate profile, run gate, return OnboardResponse.
  */
-export async function postOnboard(profile, userEmail = null) {
-  const url = userEmail 
-    ? `${BASE}/api/v1/onboard?user_email=${encodeURIComponent(userEmail)}`
-    : `${BASE}/api/v1/onboard`
-    
+export async function postOnboard(profile, userEmail = null, sessionId = null) {
+  const params = new URLSearchParams()
+  if (userEmail) params.set('user_email', userEmail)
+  // Passing the session id lets the backend mark that elicitation session
+  // 'complete' so it is no longer surfaced as a resumable in-progress onboarding.
+  if (sessionId) params.set('session_id', sessionId)
+  const qs = params.toString()
+  const url = qs ? `${BASE}/api/v1/onboard?${qs}` : `${BASE}/api/v1/onboard`
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -112,6 +127,70 @@ export async function postOnboard(profile, userEmail = null) {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Onboard error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/portfolio — build a portfolio from a profile.
+ */
+export async function postPortfolio(profile, method = 'erc') {
+  const res = await fetch(`${BASE}/api/v1/portfolio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile, method }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/projection — run a portfolio projection.
+ */
+export async function postProjection(payload) {
+  const res = await fetch(`${BASE}/api/v1/projection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Projection error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/rebalance — generate a rebalance recommendation.
+ */
+export async function postRebalance(payload) {
+  const res = await fetch(`${BASE}/api/v1/rebalance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Rebalance error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/tax/report — generate a tax report.
+ */
+export async function postTaxReport(payload) {
+  const res = await fetch(`${BASE}/api/v1/tax/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Tax report error ${res.status}: ${text}`)
   }
   return res.json()
 }
@@ -148,6 +227,45 @@ export async function postAnalyzeWeights({ profile, weights }) {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Analyze weights error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/portfolio/save — persist an edited portfolio for a user.
+ */
+export async function postSavePortfolio({ user_email, portfolio, risk_summary = null }) {
+  if (!user_email) throw new Error('Portfolio save requires a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/portfolio/save?user_email=${encodeURIComponent(user_email)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio,
+      ...(risk_summary ? { risk_summary } : {}),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Save portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/profile/update — persist profile changes and rerun the engine.
+ */
+export async function postUpdateProfile({ user_email, profile_patch }) {
+  if (!user_email) throw new Error('Profile update requires a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/profile/update?user_email=${encodeURIComponent(user_email)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile_patch }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Update profile error ${res.status}: ${text}`)
   }
   return res.json()
 }

@@ -187,7 +187,6 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
     if (calledRef.current) return
     calledRef.current = true
     const seed = [{ role: 'user', content: buildSeedMessage(prefillData) }]
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(seed)
     callBackend(seed)
   }, []) // eslint-disable-line

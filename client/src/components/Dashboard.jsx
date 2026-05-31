@@ -27,8 +27,6 @@ const LIABILITY_ICONS = {
   other:        { icon: DollarSign,color: '#6b7280' },
 }
 
-const CHART_SCENARIOS = ['base', 'optimistic', 'conservative']
-
 function numberOrNull(value) {
   const num = Number(value)
   return Number.isFinite(num) ? num : null
@@ -122,13 +120,13 @@ function getProjectionInputs(onboardResult, profile) {
   }
 }
 
-function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color, delay = '' }) {
+function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon: Icon, color, delay = '', dataTour }) {
   const isPos = delta >= 0
   const displayValue = typeof value === 'number'
     ? (suffix ? value.toFixed(1) : formatCurrency(value))
     : value
   return (
-    <div className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
+    <div data-tour={dataTour} className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
       <div className="flex items-start justify-between">
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
           {label}
@@ -156,6 +154,11 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color
           </span>
           {deltaLabel && <span style={{ color: 'var(--text-muted)' }}>{deltaLabel}</span>}
         </div>
+      )}
+      {description && (
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {description}
+        </p>
       )}
     </div>
   )
@@ -185,7 +188,6 @@ function AssetRow({ label, value, percent, icon: Icon, color }) {
 }
 
 export default function Dashboard({ onboardResult }) {
-  const [scenario, setScenario] = useState('base')
   const [projection, setProjection] = useState(null)
   const [projectionLoading, setProjectionLoading] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -209,40 +211,40 @@ export default function Dashboard({ onboardResult }) {
   useEffect(() => {
     let cancelled = false
 
-    if (!portfolio?.weights) {
-      setProjection(null)
-      setProjectionError(null)
-      setProjectionLoading(false)
-      return () => { cancelled = true }
-    }
+    async function loadProjection() {
+      if (!portfolio?.weights) {
+        setProjection(null)
+        setProjectionError(null)
+        setProjectionLoading(false)
+        return
+      }
 
-    setProjectionLoading(true)
-    setProjectionError(null)
-    import('../api/greenlightClient')
-      .then((client) => {
+      setProjectionLoading(true)
+      setProjectionError(null)
+      try {
+        const client = await import('../api/greenlightClient')
         const postProjection = client.postProjection
         if (typeof postProjection !== 'function') {
           throw new Error('Projection endpoint wrapper is not available.')
         }
-        return postProjection({
+        const response = await postProjection({
           weights: portfolio.weights,
           ...getProjectionInputs(onboardResult, profile),
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
-      })
-      .then((response) => {
         if (!cancelled) setProjection(response)
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           setProjection(null)
           setProjectionError(error?.message ?? 'Projection could not be loaded.')
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setProjectionLoading(false)
-      })
+      }
+    }
+
+    loadProjection()
 
     return () => { cancelled = true }
   }, [onboardResult, portfolio, profile])
@@ -268,26 +270,11 @@ export default function Dashboard({ onboardResult }) {
               : 'No onboarding analysis available yet'}
           </p>
         </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Projection scenario">
-          {CHART_SCENARIOS.map((s) => (
-            <button key={s} onClick={() => setScenario(s)}
-              aria-pressed={scenario === s}
-              className="px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all"
-              style={{
-                background: scenario === s ? 'var(--bg-elevated)' : 'transparent',
-                color: scenario === s ? 'var(--gold-light)' : 'var(--text-muted)',
-                border: scenario === s ? '1px solid var(--border-gold)' : '1px solid transparent',
-                letterSpacing: '0.03em',
-              }}>
-              {s}
-            </button>
-          ))}
-        </div>
       </header>
 
       <div className="flex-1 p-7 space-y-5">
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-          <div className="card-premium p-5 anim-fade-up d100 transition-all cursor-default"
+          <div data-tour="net-worth" className="card-premium p-5 anim-fade-up d100 transition-all cursor-default"
             style={{ position: 'relative', overflow: 'hidden' }}>
             <div className="flex items-start justify-between mb-4">
               <div>
@@ -320,7 +307,7 @@ export default function Dashboard({ onboardResult }) {
             </div>
           </div>
 
-          <div className="card-premium p-4 anim-fade-up d150 cursor-default">
+          <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default">
             <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
               Retirement Readiness
             </div>
@@ -341,14 +328,16 @@ export default function Dashboard({ onboardResult }) {
             label="Savings Rate"
             value={savingsRate ?? 'Not available'}
             suffix="%"
+            description="Share of income you save each month: (income - expenses) / income."
             icon={Target}
             color="var(--blue)"
             delay="d250"
+            dataTour="savings-rate"
           />
         </div>
 
         <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 1fr' }}>
-          <div className="card-premium p-5 anim-fade-up d300">
+          <div data-tour="projection" className="card-premium p-5 anim-fade-up d300">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
