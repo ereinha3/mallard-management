@@ -15,6 +15,7 @@ if str(_ENGINE_DIR) not in sys.path:
     sys.path.append(str(_ENGINE_DIR))
 
 from api.v1 import router as v1_router
+from persistence import init_db
 
 app = FastAPI(
     title="Greenlight Gate API",
@@ -41,6 +42,11 @@ app.add_middleware(
 )
 
 app.include_router(v1_router, prefix="/api/v1", tags=["gate"])
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    init_db()
 
 
 @app.get("/health", tags=["meta"])

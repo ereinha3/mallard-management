@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import importlib
 import json
 import inspect
 import sys
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import anyio
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -19,7 +21,6 @@ if str(BACKEND_DIR) not in sys.path:
 if str(ENGINE_DIR) not in sys.path:
     sys.path.append(str(ENGINE_DIR))
 
-from main import app  # noqa: E402
 from data.seed import seed_database  # noqa: E402
 from schemas import constants  # noqa: E402
 
@@ -40,10 +41,22 @@ def current_thread_portal_factory():
     yield CurrentThreadPortal()
 
 
-def _client() -> TestClient:
+def _client(app: FastAPI) -> TestClient:
     client = TestClient(app)
     client._transport.portal_factory = current_thread_portal_factory
     return client
+
+
+@pytest.fixture(scope="session")
+def test_app(tmp_path_factory: pytest.TempPathFactory):
+    db_path = tmp_path_factory.mktemp("mallard-app-db") / "mallard_app.db"
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("MALLARD_DB_URL", f"sqlite:///{db_path}")
+    try:
+        module = importlib.import_module("main")
+        yield module.app
+    finally:
+        monkeypatch.undo()
 
 
 @pytest.fixture(scope="session")
@@ -63,8 +76,97 @@ def _persona(name: str) -> dict:
     return json.loads((ENGINE_DIR / "fixtures" / name).read_text())
 
 
-def test_onboard_halt_persona_returns_emergency_fund_math():
-    client = _client()
+def _register(client: TestClient, email: str, password: str = "correct-horse") -> dict:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password, "name": "Test User"},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_register_then_login_returns_mock_token(test_app: FastAPI):
+    client = _client(test_app)
+    body = _register(client, "auth-login@example.com")
+    assert body == {
+        "email": "auth-login@example.com",
+        "name": "Test User",
+        "token": "mock-token-auth-login@example.com",
+    }
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "auth-login@example.com", "password": "correct-horse"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token"] == "mock-token-auth-login@example.com"
+
+
+def test_duplicate_register_returns_400(test_app: FastAPI):
+    client = _client(test_app)
+    _register(client, "duplicate@example.com")
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "duplicate@example.com", "password": "correct-horse", "name": "Test User"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_bad_password_login_returns_401(test_app: FastAPI):
+    client = _client(test_app)
+    _register(client, "bad-password@example.com")
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "bad-password@example.com", "password": "wrong-password"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_unknown_profile_returns_no_profile(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.get("/api/v1/profile/unknown@example.com")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "no_profile"
+
+
+def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
+    client = _client(test_app)
+    email = "profile-persist@example.com"
+    _register(client, email)
+
+    response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "greenlight"
+    assert body["portfolio"]["weights"]["method"] == "erc"
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+    assert profile_response.status_code == 200
+    profile = profile_response.json()
+    assert profile["status"] == "greenlight"
+    assert profile["portfolio"]["universe"]["tickers"]
+
+    record_response = client.get(f"/api/v1/users/{email}/record")
+    assert record_response.status_code == 200
+    record = record_response.json()
+    assert record["account"]["email"] == email
+    assert record["profile_input"]["household_income"] == body["validated_profile"]["household_income"]
+    assert record["onboard_result"]["status"] == "greenlight"
+    assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
+
+
+def test_onboard_halt_persona_returns_emergency_fund_math(test_app: FastAPI):
+    client = _client(test_app)
     response = client.post("/api/v1/onboard", json=_persona("persona_halt.json"))
 
     assert response.status_code == 200
@@ -76,8 +178,8 @@ def test_onboard_halt_persona_returns_emergency_fund_math():
     assert body["portfolio"] is None
 
 
-def test_onboard_greenlight_persona_returns_portfolio():
-    client = _client()
+def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
+    client = _client(test_app)
     response = client.post("/api/v1/onboard", json=_persona("persona_greenlight.json"))
 
     assert response.status_code == 200
@@ -89,8 +191,8 @@ def test_onboard_greenlight_persona_returns_portfolio():
     assert body["portfolio"]["metrics"]["expected_vol"] >= 0
 
 
-def test_config_uses_engine_constants_and_chat_routes_exist():
-    client = _client()
+def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
+    client = _client(test_app)
     response = client.get("/api/v1/config")
 
     assert response.status_code == 200
@@ -98,13 +200,18 @@ def test_config_uses_engine_constants_and_chat_routes_exist():
     assert body["gate"]["emergency_fund_months_required"] == constants.EF_MONTHS
     assert body["gate"]["high_apr_threshold"] == constants.HIGH_APR
     assert body["market_assumptions"]["expected_market_return"] == constants.EXPECTED_MARKET_RETURN
-    paths = {route.path for route in app.routes}
+    paths = {route.path for route in test_app.routes}
     assert "/api/v1/chat" in paths
     assert "/api/v1/advisor/chat" in paths
+    assert "/api/v1/auth/register" in paths
+    assert "/api/v1/auth/login" in paths
+    assert "/api/v1/users/{email}/record" in paths
+    assert "/api/v1/users/{email}/chats" in paths
+    assert "/api/v1/chats/{session_id}" in paths
 
 
-def test_finance_endpoints_return_well_formed_shapes():
-    client = _client()
+def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
+    client = _client(test_app)
     portfolio_response = client.post(
         "/api/v1/portfolio",
         json={"profile": _persona("persona_greenlight.json")},

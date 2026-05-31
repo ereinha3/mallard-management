@@ -10,9 +10,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _ENGINE_DIR = _BACKEND_DIR.parent / "engine"
@@ -29,6 +30,22 @@ from config import (  # noqa: E402
     HIGH_APR,
     LOW_APR,
     LTCG_RATE,
+)
+from persistence import (  # noqa: E402
+    ChatMessage as ChatMessageRow,
+    ChatSession,
+    Profile,
+    append_message,
+    create_user,
+    get_messages,
+    get_or_create_session,
+    get_password_hash,
+    get_profile_result,
+    get_session,
+    get_user,
+    list_sessions,
+    upsert_profile,
+    verify_password,
 )
 from data.seed import seed_database  # noqa: E402
 from data.loaders import load_prices, returns_matrix  # noqa: E402
@@ -577,13 +594,156 @@ def _ticker_monthly_returns(weights: dict[str, float]) -> pd.DataFrame:
     return prices[tickers].resample("ME").last().pct_change().dropna(how="all")
 
 
+async def get_db():
+    db = get_session()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _json_dt(value: Any) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _message_out(message: ChatMessageRow) -> dict[str, Any]:
+    return {
+        "role": message.role,
+        "content": message.content,
+        "seq": message.seq,
+        "created_at": _json_dt(message.created_at),
+    }
+
+
+def _session_out(
+    db: Session,
+    chat_session: ChatSession,
+    include_messages: bool = True,
+) -> dict[str, Any]:
+    return {
+        "id": chat_session.id,
+        "kind": chat_session.kind,
+        "status": chat_session.status,
+        "created_at": _json_dt(chat_session.created_at),
+        "updated_at": _json_dt(chat_session.updated_at),
+        "extracted_profile": chat_session.get_extracted_profile(),
+        "messages": [
+            _message_out(message)
+            for message in (get_messages(db, chat_session.id) if include_messages else [])
+        ],
+    }
+
+
+def _profile_input(profile: Profile | None) -> dict[str, Any] | None:
+    return profile.get_input() if profile else None
+
+
+def _prepare_chat_session(
+    session_id: str | None,
+    user_email: str | None,
+    kind: str,
+    messages: list[Any],
+) -> str:
+    db = get_session()
+    try:
+        persisted_email = user_email if user_email and get_user(db, user_email) else None
+        chat_session = get_or_create_session(db, session_id, persisted_email, kind)
+        db.flush()
+
+        stored_count = len(get_messages(db, chat_session.id))
+        for message in messages[stored_count:]:
+            append_message(db, chat_session.id, message.role, message.content)
+
+        db.commit()
+        return chat_session.id
+    except Exception:
+        db.rollback()
+        if session_id:
+            return session_id
+        raise
+    finally:
+        db.close()
+
+
+def _append_assistant_message(session_id: str, content: str) -> None:
+    if not content:
+        return
+    db = get_session()
+    try:
+        append_message(db, session_id, "assistant", content)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _save_extracted_profile(session_id: str, profile: dict[str, Any]) -> None:
+    db = get_session()
+    try:
+        chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if chat_session:
+            chat_session.extracted_profile = json.dumps(profile)
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+@router.post("/auth/register", response_model=api_models.AuthResponse)
+async def register(req: api_models.AuthRequest, db: Session = Depends(get_db)) -> api_models.AuthResponse:
+    if not req.name:
+        raise HTTPException(status_code=400, detail="Name is required for registration")
+
+    if get_user(db, req.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = create_user(db, req.email, req.name, get_password_hash(req.password))
+    db.commit()
+    return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
+
+
+@router.post("/auth/login", response_model=api_models.AuthResponse)
+async def login(req: api_models.AuthRequest, db: Session = Depends(get_db)) -> api_models.AuthResponse:
+    user = get_user(db, req.email)
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
+
+
+@router.get("/profile/{email}", response_model=api_models.OnboardResponse)
+async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.OnboardResponse:
+    result = get_profile_result(db, email)
+    if not result:
+        return api_models.OnboardResponse(status="no_profile")
+
+    return api_models.OnboardResponse(**result)
+
+
 @router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
-async def onboard(profile_input: api_models.UserProfileInput) -> api_models.OnboardResponse:
+async def onboard(
+    profile_input: api_models.UserProfileInput,
+    user_email: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
     """
     Validate profile -> compute risk profile -> run responsibility gate.
     Returns a halt with math or a greenlight with a packaged OptimizerInput.
     """
-    return _run_pipeline(profile_input)
+    response = _run_pipeline(profile_input)
+
+    if user_email and get_user(db, user_email):
+        upsert_profile(
+            db,
+            user_email,
+            profile_input.model_dump_json(),
+            response.model_dump_json(),
+        )
+        db.commit()
+
+    return response
 
 
 @router.post("/gate/recheck", response_model=api_models.OnboardResponse, summary="Re-run gate on updated profile")
@@ -654,9 +814,28 @@ async def chat(request: api_models.ChatRequest) -> StreamingResponse:
       [DONE]
     """
 
+    try:
+        session_id = _prepare_chat_session(
+            request.session_id,
+            request.user_email,
+            "elicitation",
+            request.messages,
+        )
+    except Exception:
+        session_id = request.session_id
+
     async def event_stream():
+        if session_id:
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+        assistant_chunks = []
         async for event in stream_elicitation(request.messages):
+            if event.get("type") == "token":
+                assistant_chunks.append(event.get("content", ""))
+            elif event.get("type") == "profile_ready" and session_id:
+                _save_extracted_profile(session_id, event.get("profile", {}))
             yield f"data: {json.dumps(event)}\n\n"
+        if session_id:
+            _append_assistant_message(session_id, "".join(assistant_chunks))
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -675,12 +854,73 @@ async def advisor_chat(request: api_models.AdvisorChatRequest) -> StreamingRespo
       [DONE]
     """
 
+    try:
+        session_id = _prepare_chat_session(
+            request.session_id,
+            request.user_email,
+            "advisor",
+            request.messages,
+        )
+    except Exception:
+        session_id = request.session_id
+
     async def event_stream():
+        if session_id:
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+        assistant_chunks = []
         async for event in stream_advisor(request.messages, request.context):
+            if event.get("type") == "token":
+                assistant_chunks.append(event.get("content", ""))
             yield f"data: {json.dumps(event)}\n\n"
+        if session_id:
+            _append_assistant_message(session_id, "".join(assistant_chunks))
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/users/{email}/record", response_model=api_models.UserRecord)
+async def user_record(email: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    user = get_user(db, email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    profile = db.query(Profile).filter(Profile.user_email == email).first()
+    return {
+        "account": {
+            "email": user.email,
+            "name": user.name,
+            "created_at": _json_dt(user.created_at),
+        },
+        "profile_input": _profile_input(profile),
+        "onboard_result": profile.get_result() if profile else None,
+        "chat_sessions": [
+            _session_out(db, chat_session)
+            for chat_session in list_sessions(db, email)
+        ],
+    }
+
+
+@router.get("/users/{email}/chats", response_model=list[api_models.ChatSessionOut])
+async def user_chats(
+    email: str,
+    kind: str | None = None,
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    if not get_user(db, email):
+        raise HTTPException(status_code=404, detail="User not found")
+    return [
+        _session_out(db, chat_session, include_messages=False)
+        for chat_session in list_sessions(db, email, kind)
+    ]
+
+
+@router.get("/chats/{session_id}", response_model=api_models.ChatSessionOut)
+async def chat_transcript(session_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return _session_out(db, chat_session)
 
 
 @router.get("/config", summary="Gate thresholds and market assumptions")

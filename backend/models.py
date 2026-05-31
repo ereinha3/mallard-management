@@ -3,6 +3,20 @@ from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    email: str
+    name: str
+    token: str
+
+
 # ── Chat / elicitation ────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
@@ -12,14 +26,48 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(min_length=1)
+    user_email: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class AdvisorChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(min_length=1)
+    user_email: Optional[str] = None
+    session_id: Optional[str] = None
     context: Optional[Any] = Field(
         default=None,
         description="OnboardResponse JSON from /api/v1/onboard — gives the advisor the user's numbers",
     )
+
+
+class ChatMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    seq: int
+    created_at: Optional[str] = None
+
+
+class ChatSessionOut(BaseModel):
+    id: str
+    kind: Literal["elicitation", "advisor"]
+    status: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    extracted_profile: Optional[Dict[str, Any]] = None
+    messages: List[ChatMessageOut] = Field(default_factory=list)
+
+
+class AccountOut(BaseModel):
+    email: str
+    name: str
+    created_at: Optional[str] = None
+
+
+class UserRecord(BaseModel):
+    account: AccountOut
+    profile_input: Optional[Dict[str, Any]] = None
+    onboard_result: Optional[Dict[str, Any]] = None
+    chat_sessions: List[ChatSessionOut] = Field(default_factory=list)
 
 
 # ── Financial profile ─────────────────────────────────────────────────────────
@@ -402,7 +450,7 @@ class FinancialAnalysis(BaseModel):
 # ── API response ──────────────────────────────────────────────────────────────
 
 class OnboardResponse(BaseModel):
-    status: Literal["greenlight", "halt", "needs_clarification"]
+    status: Literal["greenlight", "halt", "needs_clarification", "no_profile"]
     validated_profile: Optional[ValidatedProfile] = None
     risk_profile: Optional[RiskProfile] = None
     gate_result: Optional[GateResult] = None
