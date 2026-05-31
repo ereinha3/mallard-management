@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Feather, CheckCircle, Send, AlertTriangle, FastForward } from 'lucide-react'
 import { streamChat, postOnboard } from '../api/greenlightClient'
 import { DUMMY_ONBOARD_RESULT } from '../data/dummyProfile'
+import IntakeForm from './greenlight/IntakeForm.jsx'
 
 // ── Building / analysis screen ────────────────────────────────────────────────
 
@@ -179,6 +180,8 @@ function UserBubble({ text }) {
 
 export default function OnboardingChat({ user, onComplete }) {
 
+  const [step, setStep] = useState('form') // 'form' | 'chat'
+
   // Conversation state
   const [messages, setMessages] = useState([]) // {role:'user'|'assistant', content:string}[]
   const [streamingText, setStreamingText] = useState('') // partial AI response
@@ -280,16 +283,24 @@ export default function OnboardingChat({ user, onComplete }) {
     })
   }, [user?.email])
 
-  // Kick off the first AI message on mount (guard against StrictMode double-fire).
-  // Declared after callBackend so it isn't referenced before initialization.
-  useEffect(() => {
+  function handleIntakeSubmit(data) {
     if (initializedRef.current) return
     initializedRef.current = true
-    const seed = [{ role: 'user', content: `Hi, my name is ${user?.name || 'there'}.` }]
+
+    const capturedFields = {
+      annualIncome: data.income,
+      monthlyExpenses: data.expenses,
+      liquidCapital: data.liquidCapital,
+      emergencyFund: data.emergencyFund,
+      age: data.age,
+    }
+    setStep('chat')
+
+    const seedContent = `The user has already provided: income=$${capturedFields.annualIncome}, monthly expenses=$${capturedFields.monthlyExpenses}, liquid capital=$${capturedFields.liquidCapital}, emergency fund=$${capturedFields.emergencyFund}, age=${capturedFields.age}. Please skip asking about these and focus only on understanding their risk tolerance and investing goals in 2-3 questions.`
+    const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }
 
   function handleSend(e) {
     e.preventDefault()
@@ -303,6 +314,7 @@ export default function OnboardingChat({ user, onComplete }) {
   }
 
   if (building) return <BuildingScreen onboardResult={onboardResult} />
+  if (step === 'form') return <IntakeForm onSubmit={handleIntakeSubmit} />
 
   // Render all committed messages + current streaming text
   return (

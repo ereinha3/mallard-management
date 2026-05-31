@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import IntakeForm from './IntakeForm'
 import IntakeChat from './IntakeChat'
 import GateScreen from './GateScreen'
 import PortfolioView from './PortfolioView'
 import RebalancePanel from './RebalancePanel'
 
-// Steps: intake-form → intake → gate-halt → (fix) → intake-fixed → gate-green → portfolio → rebalance
+// Steps: intake → gate-halt → (fix) → intake-fixed → gate-green → portfolio → rebalance
 const STEPS = {
-  INTAKE_FORM: 'intake-form',
   INTAKE:     'intake',
   GATE_HALT:  'gate-halt',
   INTAKE_FIX: 'intake-fix',
@@ -31,7 +29,7 @@ function gateStepFromStatus(status) {
 function StepIndicator({ step }) {
   const labels = ['Intake', 'Gate', 'Portfolio', 'Rebalance']
   const activeIdx =
-    step === STEPS.INTAKE_FORM || step === STEPS.INTAKE || step === STEPS.INTAKE_FIX ? 0
+    step === STEPS.INTAKE || step === STEPS.INTAKE_FIX ? 0
     : step === STEPS.GATE_HALT || step === STEPS.GATE_GREEN ? 1
     : step === STEPS.PORTFOLIO ? 2
     : 3
@@ -82,16 +80,10 @@ export default function GreenlightFlow({ onboardResult }) {
   const initialStatus = onboardResult?.gate_result?.status
   const [step, setStep] = useState(
     initialStatus ? gateStepFromStatus(initialStatus)
-    : STEPS.INTAKE_FORM
+    : STEPS.INTAKE
   )
   const [gateResult, setGateResult] = useState(onboardResult ?? null)
-  const [prefillData, setPrefillData] = useState(null)
   const userEmail = getUserEmail(gateResult)
-
-  function handleIntakeFormSubmit(data) {
-    setPrefillData(data)
-    setStep(STEPS.INTAKE)
-  }
 
   function handleIntakeComplete(result) {
     setGateResult(result)
@@ -142,7 +134,7 @@ export default function GreenlightFlow({ onboardResult }) {
           <StepIndicator step={step} />
           {(step === STEPS.PORTFOLIO || step === STEPS.REBALANCE) && (
             <button
-              onClick={() => setStep(STEPS.INTAKE_FORM)}
+              onClick={() => setStep(STEPS.INTAKE)}
               className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"
               style={{
                 background: 'var(--bg-elevated)',
@@ -153,17 +145,14 @@ export default function GreenlightFlow({ onboardResult }) {
               ↺ Re-run
             </button>
           )}
-          {(step === STEPS.INTAKE_FORM || step === STEPS.INTAKE || step === STEPS.INTAKE_FIX) && <div style={{ width: 80 }} />}
+          {(step === STEPS.INTAKE || step === STEPS.INTAKE_FIX) && <div style={{ width: 80 }} />}
         </div>
       )}
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
-        {step === STEPS.INTAKE_FORM && (
-          <IntakeForm onSubmit={handleIntakeFormSubmit} />
-        )}
         {step === STEPS.INTAKE && (
-          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} prefillData={prefillData} />
+          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} />
         )}
         {step === STEPS.GATE_HALT && (
           <GateScreen
