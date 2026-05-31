@@ -143,13 +143,29 @@ export default function ProjectionChart({ projection: providedProjection, onboar
   }, [providedProjection, onboardResult, portfolio])
 
   const projection = providedProjection ?? fetchedProjection
-  const data = useMemo(() => (projection ? rowsFromProjection(projection) : []), [projection])
-  const projectionInputs = useMemo(() => getProjectionInputs(onboardResult), [onboardResult])
-  const referenceYear = numberOrNull(projection?.horizon_years ?? projectionInputs?.horizon_years ?? retirementYear)
+  const inputs = useMemo(() => getProjectionInputs(onboardResult), [onboardResult])
+  const data = useMemo(() => {
+    const rows = projection ? rowsFromProjection(projection) : []
+    if (!inputs) return rows
+    // Cumulative dollars invested by each year — the basis for % ROI per band.
+    return rows.map((row) => ({
+      ...row,
+      invested: inputs.capital_on_hand + inputs.monthly_contribution * 12 * row.year,
+    }))
+  }, [projection, inputs])
+  const referenceYear = projection?.horizon_years ?? retirementYear
   const scale = useMemo(() => projectionScale(data), [data])
   const successPercent = numberOrNull(projection?.p_success)
   const medianTerminal = numberOrNull(projection?.median_terminal)
   const badCaseTerminal = numberOrNull(projection?.bad_case_terminal)
+
+  // % ROI of a percentile value vs. dollars invested to that year (sign-colored).
+  const roiForValue = (value, row) => {
+    const invested = Number(row?.invested)
+    if (!Number.isFinite(invested) || invested <= 0) return null
+    const roi = (value / invested - 1) * 100
+    return { text: formatPercent(roi, true), positive: roi >= 0 }
+  }
 
   if (!portfolio?.weights && !projection) {
     return (
@@ -162,7 +178,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
     )
   }
 
-  if (!projection && !projectionInputs) {
+  if (!projection && !inputs) {
     return (
       <div
         className="flex items-center justify-center text-sm"
@@ -264,6 +280,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
                 series={TOOLTIP_SERIES}
                 labelPrefix="Year "
                 formatValue={(value) => formatCurrency(value, true)}
+                formatSecondary={roiForValue}
               />
             }
           />
