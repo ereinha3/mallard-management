@@ -9,9 +9,16 @@ import numpy as np
 import pandas as pd
 
 from data.loaders import load_prices
-from schemas.constants import GLIDE_BASE_AGE, GLIDE_FLOOR
+from schemas.constants import (
+    GAMMA_MAX,
+    GLIDE_BASE_AGE,
+    GLIDE_FLOOR,
+    TILT_LAMBDA,
+    TILT_LOOKBACK_MONTHS,
+)
 from schemas.models import TargetWeights
 from optimizer.erc import cov_ledoit_wolf, erc_weights
+from optimizer.tilt import momentum_vol_tilt
 
 
 def solve_blend_alpha(
@@ -68,6 +75,18 @@ def _target_vol_mid(risk_profile: Any) -> float:
     if target_vol_band is None:
         raise ValueError("risk_profile.target_vol_band is required")
     return float(_get_attr_or_key(target_vol_band, "mid"))
+
+
+def _gamma_mid(risk_profile: Any) -> float:
+    """Risk-tolerance gamma used to scale the momentum/vol tilt.
+
+    GAMMA_MAX (most conservative) disables the tilt; lower gamma tilts more.
+    """
+
+    gamma_band = _get_attr_or_key(risk_profile, "gamma_band")
+    if gamma_band is None:
+        return GAMMA_MAX
+    return float(_get_attr_or_key(gamma_band, "mid", GAMMA_MAX))
 
 
 def _ticker_returns(prices: Any | None) -> pd.DataFrame:
@@ -222,6 +241,16 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
         raise ValueError("Universe must include at least one risky bucket.")
     risky_matrix = bucket_matrix[risky_buckets]
     risky_weights = erc_weights(risky_matrix)
+    # Gamma-modulated momentum/volatility tilt over the risky buckets: aggressive
+    # profiles rotate toward higher-momentum/higher-vol buckets (scaling down
+    # low-vol gold); the most conservative profile leaves ERC weights unchanged.
+    risky_weights = momentum_vol_tilt(
+        risky_weights,
+        risky_matrix,
+        _gamma_mid(risk_profile),
+        lookback_months=TILT_LOOKBACK_MONTHS,
+        lam=TILT_LAMBDA,
+    )
     safe_weights = {
         bucket: weight
         for bucket, weight in _safe_bucket_weights(universe).items()
