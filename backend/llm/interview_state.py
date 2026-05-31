@@ -3,8 +3,19 @@ from __future__ import annotations
 from llm.instrument import SCRIPT, ScriptItem, current_item
 
 
+RISK_ITEM_KEYS = frozenset(
+    item.key
+    for item in SCRIPT
+    if getattr(item, "gl_index", None) is not None or item.key.startswith("GL")
+) | frozenset({"dohmen", "loss_aversion", "loss_scenario"})
+
+_FIRST_RISK_STEP = min(
+    index for index, item in enumerate(SCRIPT) if item.key in RISK_ITEM_KEYS
+)
+
+
 def initial_state() -> dict:
-    return {"step": 0, "scores": {}}
+    return {"step": 0, "scores": {}, "re_ask_count": 0}
 
 
 def current(state: dict) -> ScriptItem | None:
@@ -14,6 +25,22 @@ def current(state: dict) -> ScriptItem | None:
 def _copy_state(state: dict) -> dict:
     new_state = dict(state)
     new_state["scores"] = dict(state["scores"])
+    return new_state
+
+
+def re_ask_count(state: dict) -> int:
+    return state.get("re_ask_count", 0)
+
+
+def reset_risk_items(state: dict) -> dict:
+    new_state = dict(state)
+    new_state["scores"] = {
+        key: value
+        for key, value in state.get("scores", {}).items()
+        if key not in RISK_ITEM_KEYS
+    }
+    new_state["step"] = _FIRST_RISK_STEP
+    new_state["re_ask_count"] = re_ask_count(state) + 1
     return new_state
 
 

@@ -24,20 +24,8 @@ except ImportError:
     types = None
 
 from models import ChatMessage
-from persistence import (
-    get_session,
-    get_session_elicitation_state,
-    set_session_elicitation_state,
-)
+from llm import interview_state
 from llm.instrument import next_directive, step_from_messages
-from llm.interview_state import (
-    collected_scores,
-    current,
-    initial_state,
-    is_complete,
-    record_and_advance,
-)
-from llm.scoring import assemble_profile, render_question, score_answer
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
 
@@ -501,26 +489,46 @@ def _message_role_content(message: Any) -> tuple[str, str]:
 
 
 def _has_prior_assistant_message(messages: list[ChatMessage]) -> bool:
-    return any(_message_role_content(message)[0] == "assistant" for message in messages[:-1])
+    return any(
+        _message_role_content(message)[0] == "assistant" for message in messages[:-1]
+    )
 
 
 def _stream_interview_sync(
     messages: list[ChatMessage],
     session_id: str | None,
 ) -> Generator[dict, None, None]:
+    try:
+        from persistence import (  # noqa: PLC0415
+            get_session,
+            get_session_elicitation_state,
+            set_session_elicitation_state,
+        )
+        from llm import scoring  # noqa: PLC0415
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+        return
+
     db = get_session()
     try:
-        state = get_session_elicitation_state(db, session_id) or initial_state()
+        state = (
+            get_session_elicitation_state(db, session_id)
+            or interview_state.initial_state()
+        )
         if messages:
             last_role, last_content = _message_role_content(messages[-1])
-            item = current(state)
-            if item is not None and last_role == "user" and _has_prior_assistant_message(messages):
+            item = interview_state.current(state)
+            if (
+                item is not None
+                and last_role == "user"
+                and _has_prior_assistant_message(messages)
+            ):
                 try:
-                    score = score_answer(item, last_content, messages)
+                    score = scoring.score_answer(item, last_content, messages)
                 except Exception as exc:
                     yield {"type": "error", "content": str(exc)}
                     return
-                state = record_and_advance(state, score)
+                state = interview_state.record_and_advance(state, score)
 
         set_session_elicitation_state(db, session_id, state)
         db.commit()
@@ -531,22 +539,64 @@ def _stream_interview_sync(
     finally:
         db.close()
 
-    if is_complete(state):
+    if interview_state.is_complete(state):
         try:
-            profile = assemble_profile(messages, collected_scores(state))
+            profile = scoring.assemble_profile(
+                messages,
+                interview_state.collected_scores(state),
+            )
         except Exception as exc:
             yield {"type": "error", "content": str(exc)}
             return
+
+        try:
+            from api.v1 import _run_pipeline  # noqa: PLC0415
+            import models as api_models  # noqa: PLC0415
+
+            profile_input = api_models.UserProfileInput(**profile)
+            result = _run_pipeline(profile_input)
+            if (
+                result.status == "needs_clarification"
+                and interview_state.re_ask_count(state) < 1
+            ):
+                state = interview_state.reset_risk_items(state)
+                db = get_session()
+                try:
+                    set_session_elicitation_state(db, session_id, state)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+                finally:
+                    db.close()
+
+                yield {
+                    "type": "token",
+                    "content": (
+                        "A couple of those answers pointed in different directions "
+                        "— let me revisit a few questions.\n\n"
+                    ),
+                }
+                for chunk in scoring.render_question(
+                    interview_state.current(state),
+                    messages,
+                ):
+                    yield {"type": "token", "content": chunk}
+                return
+        except Exception:
+            yield {"type": "profile_ready", "profile": profile}
+            return
+
         yield {"type": "profile_ready", "profile": profile}
         return
 
-    item = current(state)
+    item = interview_state.current(state)
     if item is None:
         yield {"type": "error", "content": "Interview state is invalid."}
         return
 
     try:
-        for chunk in render_question(item, messages):
+        for chunk in scoring.render_question(item, messages):
             yield {"type": "token", "content": chunk}
     except Exception as exc:
         yield {"type": "error", "content": str(exc)}
