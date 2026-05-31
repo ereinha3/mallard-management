@@ -21,6 +21,8 @@ _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _ENGINE_DIR = _BACKEND_DIR.parent / "engine"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
+if str(_BACKEND_DIR / "tax") not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR / "tax"))
 if str(_ENGINE_DIR) not in sys.path:
     sys.path.append(str(_ENGINE_DIR))
 
@@ -86,6 +88,7 @@ from tax.rates import (  # noqa: E402
     expected_after_tax_market_return,
     ltcg_rate_for_bracket,
 )
+from debt_optimizer import DebtPayoffOptimizer  # noqa: E402
 from tax.report import tax_report  # noqa: E402
 from taxplanning.bucket_optimizer import BucketOptimizer  # noqa: E402
 from taxplanning.calculator import TaxCalculator  # noqa: E402
@@ -153,6 +156,9 @@ def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUser
         "non_liquid_savings",
     }
     payload = profile_input.model_dump(exclude=tax_fields)
+    for debt in payload.get("debts", []):
+        debt.pop("minimum_payment", None)
+        debt.pop("min_payment", None)
     payload["goals"] = [_normalize_goal(goal) for goal in payload.get("goals") or ["general_wealth"]]
     payload["loss_aversion_probe"] = payload["loss_aversion_probe"] or 100.0
     payload["confidence"] = {
@@ -461,6 +467,15 @@ def _total_interest(balance: float, monthly_payment: float, months: int | None) 
     return round(max(0.0, monthly_payment * months - balance), 2)
 
 
+def _estimated_minimum_payment(debt: Any) -> float:
+    explicit = getattr(debt, "minimum_payment", None)
+    if explicit is None:
+        explicit = getattr(debt, "min_payment", None)
+    if explicit is not None and float(explicit) > 0:
+        return min(float(explicit), float(debt.balance))
+    return min(max(float(debt.balance) * 0.02, 25.0), float(debt.balance))
+
+
 def _debt_gate_status(apr: float) -> str:
     if apr > HIGH_APR:
         return "halt"
@@ -524,10 +539,33 @@ def _compute_financial_analysis(
     )
 
     sorted_debts = sorted(profile.debts, key=lambda debt: debt.apr, reverse=True)
-    monthly_debt_payment = max(profile.monthly_surplus, 1.0)
+    debt_payoff_plan = None
+    if profile.debts:
+        optimizer = DebtPayoffOptimizer()
+        debt_payoff_plan = optimizer.optimize(
+            profile.debts,
+            profile.monthly_surplus,
+            "avalanche",
+            mortgage_apr_threshold=HIGH_APR,
+        )
+        snowball_plan = optimizer.optimize(
+            profile.debts,
+            profile.monthly_surplus,
+            "snowball",
+            mortgage_apr_threshold=HIGH_APR,
+        )
+        if (
+            debt_payoff_plan.total_interest_paid is not None
+            and snowball_plan.total_interest_paid is not None
+        ):
+            debt_payoff_plan.avalanche_vs_snowball_interest_saved = round(
+                snowball_plan.total_interest_paid - debt_payoff_plan.total_interest_paid,
+                2,
+            )
     debt_snapshots = []
     for rank, debt in enumerate(sorted_debts, 1):
         monthly_interest = round(debt.balance * debt.apr / 12.0, 2)
+        monthly_debt_payment = _estimated_minimum_payment(debt)
         months = _months_to_payoff(debt.balance, debt.apr, monthly_debt_payment)
         debt_snapshots.append(
             api_models.DebtSnapshot(
@@ -584,6 +622,7 @@ def _compute_financial_analysis(
 
     if gate_result.status == "halt":
         for debt in [debt for debt in sorted_debts if debt.apr > HIGH_APR]:
+            monthly_debt_payment = _estimated_minimum_payment(debt)
             months = _months_to_payoff(debt.balance, debt.apr, monthly_debt_payment)
             steps.append(
                 api_models.GreenLightStep(
@@ -610,6 +649,7 @@ def _compute_financial_analysis(
     return api_models.FinancialAnalysis(
         snapshot=snapshot,
         debt=debt_analysis,
+        debt_payoff_plan=debt_payoff_plan,
         emergency_fund=emergency_fund,
         risk=risk_summary,
         path_to_greenlight=path_to_greenlight,
@@ -1148,6 +1188,7 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
         risk_profile=api_risk,
         gate_result=api_gate,
         financial_analysis=financial_analysis,
+        debt_payoff_plan=financial_analysis.debt_payoff_plan,
         optimizer_input=optimizer_input,
         portfolio=portfolio,
     )
