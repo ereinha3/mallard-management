@@ -319,6 +319,39 @@ class InvestmentAccountOut(BaseModel):
     cash_available: float = Field(ge=0)
     cash_pending: float = Field(ge=0)
     broker_provider: str
+    alpaca_account_id: Optional[str] = None
+
+
+class BrokerageAccountRequest(BaseModel):
+    user_email: str
+
+
+class BrokerageAccountOut(BaseModel):
+    user_email: str
+    alpaca_account_id: str
+
+
+class BrokerageACHRelationshipRequest(BaseModel):
+    user_email: str
+    nickname: str
+    routing_number: str
+    account_number: str
+    account_type: str = "CHECKING"
+
+
+class BrokerageACHRelationshipOut(BaseModel):
+    id: Optional[str] = None
+    status: Optional[str] = None
+
+
+class BrokerageDepositRequest(BaseModel):
+    user_email: str
+    amount: float = Field(gt=0)
+
+
+class BrokerageDepositOut(BaseModel):
+    id: Optional[str] = None
+    status: Optional[str] = None
 
 
 class FundingTransactionOut(BaseModel):
