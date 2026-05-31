@@ -24,3 +24,5 @@ data/market-data/
 # Misc
 **/.codex-tasks
 client-integration/
+**/.cursor*
+**/.playwright*
