@@ -253,7 +253,6 @@ export default function Dashboard({ onboardResult, userEmail }) {
   const monthlyIncome = numberOrNull(snapshot.monthly_income)
   const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
   const score = numberOrNull(risk?.capacity_score)
-  const investedCapital = numberOrNull(profile?.capital_on_hand ?? onboardResult?.optimizer_input?.capital_on_hand ?? snapshot?.capital_on_hand)
   const assets = getAssetRows(profile)
   const assetRowsTotal = assets.reduce((sum, row) => sum + row.value, 0)
   const liabilities = getLiabilityRows(onboardResult, profile)
@@ -469,15 +468,6 @@ export default function Dashboard({ onboardResult, userEmail }) {
             icon={TrendingUp}
             color="var(--emerald)"
             delay="d200"
-          />
-
-          <MetricCard
-            label="Invested"
-            value={investedCapital ?? 'Not available'}
-            description="Your capital currently invested in the portfolio."
-            icon={PiggyBank}
-            color="var(--gold-light)"
-            delay="d225"
           />
 
           <MetricCard
