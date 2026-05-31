@@ -156,6 +156,7 @@ Committed library: **riskfolio-lib** (native true risk parity, mean-CVaR, Black-
 
 ### 3.13 Explanation Agent (LLM)
 - **Does:** Narrates the engine's outputs and the parameter mapping in plain language, grounded strictly in the engine's numbers, with an anti-sycophancy system prompt. Explanation only — no new numbers.
+- **Implementation:** Gemini function-calling tools expose read-only explainability (`explain_portfolio`, `explain_risk_fusion`, projection percentiles, account/settings/profile/gate summaries, method citations). There is no MCP server/protocol in the current backend.
 - **In → Out:** any engine output object → human-readable rationale + citations to the inputs.
 
 ### 3.14 State Store (external)
