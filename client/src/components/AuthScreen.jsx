@@ -186,11 +186,17 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', home_value: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const parseMoney = (value) => {
+    const cleaned = String(value ?? '').replace(/[$,\s]/g, '')
+    if (!cleaned) return null
+    const parsed = Number(cleaned)
+    return Number.isFinite(parsed) ? parsed : null
+  }
   const setPhone = (e) => {
     const digits = e.target.value.replace(/\D/g, '')
     const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
@@ -212,7 +218,7 @@ function SignUpForm({ onAuth }) {
     else if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1'))) e.phone = 'Please enter a valid 10-digit US phone number'
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
-    if (!form.address.trim()) e.address = 'Street address is required'
+    if (form.home_value.trim() && parseMoney(form.home_value) == null) e.home_value = 'Enter a valid home value'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -226,6 +232,7 @@ function SignUpForm({ onAuth }) {
     setErrors({})
     setLoading(true)
     try {
+      const homeValue = parseMoney(form.home_value)
       const user = await register({
         email: form.email,
         password: form.password,
@@ -233,8 +240,14 @@ function SignUpForm({ onAuth }) {
         phone: form.phone.trim(),
         zip: form.zip.trim(),
         address: form.address.trim(),
+        home_value: homeValue,
       })
-      onAuth({ ...user, address: user.address ?? form.address.trim(), isNewUser: true })
+      onAuth({
+        ...user,
+        address: user.address ?? form.address.trim(),
+        home_value: user.home_value ?? homeValue,
+        isNewUser: true,
+      })
     } catch (err) {
       setErrors({ form: err.message })
     } finally {
@@ -262,9 +275,11 @@ function SignUpForm({ onAuth }) {
           placeholder="94105" error={errors.zip} autoComplete="postal-code" />
       </div>
 
-      <Field label="Street Address" value={form.address} onChange={set('address')}
-        required
+      <Field label="Address" value={form.address} onChange={set('address')}
         placeholder="123 Main St" error={errors.address} autoComplete="street-address" />
+
+      <Field label="Home Value (if you own)" value={form.home_value} onChange={set('home_value')}
+        placeholder="400,000" error={errors.home_value} autoComplete="off" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}
