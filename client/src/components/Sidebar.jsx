@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, PiggyBank, BarChart3,
-  Settings, Bell, Shield, ChevronRight, Feather, Zap, MessageCircle,
+  Settings, Bell, Shield, ChevronRight, Feather, Zap,
   GraduationCap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -8,7 +8,6 @@ import { cn } from '../lib/utils'
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard' },
   { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
-  { icon: MessageCircle,   label: 'Ask Mallard',  id: 'advisor' },
   { icon: GraduationCap,   label: 'Learn',        id: 'learn' },
   { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: BarChart3,       label: 'Portfolio',    id: 'portfolio' },
@@ -109,6 +108,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
         </div>
         {navItems.map((item) => {
           const isActive = (active || 'dashboard') === item.id
+
           return (
             <button
               key={item.id}
