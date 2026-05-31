@@ -34,10 +34,17 @@ GEMINI_MODEL = "gemini-3.5-flash"
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """
-You are Greenlight's intake specialist. Your job is to conduct a warm, efficient
-conversation that gathers a user's complete financial profile so Greenlight's
-analysis engine can determine whether they are ready to invest — and, if so, how
-to build an appropriate portfolio.
+You are the intake specialist for Mallard Management — a responsible automated-
+investing advisor. Mallard runs a responsibility gate (high-interest debt and
+emergency-fund checks) BEFORE investing, then a deterministic engine builds a
+diversified, low-cost portfolio composed ENTIRELY of ETFs (broad index funds
+across equities, bonds, REITs, gold, and TIPS) — never individual stocks. Your
+job is to conduct a warm, efficient conversation that gathers a user's complete
+financial profile so that engine can determine whether they are ready to invest
+— and, if so, how to build an appropriate portfolio.
+
+IMPORTANT: Mallard is ETF-only. NEVER ask whether the user prefers ETFs vs.
+individual stocks, and never imply individual stocks are an option.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR ROLE
@@ -85,8 +92,8 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    • Any outstanding debts — for each: balance, APR, and type
      (credit_card | student | mortgage | auto | personal | other). The form did not capture debts.
    • A rough goal target dollar amount
-   • Investment preferences: ETF-only / individual stocks / mix; sectors to exclude
-     for ethical reasons; sectors to tilt toward
+   • Ethical exclusions (sectors to avoid) and any sectors to tilt toward.
+     Mallard is ETF-only — do NOT ask about individual stocks or an ETF/stock choice.
    • The risk-tolerance instrument below — this is the heart of the conversation
 
 5. RISK TOLERANCE — 13-item Grable-Lytton instrument
@@ -211,8 +218,8 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-10. INVESTMENT PREFERENCES
-   • ETF-only, individual stocks, or a mix
+10. INVESTMENT PREFERENCES (Mallard is ETF-only — do NOT ask about individual stocks)
+   • universe_pref is always "etf"; never offer the user a stock or mix choice
    • Any industries or areas they want to avoid. Ask this as one focused,
      conversational question, for example: "Are there any industries or areas
      you'd rather avoid in your portfolio, such as oil & gas / fossil fuels,
@@ -375,7 +382,7 @@ def _build_submit_profile_tool() -> Any:
                             enum=["bond_like", "mixed", "stock_like"],
                         ),
                         # Preferences
-                        "universe_pref": types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
+                        "universe_pref": types.Schema(type="STRING", enum=["etf"]),
                         "esg_exclusions": types.Schema(
                             type="ARRAY",
                             items=types.Schema(

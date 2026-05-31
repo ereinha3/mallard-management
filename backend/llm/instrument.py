@@ -142,8 +142,8 @@ SCRIPT: list[ScriptItem] = [
     ScriptItem(
         key="preferences",
         score_kind="freeform",
-        ask="Finally, any preferences on how it's invested — ETFs vs individual stocks, anything you'd want to avoid for ethical reasons, or any areas you'd lean into?",
-        rubric="Extract universe_pref (etf|stock|mix), esg_exclusions (list), sector_tilts (list). Empty/none is valid; null if unaddressed.",
+        ask="Finally, are there any areas you'd want to avoid for ethical reasons — like fossil fuels, weapons, or tobacco — or any sectors you'd want to lean into?",
+        rubric="Mallard builds ETF-only portfolios; do NOT ask about individual stocks. Extract esg_exclusions (list) and sector_tilts (list); universe_pref is always 'etf'. Empty/none is valid; null if unaddressed.",
     ),
 ]
 
