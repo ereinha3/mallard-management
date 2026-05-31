@@ -90,7 +90,25 @@ function ParamRow({ label, value, status, note }) {
   )
 }
 
-export default function IntakeChat({ onComplete, userEmail }) {
+function buildSeedMessage(prefillData) {
+  if (!prefillData) {
+    return "Hi, I'd like to check whether I'm ready to start investing."
+  }
+
+  return [
+    "Hi, I'd like to check whether I'm ready to start investing.",
+    "I've already provided these financial facts:",
+    `Annual household income: ${prefillData.income}`,
+    `Total monthly expenses: ${prefillData.expenses}`,
+    `Liquid capital / savings: ${prefillData.liquidCapital}`,
+    `Emergency fund balance: ${prefillData.emergencyFund}`,
+    `Age: ${prefillData.age}`,
+    'Use those facts as given. Do not ask me for them again.',
+    'Ask only 2-3 follow-up questions, focused on risk tolerance and investing goals, before extracting the profile.',
+  ].join('\n')
+}
+
+export default function IntakeChat({ onComplete, userEmail, prefillData }) {
   const [messages, setMessages] = useState([])
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -168,7 +186,7 @@ export default function IntakeChat({ onComplete, userEmail }) {
   useEffect(() => {
     if (calledRef.current) return
     calledRef.current = true
-    const seed = [{ role: 'user', content: "Hi, I'd like to check whether I'm ready to start investing." }]
+    const seed = [{ role: 'user', content: buildSeedMessage(prefillData) }]
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(seed)
     callBackend(seed)
