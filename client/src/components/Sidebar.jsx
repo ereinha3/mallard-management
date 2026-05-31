@@ -48,7 +48,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
           style={{
             width: 36,
             height: 36,
-            background: 'linear-gradient(135deg, var(--green, var(--emerald)), var(--green-bright, var(--gold-bright)))',
+            background: 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
           }}
         >
           <Feather size={18} style={{ color: '#070910' }} />

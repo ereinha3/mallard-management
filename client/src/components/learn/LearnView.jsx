@@ -69,7 +69,7 @@ function LessonRail({ activeLessonId, completedSet, onSelectLesson }) {
         <div
           className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{
-            background: 'linear-gradient(135deg, var(--green, var(--emerald)), var(--green-bright))',
+            background: 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
             color: '#070910',
           }}
         >
