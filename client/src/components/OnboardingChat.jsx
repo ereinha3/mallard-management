@@ -340,6 +340,15 @@ export default function OnboardingChat({ user, onComplete, resumeSession }) {
   if (building) return <BuildingScreen onboardResult={onboardResult} />
   if (step === 'form') return <IntakeForm onSubmit={handleIntakeSubmit} />
 
+  const visibleMessages = messages.length - 1
+  const userMessageCount = messages.filter(m => m.role === 'user').length
+  const progressPct = Math.min(100, Math.round((visibleMessages / 20) * 100))
+  const progressLabel = progressPct >= 80
+    ? 'Almost done'
+    : progressPct >= 45
+      ? 'Halfway there'
+      : 'Getting started'
+
   // Render all committed messages + current streaming text
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg-base)', overflow: 'hidden' }}>
@@ -379,6 +388,40 @@ export default function OnboardingChat({ user, onComplete, resumeSession }) {
             </div>
           </div>
         </div>
+
+        {userMessageCount >= 1 && (
+          <div style={{
+            background: 'var(--bg-surface)',
+            borderBottom: '1px solid var(--border)',
+            flexShrink: 0,
+          }}>
+            <div style={{
+              width: '100%',
+              height: 6,
+              background: 'var(--bg-elevated)',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                width: `${progressPct}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, var(--gold), var(--gold-bright))',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              padding: '7px 32px 8px',
+              fontSize: 12,
+              color: 'var(--text-muted)',
+            }}>
+              <span>{progressLabel}</span>
+              <span>{userMessageCount} of ~10 questions</span>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div style={{ flex: 1, overflow: 'hidden auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
