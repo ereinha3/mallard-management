@@ -107,43 +107,43 @@ export default function ProjectionChart({ data: liveData, projection: providedPr
   useEffect(() => {
     let cancelled = false
 
-    if (providedProjection || Array.isArray(liveData)) {
-      setFetchedProjection(null)
-      setProjectionError(null)
-      setLoadingProjection(false)
-      return () => { cancelled = true }
-    }
+    async function loadProjection() {
+      if (providedProjection || Array.isArray(liveData)) {
+        setFetchedProjection(null)
+        setProjectionError(null)
+        setLoadingProjection(false)
+        return
+      }
 
-    if (!portfolio?.weights) {
-      setProjectionError(null)
-      setLoadingProjection(false)
-      return () => { cancelled = true }
-    }
+      if (!portfolio?.weights) {
+        setProjectionError(null)
+        setLoadingProjection(false)
+        return
+      }
 
-    setLoadingProjection(true)
-    setProjectionError(null)
-    import('../api/greenlightClient')
-      .then((client) => {
+      setLoadingProjection(true)
+      setProjectionError(null)
+      try {
+        const client = await import('../api/greenlightClient')
         const postProjection = client.postProjection
         if (typeof postProjection !== 'function') {
           throw new Error('Projection endpoint wrapper is not available.')
         }
-        return postProjection({
+        const response = await postProjection({
           weights: portfolio.weights,
           ...getProjectionInputs(onboardResult),
           generator: 'stationary_bootstrap',
           n_paths: 10000,
         })
-      })
-      .then((response) => {
         if (!cancelled) setFetchedProjection(response)
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) setProjectionError(error?.message ?? 'Projection could not be loaded.')
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingProjection(false)
-      })
+      }
+    }
+
+    loadProjection()
 
     return () => { cancelled = true }
   }, [providedProjection, liveData, onboardResult, portfolio])

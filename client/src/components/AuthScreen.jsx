@@ -3,10 +3,10 @@ import { Feather, Eye, EyeOff, ArrowRight, AlertCircle, FastForward } from 'luci
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
-  { num: '01', text: 'Tells you not to invest when that is the right answer.' },
-  { num: '02', text: 'Shows the math, not just the verdict.' },
-  { num: '03', text: 'Builds a portfolio sized to what you can actually afford.' },
-  { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
+  { num: '01', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
+  { num: '02', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
+  { num: '03', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
+  { num: '04', text: 'No 1% fees. No $250k minimum. No nudges to buy what you should not.' },
 ]
 
 let _uid = 0
@@ -313,6 +313,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
               <div>
                 <div className="mallard-logo-name">Mallard</div>
                 <div className="mallard-logo-subtitle">MANAGEMENT</div>
+                <div className="mallard-logo-tagline">Fiduciary-grade advice. Free by default.</div>
               </div>
             </div>
 
@@ -544,6 +545,14 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
           font-weight: 700;
           letter-spacing: 0.28em;
           color: var(--gold-light);
+        }
+
+        .mallard-logo-tagline {
+          margin-top: 9px;
+          color: var(--text-secondary);
+          font-size: 13.5px;
+          font-weight: 600;
+          line-height: 1.25;
         }
 
         .mallard-hero-copy {
