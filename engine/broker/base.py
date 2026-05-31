@@ -2,7 +2,7 @@
 
 from typing import Protocol, runtime_checkable
 
-from schemas.models import Fill, OrderPlan, Positions
+from schemas.models import Fill, OrderPlan, Positions, RebalanceTrade
 
 
 @runtime_checkable
@@ -11,6 +11,11 @@ class BrokerAdapter(Protocol):
 
     def place_order(self, plan: OrderPlan) -> list[Fill]:
         """Place an OrderPlan and return fills per docs/greenlight/05 §2.8."""
+
+        ...
+
+    def place_trades(self, trades: list[RebalanceTrade]) -> list[Fill]:
+        """Place rebalance trades, including buys and sells, and return fills."""
 
         ...
 

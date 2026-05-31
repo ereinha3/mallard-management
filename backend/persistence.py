@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -82,6 +82,27 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class InvestmentAccount(Base):
+    __tablename__ = "investment_accounts"
+
+    user_email: Mapped[str] = mapped_column(String, primary_key=True)
+    cash_available: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cash_pending: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    broker_provider: Mapped[str] = mapped_column(String, nullable=False, default="simulator")
+    alpaca_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class FundingTransaction(Base):
+    __tablename__ = "funding_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_email: Mapped[str] = mapped_column(String, nullable=False)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 def _db_url() -> str:
     return os.environ.get("MALLARD_DB_URL", DEFAULT_DB_URL)
 
@@ -107,6 +128,21 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _ensure_additive_columns(engine)
+
+
+def _ensure_additive_columns(db_engine: Engine) -> None:
+    if db_engine.dialect.name != "sqlite":
+        return
+    with db_engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(investment_accounts)")
+        }
+        if "alpaca_account_id" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE investment_accounts ADD COLUMN alpaca_account_id VARCHAR"
+            )
 
 
 def get_session() -> Session:
@@ -234,6 +270,46 @@ def list_sessions(db: Session, email: str, kind: str | None = None) -> list[Chat
     if kind:
         query = query.filter(ChatSession.kind == kind)
     return query.order_by(ChatSession.created_at.desc()).all()
+
+
+def get_or_create_investment_account(db: Session, email: str) -> InvestmentAccount:
+    account = db.query(InvestmentAccount).filter(InvestmentAccount.user_email == email).first()
+    if account:
+        return account
+
+    account = InvestmentAccount(
+        user_email=email,
+        cash_available=0.0,
+        cash_pending=0.0,
+        broker_provider="simulator",
+    )
+    db.add(account)
+    return account
+
+
+def add_mock_deposit(db: Session, email: str, amount: float) -> FundingTransaction:
+    account = get_or_create_investment_account(db, email)
+    transaction = FundingTransaction(
+        user_email=email,
+        provider="mock_ach",
+        amount=float(amount),
+        status="succeeded",
+    )
+    db.add(transaction)
+    account.cash_available += float(amount)
+    return transaction
+
+
+def update_investment_account_cash(db: Session, email: str, cash_available: float) -> InvestmentAccount:
+    account = get_or_create_investment_account(db, email)
+    account.cash_available = max(0.0, float(cash_available))
+    return account
+
+
+def set_alpaca_account_id(db: Session, email: str, account_id: str) -> InvestmentAccount:
+    account = get_or_create_investment_account(db, email)
+    account.alpaca_account_id = account_id
+    return account
 
 
 init_db()
