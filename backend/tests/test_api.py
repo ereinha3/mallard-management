@@ -205,6 +205,8 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert "/api/v1/advisor/chat" in paths
     assert "/api/v1/auth/register" in paths
     assert "/api/v1/auth/login" in paths
+    assert "/api/v1/portfolio/reoptimize" in paths
+    assert "/api/v1/portfolio/analyze-weights" in paths
     assert "/api/v1/users/{email}/record" in paths
     assert "/api/v1/users/{email}/chats" in paths
     assert "/api/v1/chats/{session_id}" in paths
@@ -283,3 +285,95 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     tax = tax_response.json()
     assert tax["harvestable"][0]["ticker"] == "BND"
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
+
+
+def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: FastAPI):
+    client = _client(test_app)
+    profile = _persona("persona_greenlight.json")
+    responses = []
+
+    for risk_dial in (0.0, 0.5, 1.0):
+        response = client.post(
+            "/api/v1/portfolio/reoptimize",
+            json={"profile": profile, "risk_dial": risk_dial},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        weights = body["portfolio"]["weights"]
+        assert abs(sum(weights["by_ticker"].values()) - 1.0) < 1e-6
+        assert abs(sum(weights["by_sleeve"].values()) - 1.0) < 1e-6
+        assert body["portfolio"]["metrics"]["expected_vol"] >= 0
+        responses.append(body)
+
+    target_vols = [body["risk_summary"]["target_volatility_pct"] for body in responses]
+    max_losses = [body["risk_summary"]["estimated_max_loss_1yr_pct"] for body in responses]
+    expected_vols = [body["portfolio"]["metrics"]["expected_vol"] for body in responses]
+    sleeve_weights = [body["portfolio"]["weights"]["by_sleeve"] for body in responses]
+    assert target_vols[0] < target_vols[1] < target_vols[2]
+    assert max_losses[0] < max_losses[1] < max_losses[2]
+    assert expected_vols[0] < expected_vols[1] < expected_vols[2]
+    assert sleeve_weights[0] != sleeve_weights[2]
+
+
+def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_app: FastAPI):
+    client = _client(test_app)
+    profile = _persona("persona_greenlight.json")
+    portfolio_response = client.post("/api/v1/portfolio", json={"profile": profile})
+    assert portfolio_response.status_code == 200
+    sleeves = list(portfolio_response.json()["universe"]["sleeves"])
+    edited_by_sleeve = {sleeve: 1.0 for sleeve in sleeves}
+
+    response = client.post(
+        "/api/v1/portfolio/analyze-weights",
+        json={"profile": profile, "weights": {"by_sleeve": edited_by_sleeve}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert abs(body["validation"]["sum_by_ticker"] - 1.0) < 1e-6
+    assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
+    assert abs(body["validation"]["sum_risky_bucket"] - (4 / 6)) < 1e-6
+    assert abs(body["validation"]["sum_safe_bucket"] - (2 / 6)) < 1e-6
+    assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
+    assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
+    assert body["validation"]["warnings"] == ["Input by_sleeve sum was 6.000000; normalized to 1.0."]
+    assert abs(sum(body["weights"]["by_ticker"].values()) - 1.0) < 1e-6
+    assert abs(sum(body["weights"]["by_sleeve"].values()) - 1.0) < 1e-6
+    assert body["metrics"]["expected_vol"] >= 0
+    assert body["metrics"]["expected_shortfall_95"] >= 0
+    assert body["metrics"]["risk_contributions"]
+
+
+def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI):
+    client = _client(test_app)
+    profile = _persona("persona_greenlight.json")
+
+    response = client.post(
+        "/api/v1/portfolio/analyze-weights",
+        json={
+            "profile": profile,
+            "weights": {
+                "by_sleeve": {
+                    "us_equity": 0.4,
+                    "intl_equity": 0.2,
+                    "bonds": 0.3,
+                    "gold": 0.1,
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "metrics" in body
+    assert body["metrics"]["expected_vol"] >= 0
+    assert body["metrics"]["expected_shortfall_95"] >= 0
+    assert body["metrics"]["risk_contributions"]
+    assert abs(body["validation"]["sum_by_sleeve"] - 1.0) < 1e-6
+    assert abs(body["validation"]["sum_risky_bucket"] - 0.7) < 1e-6
+    assert abs(body["validation"]["sum_safe_bucket"] - 0.3) < 1e-6
+    assert abs(body["validation"]["sum_risky_within_bucket"] - 1.0) < 1e-6
+    assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
+    assert body["weights"]["by_sleeve"]["tips"] == 0.0
+    assert body["weights"]["by_sleeve"]["reits"] == 0.0

@@ -55,7 +55,7 @@ from llm.advisor import stream_advisor  # noqa: E402
 from llm.elicitation import stream_elicitation  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.blend import build_target_weights  # noqa: E402
-from optimizer.erc import cov_ledoit_wolf, risk_contributions  # noqa: E402
+from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions  # noqa: E402
 from profiler.profile import build_risk_profile  # noqa: E402
 from profiler.validate import validate_profile  # noqa: E402
 from rebalance.rebalancer import decide_rebalance  # noqa: E402
@@ -77,6 +77,7 @@ _RISK_LABELS = [
     (8.0, "Moderate-Conservative"),
     (float("inf"), "Conservative"),
 ]
+_WEIGHT_TOLERANCE = 1e-6
 
 
 def _ensure_engine_data() -> None:
@@ -474,6 +475,14 @@ def _risk_profile_with_context(validated: Any, risk_profile: Any) -> SimpleNames
     )
 
 
+def _risk_profile_with_target_vol(validated: Any, target_vol: float) -> SimpleNamespace:
+    return SimpleNamespace(
+        target_vol_band=SimpleNamespace(mid=float(target_vol)),
+        age=validated.age,
+        horizon_years=validated.horizon_years,
+    )
+
+
 def _periods_per_year(index: Any) -> float:
     try:
         dates = pd.to_datetime(index)
@@ -497,7 +506,7 @@ def _compute_risk_metrics(universe: Any, weights: Any) -> api_models.RiskMetrics
     tail_losses = -portfolio_returns[portfolio_returns <= tail_cutoff]
     expected_shortfall = float(max(0.0, tail_losses.mean() * math.sqrt(periods))) if not tail_losses.empty else 0.0
 
-    contributions = risk_contributions(weights.by_sleeve, annual_cov)
+    contributions = risk_contributions(aligned.reindex(annual_cov.columns).fillna(0.0).to_dict(), annual_cov)
     return api_models.RiskMetrics(
         expected_vol=expected_vol,
         expected_shortfall_95=expected_shortfall,
@@ -508,7 +517,7 @@ def _compute_risk_metrics(universe: Any, weights: Any) -> api_models.RiskMetrics
     )
 
 
-def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioResponse:
+def _build_universe(validated: Any) -> Any:
     _ensure_engine_data()
     universe = build_universe(
         {
@@ -517,6 +526,13 @@ def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioR
             "sector_theme_tilts": list(validated.sector_theme_tilts),
         }
     )
+    if not getattr(universe, "tickers", None) or not getattr(universe, "sleeves", None):
+        raise HTTPException(status_code=400, detail="Universe is empty for this profile.")
+    return universe
+
+
+def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioResponse:
+    universe = _build_universe(validated)
     weights = build_target_weights(
         _risk_profile_with_context(validated, risk_profile),
         universe,
@@ -526,6 +542,242 @@ def _build_portfolio(validated: Any, risk_profile: Any) -> api_models.PortfolioR
         universe=api_models.Universe.model_validate(universe.model_dump()),
         weights=api_models.TargetWeights.model_validate(weights.model_dump()),
         metrics=_compute_risk_metrics(universe, weights),
+    )
+
+
+def _build_portfolio_at_target_vol(validated: Any, target_vol: float) -> api_models.PortfolioResponse:
+    universe = _build_universe(validated)
+    weights = build_target_weights(
+        _risk_profile_with_target_vol(validated, target_vol),
+        universe,
+        load_prices(),
+    )
+    return api_models.PortfolioResponse(
+        universe=api_models.Universe.model_validate(universe.model_dump()),
+        weights=api_models.TargetWeights.model_validate(weights.model_dump()),
+        metrics=_compute_risk_metrics(universe, weights),
+    )
+
+
+def _target_vol_for_dial(risk_profile: Any, risk_dial: float) -> float:
+    band = risk_profile.target_vol_band
+    low = float(band.conservative)
+    mid = float(band.mid)
+    high = float(band.aggressive)
+    dial = max(0.0, min(1.0, float(risk_dial)))
+
+    if dial <= 0.5:
+        target = low + (mid - low) * (dial / 0.5)
+    else:
+        target = mid + (high - mid) * ((dial - 0.5) / 0.5)
+
+    lower, upper = min(low, high), max(low, high)
+    return min(upper, max(lower, target))
+
+
+def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
+    """Map the user dial onto the realized safe/risky frontier used by the optimizer."""
+    _ensure_engine_data()
+    sleeve_returns = returns_matrix(universe.sleeves)
+    risky_sleeves = [sleeve for sleeve in universe.risky_sleeves if sleeve in sleeve_returns.columns]
+    safe_sleeves = [sleeve for sleeve in universe.safe_sleeves if sleeve in sleeve_returns.columns]
+    if not risky_sleeves or not safe_sleeves:
+        raise ValueError("Universe must include risky and safe sleeves for risk-dial optimization.")
+
+    risky_weights = erc_weights(sleeve_returns[risky_sleeves])
+    safe_weights = {
+        sleeve: float(universe.market_weights.get(sleeve, 0.0))
+        for sleeve in safe_sleeves
+    }
+    if sum(safe_weights.values()) <= 0:
+        safe_weights = {sleeve: 1.0 for sleeve in safe_sleeves}
+    safe_weights = _normalize_weights(safe_weights, "safe_sleeve")
+
+    risky_series = sleeve_returns[list(risky_weights)].dot(pd.Series(risky_weights, dtype=float))
+    safe_series = sleeve_returns[list(safe_weights)].dot(pd.Series(safe_weights, dtype=float))
+    portfolios = pd.DataFrame({"risky": risky_series, "safe": safe_series}).dropna(how="any")
+    annual_cov = cov_ledoit_wolf(portfolios) * _periods_per_year(portfolios.index)
+    sigma_safe = float(np.sqrt(max(annual_cov.loc["safe", "safe"], 0.0)))
+    sigma_risky = float(np.sqrt(max(annual_cov.loc["risky", "risky"], 0.0)))
+    low, high = sorted((sigma_safe, sigma_risky))
+    dial = max(0.0, min(1.0, float(risk_dial)))
+    if high <= low:
+        return high
+    return low + ((high - low) * dial)
+
+
+def _greenlit_engine_context(profile_input: api_models.UserProfileInput) -> tuple[Any, Any]:
+    try:
+        engine_profile = _to_engine_profile(profile_input)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Profile requires clarification before portfolio construction.",
+                "clarification_requests": [
+                    request.model_dump() for request in _validation_clarifications(exc)
+                ],
+            },
+        ) from exc
+
+    validated = validate_profile(engine_profile)
+    if isinstance(validated, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Profile requires clarification before portfolio construction.",
+                "clarification_requests": [
+                    request.model_dump() for request in _engine_clarifications(validated)
+                ],
+            },
+        )
+
+    gate_result = evaluate_gate(validated)
+    if gate_result.status != "greenlight":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Profile must pass the responsibility gate before portfolio construction.",
+                "gate_result": _to_api_gate(gate_result, validated).model_dump(),
+            },
+        )
+
+    return validated, build_risk_profile(validated)
+
+
+def _normalize_weights(weights: dict[str, float], label: str) -> dict[str, float]:
+    total = float(sum(weights.values()))
+    if total <= 0:
+        raise HTTPException(status_code=400, detail=f"{label} weights must have a positive total.")
+    return {key: float(value) / total for key, value in weights.items()}
+
+
+def _ticker_to_sleeve(universe: Any) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for sleeve, tickers in universe.sleeves.items():
+        for ticker in tickers:
+            mapping[str(ticker)] = str(sleeve)
+    return mapping
+
+
+def _weights_from_sleeves(
+    universe: Any,
+    weights: dict[Any, float],
+) -> tuple[dict[str, float], dict[str, float], list[str]]:
+    warnings: list[str] = []
+    known_sleeves = {str(sleeve) for sleeve in universe.sleeves}
+    unknown = sorted(str(sleeve) for sleeve in weights if str(sleeve) not in known_sleeves)
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown sleeve(s): {', '.join(unknown)}",
+        )
+
+    raw_by_sleeve = {
+        sleeve: float(weights.get(sleeve, 0.0))
+        for sleeve in known_sleeves
+    }
+    raw_total = float(sum(raw_by_sleeve.values()))
+    if abs(raw_total - 1.0) > _WEIGHT_TOLERANCE:
+        warnings.append(f"Input by_sleeve sum was {raw_total:.6f}; normalized to 1.0.")
+    by_sleeve = _normalize_weights(raw_by_sleeve, "by_sleeve")
+    by_ticker: dict[str, float] = {}
+    for sleeve, sleeve_weight in by_sleeve.items():
+        tickers = list(universe.sleeves.get(sleeve, []))
+        if not tickers:
+            warnings.append(f"Sleeve {sleeve} has no available tickers.")
+            continue
+        ticker_weight = sleeve_weight / len(tickers)
+        for ticker in tickers:
+            by_ticker[str(ticker)] = by_ticker.get(str(ticker), 0.0) + ticker_weight
+
+    return _normalize_weights(by_ticker, "by_ticker"), by_sleeve, warnings
+
+
+def _weights_from_tickers(
+    universe: Any,
+    weights: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float], list[str]]:
+    warnings: list[str] = []
+    ticker_sleeves = _ticker_to_sleeve(universe)
+    known = {
+        str(ticker): float(weight)
+        for ticker, weight in weights.items()
+        if str(ticker) in ticker_sleeves
+    }
+    unknown = sorted(str(ticker) for ticker in weights if str(ticker) not in ticker_sleeves)
+    if unknown:
+        warnings.append(f"Ignored unknown ticker(s): {', '.join(unknown)}.")
+
+    raw_total = float(sum(known.values()))
+    if abs(raw_total - 1.0) > _WEIGHT_TOLERANCE:
+        warnings.append(f"Input by_ticker sum was {raw_total:.6f}; normalized to 1.0.")
+    by_ticker = _normalize_weights(known, "by_ticker")
+    by_sleeve: dict[str, float] = {}
+    for ticker, weight in by_ticker.items():
+        sleeve = ticker_sleeves[ticker]
+        by_sleeve[sleeve] = by_sleeve.get(sleeve, 0.0) + weight
+
+    return by_ticker, _normalize_weights(by_sleeve, "by_sleeve"), warnings
+
+
+def _analyze_weight_inputs(
+    universe: Any,
+    weights: api_models.EditableWeights,
+) -> tuple[dict[str, float], dict[str, float], list[str]]:
+    if weights.by_sleeve:
+        by_ticker, by_sleeve, warnings = _weights_from_sleeves(universe, weights.by_sleeve)
+        if weights.by_ticker:
+            warnings.append("by_ticker was ignored because by_sleeve was provided.")
+        return by_ticker, by_sleeve, warnings
+
+    return _weights_from_tickers(universe, weights.by_ticker or {})
+
+
+def _portfolio_weight_validation(
+    universe: Any,
+    by_ticker: dict[str, float],
+    by_sleeve: dict[str, float],
+    warnings: list[str],
+) -> api_models.PortfolioWeightsValidation:
+    sum_by_ticker = float(sum(by_ticker.values()))
+    sum_by_sleeve = float(sum(by_sleeve.values()))
+    risky_sleeves = {str(sleeve) for sleeve in universe.risky_sleeves}
+    safe_sleeves = {str(sleeve) for sleeve in universe.safe_sleeves}
+    sum_risky_bucket = float(sum(weight for sleeve, weight in by_sleeve.items() if sleeve in risky_sleeves))
+    sum_safe_bucket = float(sum(weight for sleeve, weight in by_sleeve.items() if sleeve in safe_sleeves))
+
+    risky_within = (
+        sum(float(by_sleeve.get(sleeve, 0.0)) / sum_risky_bucket for sleeve in risky_sleeves)
+        if sum_risky_bucket > _WEIGHT_TOLERANCE
+        else 0.0
+    )
+    safe_within = (
+        sum(float(by_sleeve.get(sleeve, 0.0)) / sum_safe_bucket for sleeve in safe_sleeves)
+        if sum_safe_bucket > _WEIGHT_TOLERANCE
+        else 0.0
+    )
+
+    next_warnings = list(warnings)
+    if abs(sum_by_sleeve - 1.0) > _WEIGHT_TOLERANCE:
+        next_warnings.append(f"Normalized by_sleeve sum is {sum_by_sleeve:.6f}; expected 1.0.")
+    if abs((sum_risky_bucket + sum_safe_bucket) - 1.0) > _WEIGHT_TOLERANCE:
+        next_warnings.append(
+            "Risky and safe bucket shares do not sum to 1.0 after normalization."
+        )
+    if sum_safe_bucket > _WEIGHT_TOLERANCE and abs(safe_within - 1.0) > _WEIGHT_TOLERANCE:
+        next_warnings.append(f"Safe bucket internal sum is {safe_within:.6f}; expected 1.0.")
+    if sum_risky_bucket > _WEIGHT_TOLERANCE and abs(risky_within - 1.0) > _WEIGHT_TOLERANCE:
+        next_warnings.append(f"Risky bucket internal sum is {risky_within:.6f}; expected 1.0.")
+
+    return api_models.PortfolioWeightsValidation(
+        sum_by_ticker=sum_by_ticker,
+        sum_by_sleeve=sum_by_sleeve,
+        sum_risky_bucket=sum_risky_bucket,
+        sum_safe_bucket=sum_safe_bucket,
+        sum_risky_within_bucket=float(risky_within),
+        sum_safe_within_bucket=float(safe_within),
+        warnings=next_warnings,
     )
 
 
@@ -806,6 +1058,71 @@ async def backtest(request: api_models.BacktestRequest) -> api_models.BacktestRe
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return api_models.BacktestResponse.model_validate(report)
+
+
+@router.post(
+    "/portfolio/reoptimize",
+    response_model=api_models.PortfolioReoptimizeResponse,
+    summary="Re-optimize target portfolio for a risk dial",
+)
+async def portfolio_reoptimize(
+    request: api_models.PortfolioReoptimizeRequest,
+) -> api_models.PortfolioReoptimizeResponse:
+    """Build a greenlit portfolio with target volatility selected within the user's allowed band."""
+    try:
+        validated, risk_profile = _greenlit_engine_context(request.profile)
+        target_vol = _target_vol_for_dial(risk_profile, request.risk_dial)
+        universe = _build_universe(validated)
+        optimizer_target_vol = _optimizer_target_vol_for_dial(universe, request.risk_dial)
+        weights = build_target_weights(
+            _risk_profile_with_target_vol(validated, optimizer_target_vol),
+            universe,
+            load_prices(),
+        )
+        portfolio_result = api_models.PortfolioResponse(
+            universe=api_models.Universe.model_validate(universe.model_dump()),
+            weights=api_models.TargetWeights.model_validate(weights.model_dump()),
+            metrics=_compute_risk_metrics(universe, weights),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return api_models.PortfolioReoptimizeResponse(
+        portfolio=portfolio_result,
+        risk_summary=api_models.PortfolioRiskSummary(
+            target_volatility_pct=round(target_vol * 100.0, 1),
+            estimated_max_loss_1yr_pct=round(target_vol * 2.0 * 100.0, 1),
+        ),
+    )
+
+
+@router.post(
+    "/portfolio/analyze-weights",
+    response_model=api_models.PortfolioAnalyzeWeightsResponse,
+    summary="Analyze user-edited portfolio weights",
+)
+async def portfolio_analyze_weights(
+    request: api_models.PortfolioAnalyzeWeightsRequest,
+) -> api_models.PortfolioAnalyzeWeightsResponse:
+    """Normalize edited weights against the profile universe and recompute risk metrics."""
+    try:
+        validated, _ = _greenlit_engine_context(request.profile)
+        universe = _build_universe(validated)
+        by_ticker, by_sleeve, warnings = _analyze_weight_inputs(universe, request.weights)
+        normalized_weights = SimpleNamespace(by_sleeve=by_sleeve)
+        metrics = _compute_risk_metrics(universe, normalized_weights)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return api_models.PortfolioAnalyzeWeightsResponse(
+        weights=api_models.AnalyzedWeights(by_ticker=by_ticker, by_sleeve=by_sleeve),
+        metrics=metrics,
+        validation=_portfolio_weight_validation(universe, by_ticker, by_sleeve, warnings),
+    )
 
 
 @router.post("/projection", response_model=api_models.Projection, summary="Run Monte Carlo projection")

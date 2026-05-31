@@ -90,6 +90,10 @@ export default function GreenlightFlow({ onboardResult }) {
     setStep(gateStepFromStatus(result?.gate_result?.status))
   }
 
+  function handlePortfolioApplied(result) {
+    setGateResult(result)
+  }
+
   const isFullscreen = step === STEPS.GATE_HALT || step === STEPS.GATE_GREEN
 
   return (
@@ -171,6 +175,7 @@ export default function GreenlightFlow({ onboardResult }) {
           <PortfolioView
             onboardResult={gateResult}
             onRebalance={() => setStep(STEPS.REBALANCE)}
+            onApplied={handlePortfolioApplied}
           />
         )}
         {step === STEPS.REBALANCE && (
