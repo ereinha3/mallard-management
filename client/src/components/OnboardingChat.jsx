@@ -181,6 +181,7 @@ function UserBubble({ text }) {
 const TAX_PROFILE_FIELDS = [
   'zip_code',
   'state',
+  'filing_status',
   'pretax_401k',
   'pretax_ira',
   'pretax_hsa',
@@ -190,15 +191,68 @@ const TAX_PROFILE_FIELDS = [
   'hsa_coverage',
 ]
 
+const FILING_STATUS_MAP = {
+  married_filing_jointly: 'married_joint',
+  married_filing_separately: 'married_separate',
+  qualifying_surviving_spouse: 'married_joint',
+}
+
+function normalizeFilingStatus(value) {
+  return FILING_STATUS_MAP[value] ?? value
+}
+
+function normalizePercent(value) {
+  if (value == null) return value
+  return value > 1 ? value / 100 : value
+}
+
+function normalizeHsaCoverage(value) {
+  if (value === 'self') return 'self_only'
+  return value
+}
+
 function getTaxProfilePayload(taxProfile) {
   if (!taxProfile) return {}
 
+  const contributions = taxProfile.pre_tax_contributions_annual ?? {}
+  const normalized = {
+    zip_code: taxProfile.zip_code,
+    state: taxProfile.state,
+    filing_status: normalizeFilingStatus(taxProfile.filing_status),
+    pretax_401k: contributions.traditional_401k,
+    pretax_ira: contributions.traditional_ira,
+    pretax_hsa: contributions.hsa_contribution,
+    employer_match_rate: normalizePercent(contributions.employer_match_rate_pct),
+    employer_match_cap_pct: normalizePercent(contributions.employer_match_cap_pct_salary),
+    has_hsa_eligible_plan: contributions.hsa_eligible,
+    hsa_coverage: normalizeHsaCoverage(contributions.hsa_coverage),
+  }
+
   return TAX_PROFILE_FIELDS.reduce((payload, field) => {
-    if (taxProfile[field] !== undefined) {
-      payload[field] = taxProfile[field]
+    if (normalized[field] !== undefined && normalized[field] !== null && normalized[field] !== '') {
+      payload[field] = normalized[field]
     }
     return payload
   }, {})
+}
+
+function formatTaxProfileSeed(taxProfile) {
+  const payload = getTaxProfilePayload(taxProfile)
+  const parts = []
+
+  if (payload.zip_code) parts.push(`ZIP code is ${payload.zip_code}`)
+  if (payload.state) parts.push(`state is ${payload.state}`)
+  if (payload.filing_status) parts.push(`filing status is ${payload.filing_status}`)
+  if (payload.pretax_401k != null) parts.push(`annual 401k contribution is $${payload.pretax_401k}`)
+  if (payload.pretax_ira != null) parts.push(`annual traditional IRA contribution is $${payload.pretax_ira}`)
+  if (payload.has_hsa_eligible_plan != null) parts.push(`HSA eligibility is ${payload.has_hsa_eligible_plan ? 'yes' : 'no'}`)
+  if (payload.pretax_hsa != null) parts.push(`annual HSA contribution is $${payload.pretax_hsa}`)
+  if (payload.hsa_coverage) parts.push(`HSA coverage is ${payload.hsa_coverage}`)
+  if (payload.employer_match_rate != null) parts.push(`employer match rate is ${payload.employer_match_rate}`)
+  if (payload.employer_match_cap_pct != null) parts.push(`employer match cap is ${payload.employer_match_cap_pct}`)
+
+  if (!parts.length) return ''
+  return ` The user also completed TaxProfileForm: ${parts.join(', ')}. Do NOT ask about any TaxProfileForm fields.`
 }
 
 export default function OnboardingChat({ user, taxProfile, onComplete, resumeSession }) {
@@ -338,7 +392,6 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
       liquidCapital: data.liquidCapital,
       emergencyFund: data.emergencyFund,
       age: data.age,
-      filingStatus: data.filing_status,
       dependents: data.dependents,
       employerCompany: data.employerCompany,
       jobTitle: data.jobTitle,
@@ -348,7 +401,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
     }
     setStep('chat')
 
-    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}. Do NOT re-ask about any of those fields. Proceed to income stability classification, then risk tolerance using the GL1-GL13 questions one at a time, then outstanding debts if they are not obvious, then primary investing goals and time horizon. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, age is ${capturedFields.age}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT re-ask about any of those fields. Proceed to income stability classification, then risk tolerance using the GL1-GL13 questions one at a time, then outstanding debts if they are not obvious, then primary investing goals and time horizon. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)

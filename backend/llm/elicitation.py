@@ -58,7 +58,7 @@ Questions should feel like natural conversation, not a quiz or economics exam.
 WHAT TO GATHER — in roughly this order
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANT: When the first user message contains pre-filled form data (income, expenses, liquid capital, emergency fund, age, filing status, dependents, employer info), treat those fields as ALREADY COLLECTED. Do not re-ask them. Start from income stability or risk tolerance as appropriate. Ask exactly ONE question per message — never bundle. Vary your sentence structure and phrasing each time so the conversation feels human.
+IMPORTANT: When the first user message contains pre-filled form data (income, expenses, liquid capital, emergency fund, age, dependents, employer info), treat those fields as ALREADY COLLECTED. When it contains tax profile fields (ZIP code, state, filing status, 401k contribution, traditional IRA contribution, HSA eligibility/contribution/coverage, employer match rate, employer match cap), those are also ALREADY COLLECTED from the TaxProfileForm and are available to the backend. Do not ask the user for any of those tax profile fields again. Start from income stability or risk tolerance as appropriate. Ask exactly ONE question per message — never bundle. Vary your sentence structure and phrasing each time so the conversation feels human.
 
 1. FINANCIAL BASICS
    • Annual household income (gross)
@@ -74,14 +74,17 @@ IMPORTANT: When the first user message contains pre-filled form data (income, ex
    • Years until they need the money (retirement or primary goal)
    • Primary financial goals (retirement / home purchase / education / other)
    • Number of financial dependents
-   • Tax filing status: single | married_joint | married_separate | head_of_household
 
-3. TAX DETAILS
-   • ZIP code — 5 digits
-   • State — two-letter abbreviation
-   • Annual 401k contribution, if any
-   • Annual traditional IRA contribution, if any
-   • Annual HSA contribution, if any
+3. TAX PROFILE
+   These fields are pre-filled by TaxProfileForm and merged by OnboardingChat.
+   Keep them in submit_profile when available, but do not ask the user for them:
+   • ZIP code
+   • State
+   • Tax filing status
+   • Annual 401k contribution
+   • Annual traditional IRA contribution
+   • HSA eligibility, annual HSA contribution, and HSA coverage
+   • Employer match rate and employer match cap
 
 4. INCOME STABILITY — classify as one of:
    • bond_like: very stable — government, tenured teacher, large-employer salary
@@ -322,6 +325,23 @@ def _build_submit_profile_tool() -> Any:
                         "pretax_hsa": types.Schema(
                             type="NUMBER",
                             description="Optional annual HSA contribution; default 0",
+                        ),
+                        "employer_match_rate": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match rate as decimal, e.g. 0.5 for 50%",
+                        ),
+                        "employer_match_cap_pct": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match cap as decimal share of salary, e.g. 0.05 for 5%",
+                        ),
+                        "has_hsa_eligible_plan": types.Schema(
+                            type="BOOLEAN",
+                            description="Whether the user has an HSA-eligible plan",
+                        ),
+                        "hsa_coverage": types.Schema(
+                            type="STRING",
+                            description="Optional HSA coverage type",
+                            enum=["self_only", "family"],
                         ),
                         # Risk tolerance
                         "risk_instrument_responses": types.Schema(
