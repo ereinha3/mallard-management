@@ -180,13 +180,10 @@ export default function App() {
             position: 'fixed',
             inset: 0,
             zIndex: 1000,
-            pointerEvents: askMallardOpen ? 'auto' : 'none',
+            pointerEvents: 'none',
           }}
         >
-          <button
-            type="button"
-            aria-label="Close Ask Mallard"
-            onClick={() => setAskMallardOpen(false)}
+          <div
             style={{
               position: 'absolute',
               inset: 0,
@@ -197,7 +194,7 @@ export default function App() {
               background: 'rgba(7, 9, 16, 0.56)',
               opacity: askMallardOpen ? 1 : 0,
               transition: 'opacity 240ms ease',
-              cursor: 'default',
+              pointerEvents: 'none',
             }}
           />
           <aside
@@ -218,6 +215,7 @@ export default function App() {
               transform: askMallardOpen ? 'translateX(0)' : 'translateX(100%)',
               transition: 'transform 260ms ease',
               overflow: 'hidden',
+              pointerEvents: 'auto',
             }}
           >
             <div

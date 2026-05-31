@@ -98,11 +98,7 @@ function AccountCard({ account, isLiability }) {
                 <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : 'Not provided'}</span>
               </div>
             </>
-          ) : (
-            <div className="text-muted">
-              Source: onboarded profile field {account.sourceField}.
-            </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -153,8 +149,8 @@ export default function AccountsTab({ onboardResult }) {
   ].filter(item => item.value != null)
 
   const assets = [
-    { label: 'Liquid Cash', balance: numberOrNull(profile.capital_on_hand), type: 'savings', subtitle: 'Validated profile', sourceField: 'validated_profile.capital_on_hand' },
-    { label: 'Emergency Fund', balance: numberOrNull(profile.emergency_fund), type: 'savings', subtitle: 'Validated profile', sourceField: 'validated_profile.emergency_fund' },
+    { label: 'Liquid Cash', balance: numberOrNull(profile.capital_on_hand), type: 'savings', subtitle: 'Validated profile', key: 'validated_profile.capital_on_hand' },
+    { label: 'Emergency Fund', balance: numberOrNull(profile.emergency_fund), type: 'savings', subtitle: 'Validated profile', key: 'validated_profile.emergency_fund' },
   ]
 
   if (profile.assets && typeof profile.assets === 'object') {
@@ -164,7 +160,7 @@ export default function AccountsTab({ onboardResult }) {
         balance: numberOrNull(value),
         type: assetTypeFor(key),
         subtitle: 'Validated profile',
-        sourceField: `validated_profile.assets.${key}`,
+        key: `validated_profile.assets.${key}`,
       })
     })
   }
@@ -253,7 +249,7 @@ export default function AccountsTab({ onboardResult }) {
           {displayAssets.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {displayAssets.map((acc) => (
-                <AccountCard key={acc.sourceField} account={acc} />
+                <AccountCard key={acc.key} account={acc} />
               ))}
             </div>
           ) : (

@@ -27,8 +27,6 @@ const LIABILITY_ICONS = {
   other:        { icon: DollarSign,color: '#6b7280' },
 }
 
-const CHART_SCENARIOS = ['base', 'optimistic', 'conservative']
-
 function numberOrNull(value) {
   const num = Number(value)
   return Number.isFinite(num) ? num : null
@@ -185,7 +183,6 @@ function AssetRow({ label, value, percent, icon: Icon, color }) {
 }
 
 export default function Dashboard({ onboardResult }) {
-  const [scenario, setScenario] = useState('base')
   const [projection, setProjection] = useState(null)
   const [projectionLoading, setProjectionLoading] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -267,21 +264,6 @@ export default function Dashboard({ onboardResult }) {
               ? `Updated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · Values from onboarding analysis`
               : 'No onboarding analysis available yet'}
           </p>
-        </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Projection scenario">
-          {CHART_SCENARIOS.map((s) => (
-            <button key={s} onClick={() => setScenario(s)}
-              aria-pressed={scenario === s}
-              className="px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all"
-              style={{
-                background: scenario === s ? 'var(--bg-elevated)' : 'transparent',
-                color: scenario === s ? 'var(--gold-light)' : 'var(--text-muted)',
-                border: scenario === s ? '1px solid var(--border-gold)' : '1px solid transparent',
-                letterSpacing: '0.03em',
-              }}>
-              {s}
-            </button>
-          ))}
         </div>
       </header>
 
