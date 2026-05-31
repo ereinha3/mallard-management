@@ -1,4 +1,19 @@
-node_modules
-dist
+node_modules/
+dist/
+.next/
 .DS_Store
+
+# Env files — never commit secrets
+.env.local
+**/.env
+
+# Build artifacts
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# ETF universe cache — rebuilt by scripts/buildEtfUniverse.ts
+data/etf-universe.json
+
+# Misc
+**/.codex-tasks
 client-integration/

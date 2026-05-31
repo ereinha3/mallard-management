@@ -1,0 +1,7 @@
+sleeve,ticker,role,esg_tags,market_weight,fossil_fuels,weapons,tobacco,gambling
+us_equity,VTI,risky,broad,0.45,ESGV,ESGV,ESGV,ESGV
+intl_equity,VEA,risky,broad,0.20,ESGD,ESGD,ESGD,ESGD
+reits,VNQ,risky,broad,0.05,,,,
+gold,GLD,risky,broad,0.05,,,,
+bonds,BND,safe,broad,0.20,,,,
+tips,TIP,safe,broad,0.05,,,,
