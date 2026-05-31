@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, PiggyBank, BarChart3,
-  Settings, Bell, Shield, ChevronRight, Feather, Zap, MessageCircle,
+  Settings, Bell, Shield, ChevronRight, Feather, Zap,
   GraduationCap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -8,7 +8,6 @@ import { cn } from '../lib/utils'
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard' },
   { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
-  { icon: MessageCircle,   label: 'Ask Mallard',  id: 'advisor' },
   { icon: GraduationCap,   label: 'Learn',        id: 'learn' },
   { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: BarChart3,       label: 'Portfolio',    id: 'portfolio' },
@@ -20,7 +19,7 @@ const bottomItems = [
   { icon: Settings, label: 'Settings', id: 'settings' },
 ]
 
-export default function Sidebar({ active, onNavigate, onAskMallard, user, onboardResult }) {
+export default function Sidebar({ active, onNavigate, user, onboardResult }) {
   const displayName = user?.name || user?.email || 'Signed-in user'
   const initials = displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
@@ -109,20 +108,12 @@ export default function Sidebar({ active, onNavigate, onAskMallard, user, onboar
         </div>
         {navItems.map((item) => {
           const isActive = (active || 'dashboard') === item.id
-          const handleClick = () => {
-            if (item.id === 'advisor') {
-              onAskMallard?.()
-              return
-            }
-
-            onNavigate?.(item.id)
-          }
 
           return (
             <button
               key={item.id}
               data-tour={`nav-${item.id}`}
-              onClick={handleClick}
+              onClick={() => onNavigate?.(item.id)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative text-left',

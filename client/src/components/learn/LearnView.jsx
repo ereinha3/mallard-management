@@ -187,8 +187,7 @@ function buildAskPrompt(lesson, horizonYears) {
   return `Help me apply the lesson "${lesson.title}" to my financial plan.${horizonLine}`
 }
 
-export default function LearnView({ onboardResult }) {
-  const onAskMallard = arguments[0]?.onAskMallard
+export default function LearnView({ onboardResult, onAskMallard }) {
   const [activeLessonId, setActiveLessonId] = useState(modules[0].lessons[0].id)
   const [completedIds, setCompletedIds] = useState([])
 

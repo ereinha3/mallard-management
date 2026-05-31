@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { MessageCircle, X } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import GreenlightFlow from './components/greenlight/GreenlightFlow'
@@ -16,7 +16,7 @@ import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'advisor', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
 const AUTH_LOCAL_STORAGE_KEYS = []
 
 export default function App() {
@@ -115,15 +115,13 @@ export default function App() {
         <Sidebar
           active={activePage}
           onNavigate={setActivePage}
-          onAskMallard={() => setAskMallardOpen(true)}
           user={user}
           onboardResult={onboardResult}
         />
         <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
           {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
-          {activePage === 'advisor' && <AdvisorChat context={onboardResult} user={user} />}
-          {activePage === 'learn' && <LearnView onboardResult={onboardResult} />}
+          {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
           {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
           {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} onApplied={setOnboardResult} />}
           {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
@@ -139,6 +137,42 @@ export default function App() {
             </div>
           )}
         </main>
+
+        {!askMallardOpen && (
+          <button
+            type="button"
+            aria-label="Open Ask Mallard"
+            onClick={() => setAskMallardOpen(true)}
+            style={{
+              position: 'fixed',
+              right: 24,
+              bottom: 24,
+              zIndex: 1000,
+              width: 56,
+              height: 56,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              border: 0,
+              background: '#C9A84C',
+              color: '#fff',
+              boxShadow: '0 12px 30px rgba(0, 0, 0, 0.28)',
+              cursor: 'pointer',
+              transition: 'filter 160ms ease, transform 160ms ease',
+            }}
+            onMouseEnter={event => {
+              event.currentTarget.style.filter = 'brightness(0.9)'
+              event.currentTarget.style.transform = 'translateY(-1px)'
+            }}
+            onMouseLeave={event => {
+              event.currentTarget.style.filter = 'none'
+              event.currentTarget.style.transform = 'translateY(0)'
+            }}
+          >
+            <MessageCircle size={25} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        )}
 
         <div
           aria-hidden={!askMallardOpen}
