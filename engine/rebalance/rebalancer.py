@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import csv
 from collections import defaultdict
 
-from data.loaders import ESG_COLUMNS, UNIVERSE_PATH, latest_prices
+from data.loaders import latest_prices
+from data.repository import ticker_to_sleeve
 from schemas.constants import DRIFT_BAND_PP
 from schemas.models import Positions, RebalanceDecision, Sleeve, TargetWeights
 
@@ -13,15 +13,7 @@ EPSILON = 1e-9
 
 
 def _ticker_to_sleeve() -> dict[str, Sleeve]:
-    mapping: dict[str, Sleeve] = {}
-    with UNIVERSE_PATH.open(newline="") as fh:
-        for row in csv.DictReader(fh):
-            sleeve = row["sleeve"]
-            candidates = [row["ticker"]]
-            candidates.extend(row[column] for column in ESG_COLUMNS if row.get(column))
-            for ticker in candidates:
-                mapping[ticker] = sleeve
-    return mapping
+    return ticker_to_sleeve()
 
 
 def _target_ticker_for_sleeve(weights: TargetWeights, sleeve: Sleeve, mapping: dict[str, Sleeve]) -> str | None:

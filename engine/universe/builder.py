@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import csv
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 from typing import Any
 
-from schemas.models import EsgExclusion, ExcludedTicker, Sleeve, Universe
+from data.loaders import load_universe
+from schemas.models import EsgExclusion, Universe
 
-UNIVERSE_PATH = Path(__file__).resolve().parents[1] / "data" / "universe.csv"
 ESG_COLUMNS = {"fossil_fuels", "weapons", "tobacco", "gambling"}
 
 
@@ -33,45 +31,4 @@ def _pref_exclusions(prefs: Any) -> list[EsgExclusion]:
 def build_universe(prefs: Any) -> Universe:
     """Build the investable Universe per docs/greenlight/05 §§4-5."""
 
-    exclusions = _pref_exclusions(prefs)
-    sleeves: dict[Sleeve, list[str]] = {}
-    risky_sleeves: list[Sleeve] = []
-    safe_sleeves: list[Sleeve] = []
-    market_weights: dict[Sleeve, float] = {}
-    excluded: list[ExcludedTicker] = []
-
-    with UNIVERSE_PATH.open(newline="") as handle:
-        for row in csv.DictReader(handle):
-            sleeve = row["sleeve"]
-            role = row["role"]
-            original_ticker = row["ticker"]
-            ticker = original_ticker
-
-            for exclusion in exclusions:
-                replacement = row.get(exclusion, "").strip()
-                if replacement and replacement != ticker:
-                    excluded.append(ExcludedTicker(ticker=original_ticker, reason=exclusion))
-                    ticker = replacement
-                    break
-
-            sleeves.setdefault(sleeve, []).append(ticker)
-            market_weights[sleeve] = float(row["market_weight"])
-            if role == "risky" and sleeve not in risky_sleeves:
-                risky_sleeves.append(sleeve)
-            if role == "safe" and sleeve not in safe_sleeves:
-                safe_sleeves.append(sleeve)
-
-    tickers: list[str] = []
-    for sleeve_tickers in sleeves.values():
-        for ticker in sleeve_tickers:
-            if ticker not in tickers:
-                tickers.append(ticker)
-
-    return Universe(
-        tickers=tickers,
-        sleeves=sleeves,
-        risky_sleeves=risky_sleeves,
-        safe_sleeves=safe_sleeves,
-        market_weights=market_weights,
-        excluded=excluded,
-    )
+    return load_universe(_pref_exclusions(prefs) or ["none"])
