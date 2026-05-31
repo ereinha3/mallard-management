@@ -1316,7 +1316,11 @@ async def advisor_chat(request: api_models.AdvisorChatRequest) -> StreamingRespo
         if session_id:
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
         assistant_chunks = []
-        async for event in stream_advisor(request.messages, request.context):
+        async for event in stream_advisor(
+            request.messages,
+            request.context,
+            user_email=request.user_email,
+        ):
             if event.get("type") == "token":
                 assistant_chunks.append(event.get("content", ""))
             yield f"data: {json.dumps(event)}\n\n"

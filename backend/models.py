@@ -201,6 +201,26 @@ class RiskProfile(BaseModel):
     loss_aversion_flag: bool = False
 
 
+class RiskSignalComponent(BaseModel):
+    name: Literal["gl13", "dohmen", "loss_aversion"]
+    gamma: float = Field(ge=1.5, le=8.0)
+    variance: float = Field(gt=0)
+
+
+class RiskFusionInternals(BaseModel):
+    signals: List[RiskSignalComponent]
+    fixed_gamma: float = Field(ge=1.5, le=8.0)
+    fused_gamma: float = Field(ge=1.5, le=8.0)
+    q: float = Field(ge=0)
+    i_squared: float = Field(ge=0)
+    tau_squared: float = Field(ge=0)
+    combined_var: float = Field(gt=0)
+    signal_confidence: float = Field(ge=0, le=1)
+    gamma_band: GammaBand
+    needs_clarification: bool
+    contradiction_note: Optional[str] = None
+
+
 # ── Gate math objects ─────────────────────────────────────────────────────────
 
 class EmergencyFundMath(BaseModel):
