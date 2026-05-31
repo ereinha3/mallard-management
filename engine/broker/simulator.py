@@ -49,6 +49,7 @@ class SimulatorBroker:
     def read_positions(self) -> Positions:
         """Read current positions per docs/greenlight/05 §2.8."""
 
+        cash = 0.0 if abs(self.cash) < 1e-9 else self.cash
         tickers = sorted(self._shares)
         prices = self._prices_for(tickers)
         items = []
@@ -65,4 +66,4 @@ class SimulatorBroker:
             )
 
         invested_value = sum(item["market_value"] for item in items)
-        return Positions(items=items, portfolio_value=invested_value + self.cash, cash=self.cash)
+        return Positions(items=items, portfolio_value=invested_value + cash, cash=cash)

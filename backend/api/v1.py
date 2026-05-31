@@ -35,19 +35,25 @@ from config import (  # noqa: E402
 from persistence import (  # noqa: E402
     ChatMessage as ChatMessageRow,
     ChatSession,
+    FundingTransaction,
+    InvestmentAccount,
     Profile,
+    add_mock_deposit,
     append_message,
     create_user,
     get_messages,
     get_or_create_session,
+    get_or_create_investment_account,
     get_password_hash,
     get_profile_result,
     get_session,
     get_user,
     list_sessions,
+    update_investment_account_cash,
     upsert_profile,
     verify_password,
 )
+from broker_factory import get_broker  # noqa: E402
 from data.seed import seed_database  # noqa: E402
 from data.loaders import load_prices, returns_matrix  # noqa: E402
 from backtest.run import run_backtest_report  # noqa: E402
@@ -68,6 +74,7 @@ from schemas.models import (  # noqa: E402
     TargetWeights as EngineTargetWeights,
     UserProfile as EngineUserProfile,
 )
+from sizing.sizer import size_orders  # noqa: E402
 from tax.report import tax_report  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
@@ -969,6 +976,26 @@ def _json_dt(value: Any) -> str | None:
     return value.isoformat() if value else None
 
 
+def _investment_account_out(account: InvestmentAccount) -> api_models.InvestmentAccountOut:
+    return api_models.InvestmentAccountOut(
+        user_email=account.user_email,
+        cash_available=account.cash_available,
+        cash_pending=account.cash_pending,
+        broker_provider=account.broker_provider,
+    )
+
+
+def _funding_transaction_out(transaction: FundingTransaction) -> api_models.FundingTransactionOut:
+    return api_models.FundingTransactionOut(
+        id=transaction.id,
+        user_email=transaction.user_email,
+        provider="mock_ach",
+        amount=transaction.amount,
+        status="succeeded",
+        created_at=transaction.created_at,
+    )
+
+
 def _message_out(message: ChatMessageRow) -> dict[str, Any]:
     return {
         "role": message.role,
@@ -1074,6 +1101,75 @@ async def login(req: api_models.AuthRequest, db: Session = Depends(get_db)) -> a
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
+
+
+@router.post("/funding/mock/deposit", response_model=api_models.FundingTransactionOut)
+async def mock_deposit(
+    request: api_models.FundingDepositRequest,
+    db: Session = Depends(get_db),
+) -> api_models.FundingTransactionOut:
+    """Mock ACH funding stub: no real money movement, no Stripe integration."""
+    transaction = add_mock_deposit(db, request.user_email, request.amount)
+    db.commit()
+    db.refresh(transaction)
+    return _funding_transaction_out(transaction)
+
+
+@router.get("/funding/account/{user_email}", response_model=api_models.InvestmentAccountOut)
+async def funding_account(
+    user_email: str,
+    db: Session = Depends(get_db),
+) -> api_models.InvestmentAccountOut:
+    account = get_or_create_investment_account(db, user_email)
+    db.commit()
+    db.refresh(account)
+    return _investment_account_out(account)
+
+
+@router.post("/execution/preview", response_model=api_models.OrderPlanOut)
+async def execution_preview(
+    request: api_models.ExecutionRequest,
+    db: Session = Depends(get_db),
+) -> api_models.OrderPlanOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+    plan = size_orders(weights, capital_on_hand=account.cash_available, monthly_surplus=0.0)
+    return api_models.OrderPlanOut.model_validate(plan.model_dump())
+
+
+@router.post("/execution/submit", response_model=api_models.ExecutionSubmitResponse)
+async def execution_submit(
+    request: api_models.ExecutionRequest,
+    db: Session = Depends(get_db),
+) -> api_models.ExecutionSubmitResponse:
+    account = get_or_create_investment_account(db, request.user_email)
+    weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+    plan = size_orders(weights, capital_on_hand=account.cash_available, monthly_surplus=0.0)
+    # TODO: extend the engine order contract before wiring sell-side rebalances.
+    try:
+        broker = get_broker(request.user_email, cash_available=account.cash_available)
+        fills = broker.place_order(plan)
+        positions = broker.read_positions()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    update_investment_account_cash(db, request.user_email, positions.cash)
+    db.commit()
+    return api_models.ExecutionSubmitResponse(
+        fills=[api_models.FillOut.model_validate(fill.model_dump()) for fill in fills],
+        positions=api_models.Positions.model_validate(positions.model_dump()),
+    )
+
+
+@router.get("/positions/{user_email}", response_model=api_models.Positions)
+async def positions(user_email: str, db: Session = Depends(get_db)) -> api_models.Positions:
+    account = get_or_create_investment_account(db, user_email)
+    try:
+        broker = get_broker(user_email, cash_available=account.cash_available)
+        broker_positions = broker.read_positions()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return api_models.Positions.model_validate(broker_positions.model_dump())
 
 
 @router.get("/profile/{email}", response_model=api_models.OnboardResponse)
