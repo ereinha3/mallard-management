@@ -23,11 +23,12 @@ function Metric({ label, value, icon: Icon, color = 'var(--gold-light)' }) {
 }
 
 export default function RiskView({ onboardResult }) {
-  const risk = onboardResult?.financial_analysis?.risk ?? {}
   const riskProfile = onboardResult?.risk_profile ?? {}
-  const capacity = numberOrNull(risk.capacity_score ?? riskProfile.capacity_score)
-  const tolerance = numberOrNull(risk.tolerance_score ?? riskProfile.tolerance_score)
-  const gamma = numberOrNull(risk.gamma_mid ?? riskProfile.gamma_mid)
+  const risk = onboardResult?.financial_analysis?.risk ?? {}
+  const capacity = numberOrNull(riskProfile.capacity_score ?? risk.capacity_score)
+  const tolerance = numberOrNull(riskProfile.tolerance_score ?? risk.tolerance_score)
+  const gamma = numberOrNull(riskProfile.gamma_mid ?? riskProfile.gamma ?? risk.gamma_mid)
+  const gammaBand = riskProfile.gamma_band ?? riskProfile.band ?? riskProfile.label ?? risk.label
   const targetVol = numberOrNull(risk.target_volatility_pct)
   const maxLoss = numberOrNull(risk.estimated_max_loss_1yr_pct)
 
@@ -42,7 +43,7 @@ export default function RiskView({ onboardResult }) {
 
       <div className="p-8 space-y-5 max-w-6xl">
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <Metric label="Risk Label" value={risk.label ?? riskProfile.label} icon={Shield} />
+          <Metric label="Gamma Band" value={gammaBand} icon={Shield} />
           <Metric label="Risk Aversion Gamma" value={gamma != null ? gamma.toFixed(2) : null} icon={Gauge} />
           <Metric label="Target Volatility" value={targetVol != null ? formatPercent(targetVol) : null} icon={Activity} color="var(--emerald)" />
           <Metric label="Estimated 1Y Max Loss" value={maxLoss != null ? formatPercent(maxLoss) : null} icon={AlertTriangle} color="var(--ruby)" />

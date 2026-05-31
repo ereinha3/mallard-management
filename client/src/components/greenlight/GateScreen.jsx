@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { XCircle, CheckCircle, ArrowRight, RefreshCw } from 'lucide-react'
+import { XCircle, CheckCircle, ArrowRight, RefreshCw, AlertTriangle } from 'lucide-react'
 
 function AnimatedNumber({ target, prefix = '$', duration = 1200 }) {
   const [val, setVal] = useState(0)
@@ -38,17 +38,106 @@ function getLowAprDebts(profile) {
   })
 }
 
+function formatCheckLabel(key) {
+  return String(key ?? 'check').replace(/_/g, ' ')
+}
+
+function normalizeGateChecks(gateResult) {
+  const rawChecks = gateResult?.gate_result?.checks ?? []
+  if (Array.isArray(rawChecks)) {
+    return rawChecks.map((check, index) => ({
+      key: check.key ?? `check_${index + 1}`,
+      status: check.status ?? 'warn',
+      detail: check.detail ?? '',
+    }))
+  }
+
+  return Object.entries(rawChecks).map(([key, value]) => ({
+    key,
+    status: value?.status ?? (value?.passed === true ? 'pass' : value?.passed === false ? 'fail' : 'warn'),
+    detail: value?.detail ?? value?.reason ?? `${formatCheckLabel(key)} ${value?.passed === true ? 'passed' : value?.passed === false ? 'failed' : 'needs review'}.`,
+  }))
+}
+
+function checkStyles(status, tone = 'green') {
+  if (status === 'pass') {
+    return {
+      color: 'var(--emerald)',
+      label: 'PASS',
+      icon: CheckCircle,
+      background: 'rgba(30,184,122,0.06)',
+      border: '1px solid rgba(30,184,122,0.2)',
+      muted: 'rgba(30,184,122,0.7)',
+    }
+  }
+  if (status === 'fail') {
+    return {
+      color: 'var(--ruby)',
+      label: 'FAIL',
+      icon: XCircle,
+      background: 'rgba(230,69,69,0.06)',
+      border: '1px solid rgba(230,69,69,0.25)',
+      muted: 'rgba(230,69,69,0.8)',
+    }
+  }
+  return {
+    color: tone === 'halt' ? 'var(--gold-light)' : 'var(--gold-light)',
+    label: 'WARN',
+    icon: AlertTriangle,
+    background: 'rgba(196,154,44,0.06)',
+    border: '1px solid rgba(196,154,44,0.25)',
+    muted: 'rgba(196,154,44,0.75)',
+  }
+}
+
+function GateCheckCard({ check, tone = 'green' }) {
+  const styles = checkStyles(check.status, tone)
+  const Icon = styles.icon
+
+  return (
+    <div
+      className="rounded-2xl p-4 text-left"
+      style={{
+        background: styles.background,
+        border: styles.border,
+      }}
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: styles.muted }}>
+          {formatCheckLabel(check.key)}
+        </div>
+        <Icon size={15} style={{ color: styles.color, flexShrink: 0 }} />
+      </div>
+      <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: styles.color }}>
+        {styles.label}
+      </div>
+      <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+        {check.detail || 'No detail returned.'}
+      </div>
+    </div>
+  )
+}
+
 /** Derive halt reasons from the gate_result checks or infer from profile. */
 function getHaltReasons(gateResult) {
   const profile = getProfile(gateResult)
   const snapshot = gateResult?.financial_analysis?.snapshot ?? {}
-  const checks = gateResult?.gate_result?.checks ?? {}
+  const rawChecks = gateResult?.gate_result?.checks ?? {}
+  const checks = Array.isArray(rawChecks)
+    ? Object.fromEntries(rawChecks.map(check => [check.key, { passed: check.status === 'pass', ...check }]))
+    : rawChecks
 
   const monthlyExpenses = profile?.monthly_expenses ?? snapshot.monthly_expenses
-  const efRequired = gateResult?.financial_analysis?.emergency_fund?.target_amount
+  const efMath = gateResult?.gate_result?.math?.emergency_fund
+    ?? gateResult?.math?.emergency_fund
+    ?? gateResult?.financial_analysis?.emergency_fund
+    ?? {}
+  const efRequired = efMath.target_balance
+    ?? gateResult?.financial_analysis?.emergency_fund?.target_balance
     ?? (monthlyExpenses != null ? monthlyExpenses * 3 : null)
   const efCurrent = profile?.emergency_fund
-  const efShortfall = gateResult?.financial_analysis?.emergency_fund?.shortfall
+  const efShortfall = efMath.shortfall
+    ?? gateResult?.financial_analysis?.emergency_fund?.shortfall
     ?? (efRequired != null && efCurrent != null ? Math.max(0, efRequired - efCurrent) : null)
   const efFailed = checks?.emergency_fund?.passed === false || (efCurrent != null && efRequired != null && efCurrent < efRequired)
 
@@ -79,6 +168,7 @@ function HaltScreen({ onFix, gateResult }) {
   useEffect(() => { setTimeout(() => setVisible(true), 100) }, [])
 
   const r = getHaltReasons(gateResult)
+  const gateChecks = normalizeGateChecks(gateResult)
 
   // Pick the worst high-APR debt for the display card (or show all if multiple)
   const worstDebt = r.highAprDebts[0] ?? null
@@ -145,8 +235,12 @@ function HaltScreen({ onFix, gateResult }) {
 
         {/* Math cards */}
         <div className="w-full grid gap-4 mb-8" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          {gateChecks.length > 0 && gateChecks.map(check => (
+            <GateCheckCard key={check.key} check={check} tone="halt" />
+          ))}
+
           {/* Emergency fund */}
-          {r.efFailed && (
+          {gateChecks.length === 0 && r.efFailed && (
             <div
               className="rounded-2xl p-5 text-left"
               style={{
@@ -200,7 +294,7 @@ function HaltScreen({ onFix, gateResult }) {
           )}
 
           {/* High-interest debt */}
-          {r.debtFailed && worstDebt && (
+          {gateChecks.length === 0 && r.debtFailed && worstDebt && (
             <div
               className="rounded-2xl p-5 text-left"
               style={{
@@ -252,7 +346,7 @@ function HaltScreen({ onFix, gateResult }) {
           )}
 
           {/* If only one halt condition, show a placeholder second card with "What comes next" */}
-          {(!r.efFailed || !r.debtFailed || !worstDebt) && (
+          {gateChecks.length === 0 && (!r.efFailed || !r.debtFailed || !worstDebt) && (
             <div
               className="rounded-2xl p-5 text-left"
               style={{
@@ -365,24 +459,23 @@ function GreenScreen({ onContinue, gateResult }) {
   const monthlyContrib = snapshot.monthly_surplus ?? gateResult?.optimizer_input?.monthly_surplus
 
   const lowAprDebts = getLowAprDebts(profile)
-
-  const passedChecks = [
+  const gateChecks = normalizeGateChecks(gateResult)
+  const passedChecks = gateChecks.length > 0 ? gateChecks : [
     {
-      label: 'Emergency Fund',
-      value: efAmount != null ? `$${efAmount.toLocaleString()}` : 'Not provided',
-      sub: monthsCovered != null ? `${monthsCovered} months ✓` : 'Coverage not returned',
-      detail: `Meets 3-month threshold`,
+      key: 'emergency_fund',
+      status: 'pass',
+      detail: monthsCovered != null
+        ? `Emergency fund covers ${monthsCovered} months and meets the 3-month threshold.`
+        : `Emergency fund ${efAmount != null ? `$${efAmount.toLocaleString()}` : 'was accepted by the gate'}.`,
     },
     {
-      label: 'No High-APR Debt',
-      value: 'Cleared',
-      sub: '0 debts > 8% APR ✓',
+      key: 'high_apr_debt',
+      status: 'pass',
       detail: 'No high-interest liabilities blocking investing',
     },
     ...(lowAprDebts.length > 0 ? [{
-      label: 'Low-Interest Debt',
-      value: `${lowAprDebts[0].balance ?? lowAprDebts[0].amount ? `$${(lowAprDebts[0].balance ?? lowAprDebts[0].amount).toLocaleString()} ` : ''}@ ${Math.round((lowAprDebts[0].apr ?? lowAprDebts[0].interest_rate) * 1000) / 10}%`,
-      sub: 'Noted, allowed ✓',
+      key: 'low_interest_debt',
+      status: 'pass',
       detail: 'Below 8%, investing allowed alongside',
     }] : []),
   ]
@@ -445,24 +538,8 @@ function GreenScreen({ onContinue, gateResult }) {
           className="w-full grid gap-3 mb-8"
           style={{ gridTemplateColumns: `repeat(${passedChecks.length}, 1fr)` }}
         >
-          {passedChecks.map(item => (
-            <div
-              key={item.label}
-              className="rounded-2xl p-4 text-left"
-              style={{
-                background: 'rgba(30,184,122,0.06)',
-                border: '1px solid rgba(30,184,122,0.2)',
-              }}
-            >
-              <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(30,184,122,0.7)' }}>
-                {item.label}
-              </div>
-              <div className="font-mono font-semibold" style={{ fontSize: 18, color: 'var(--text-primary)' }}>
-                {item.value}
-              </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--emerald)' }}>{item.sub}</div>
-              <div className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{item.detail}</div>
-            </div>
+          {passedChecks.map(check => (
+            <GateCheckCard key={check.key} check={check} />
           ))}
         </div>
 
@@ -526,6 +603,6 @@ function GreenScreen({ onContinue, gateResult }) {
 }
 
 export default function GateScreen({ status, onContinue, onFix, gateResult }) {
-  if (status === 'halt') return <HaltScreen onFix={onFix} gateResult={gateResult} />
-  return <GreenScreen onContinue={onContinue} gateResult={gateResult} />
+  if (status === 'greenlight' || status === 'green') return <GreenScreen onContinue={onContinue} gateResult={gateResult} />
+  return <HaltScreen onFix={onFix} gateResult={gateResult} />
 }

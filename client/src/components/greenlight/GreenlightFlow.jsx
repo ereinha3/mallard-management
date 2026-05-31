@@ -14,6 +14,18 @@ const STEPS = {
   REBALANCE:  'rebalance',
 }
 
+function getUserEmail(result) {
+  return result?.validated_profile?.email
+    ?? result?.profile?.email
+    ?? result?.user?.email
+    ?? result?.email
+    ?? null
+}
+
+function gateStepFromStatus(status) {
+  return status === 'greenlight' ? STEPS.GATE_GREEN : STEPS.GATE_HALT
+}
+
 function StepIndicator({ step }) {
   const labels = ['Intake', 'Gate', 'Portfolio', 'Rebalance']
   const activeIdx =
@@ -67,16 +79,15 @@ function StepIndicator({ step }) {
 export default function GreenlightFlow({ onboardResult }) {
   const initialStatus = onboardResult?.gate_result?.status
   const [step, setStep] = useState(
-    initialStatus === 'greenlight' ? STEPS.GATE_GREEN
-    : initialStatus ? STEPS.GATE_HALT
+    initialStatus ? gateStepFromStatus(initialStatus)
     : STEPS.INTAKE
   )
   const [gateResult, setGateResult] = useState(onboardResult ?? null)
+  const userEmail = getUserEmail(gateResult)
 
   function handleIntakeComplete(result) {
     setGateResult(result)
-    const status = result?.gate_result?.status
-    setStep(status === 'greenlight' ? STEPS.GATE_GREEN : STEPS.GATE_HALT)
+    setStep(gateStepFromStatus(result?.gate_result?.status))
   }
 
   const isFullscreen = step === STEPS.GATE_HALT || step === STEPS.GATE_GREEN
@@ -137,21 +148,21 @@ export default function GreenlightFlow({ onboardResult }) {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         {step === STEPS.INTAKE && (
-          <IntakeChat onComplete={handleIntakeComplete} />
+          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} />
         )}
         {step === STEPS.GATE_HALT && (
           <GateScreen
-            status="halt"
+            status={gateResult?.gate_result?.status}
             gateResult={gateResult}
             onFix={() => setStep(STEPS.INTAKE_FIX)}
           />
         )}
         {step === STEPS.INTAKE_FIX && (
-          <IntakeChat onComplete={handleIntakeComplete} />
+          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} />
         )}
         {step === STEPS.GATE_GREEN && (
           <GateScreen
-            status="green"
+            status={gateResult?.gate_result?.status}
             gateResult={gateResult}
             onContinue={() => setStep(STEPS.PORTFOLIO)}
           />
