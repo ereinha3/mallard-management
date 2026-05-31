@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg-base:      #090806;
+  --bg-surface:   #110f0c;
+  --bg-elevated:  #1c1814;
+  --bg-hover:     #252019;
+  --border:       #2c2620;
+  --border-bright:#3f3629;
+  --border-gold:  rgba(180,130,20,0.18);
+  --text-primary: #ede4d4;
+  --text-secondary:#8a7c66;
+  --text-muted:   #4a4030;
+  --gold:         #b08010;
+  --gold-light:   #c9971a;
+  --gold-bright:  #e8b830;
+  --emerald:      #1aad72;
+  --ruby:         #d94040;
+  --blue:         #3d68d8;
+  --focus-ring:   rgba(201,151,26,0.7);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-align: left;
+}
+
+/* Smoky grain overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.032;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes drawCircle {
+  to { stroke-dashoffset: 0; }
+}
+
+.anim-fade-up { animation: fadeUp 0.45s ease both; }
+.d100 { animation-delay: 0.10s; }
+.d150 { animation-delay: 0.15s; }
+.d200 { animation-delay: 0.20s; }
+.d250 { animation-delay: 0.25s; }
+.d300 { animation-delay: 0.30s; }
+.d350 { animation-delay: 0.35s; }
+.d400 { animation-delay: 0.40s; }
+.d500 { animation-delay: 0.50s; }
+
+.font-display { font-family: 'Playfair Display', serif; }
+.font-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* Global focus ring — WCAG 2.4.7 */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Hairline gold top-edge on cards */
+.card-premium {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top-color: var(--border-gold);
+  border-radius: 14px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
