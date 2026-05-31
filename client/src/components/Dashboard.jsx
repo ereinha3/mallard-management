@@ -393,14 +393,16 @@ export default function Dashboard({ onboardResult, userEmail }) {
             </div>
           </div>
 
-          <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default">
-            <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+          <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default flex flex-col">
+            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
               Risk Capacity
             </div>
-            <p className="text-xs leading-relaxed mb-2" style={{ color: 'var(--text-muted)' }}>
-              How much investment risk your finances can absorb, unlike tolerance, which is your willingness to take risk.
+            <p className="text-xs leading-snug mt-1" style={{ color: 'var(--text-muted)' }}>
+              How much investment risk your finances can absorb.
             </p>
-            <RetirementScore score={score} />
+            <div className="flex-1 flex items-center justify-center mt-1">
+              <RetirementScore score={score} size={108} />
+            </div>
           </div>
 
           <MetricCard
