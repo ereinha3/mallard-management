@@ -49,7 +49,7 @@ function PrimaryButton({ onClick, disabled, busy, children }) {
   )
 }
 
-export default function InvestPanel({ userEmail, portfolio }) {
+export default function InvestPanel({ userEmail, portfolio, onChange }) {
   const weights = portfolio?.weights ?? null
 
   const [account, setAccount] = useState(null)
@@ -117,6 +117,7 @@ export default function InvestPanel({ userEmail, portfolio }) {
     setError(null)
     try {
       await fn()
+      onChange?.() // let the Dashboard refresh the "Invested with Mallard" figure
     } catch (e) {
       setError(e?.message ?? 'Something went wrong.')
     } finally {

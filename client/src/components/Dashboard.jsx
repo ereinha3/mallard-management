@@ -5,6 +5,7 @@ import {
   Home, Car, Briefcase, PiggyBank, CreditCard, Building, Landmark,
 } from 'lucide-react'
 import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
+import { getFundingAccount, getPositions } from '../api/greenlightClient'
 import RetirementScore from './RetirementScore'
 import ProjectionChart from './ProjectionChart'
 import InvestPanel from './InvestPanel'
@@ -235,6 +236,10 @@ export default function Dashboard({ onboardResult, userEmail }) {
   const [projection, setProjection] = useState(null)
   const [projectionLoading, setProjectionLoading] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
+  // "Invested with Mallard" — the value held in the user's brokerage account with
+  // us (holdings + uninvested cash). Refetched when they fund/invest below.
+  const [mallard, setMallard] = useState(null)
+  const [mallardNonce, setMallardNonce] = useState(0)
   const profile = getProfile(onboardResult)
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const taxBreakdown = onboardResult?.tax_breakdown ?? null
@@ -306,6 +311,37 @@ export default function Dashboard({ onboardResult, userEmail }) {
 
     return () => { cancelled = true }
   }, [onboardResult, portfolio])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadMallard() {
+      if (!userEmail) {
+        setMallard(null)
+        return
+      }
+      try {
+        const account = await getFundingAccount(userEmail)
+        let invested = 0
+        try {
+          const pos = await getPositions(userEmail)
+          invested = (pos?.items ?? []).reduce((sum, item) => sum + (numberOrNull(item.market_value) ?? 0), 0)
+        } catch {
+          // No holdings yet (or broker not reachable) — invested stays 0.
+        }
+        const cash = numberOrNull(account?.cash_available) ?? 0
+        if (!cancelled) {
+          setMallard({ accountValue: invested + cash, invested, cash })
+        }
+      } catch {
+        if (!cancelled) setMallard(null)
+      }
+    }
+
+    loadMallard()
+
+    return () => { cancelled = true }
+  }, [userEmail, mallardNonce])
 
   const snapshotRows = [
     { label: 'Monthly Income', value: monthlyIncome, positive: true },
@@ -390,6 +426,28 @@ export default function Dashboard({ onboardResult, userEmail }) {
                 </div>
               </div>
             </div>
+            {mallard && (
+              <div data-tour="invested-with-mallard" className="mt-3 rounded-xl p-3 flex items-center justify-between"
+                style={{ background: 'rgba(196,154,44,0.10)', border: '1px solid var(--border-gold)' }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-center rounded-lg shrink-0"
+                    style={{ width: 28, height: 28, background: 'rgba(196,154,44,0.16)', color: 'var(--gold-light)' }}>
+                    <TrendingUp size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Invested with Mallard</div>
+                    <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                      {mallard.accountValue > 0
+                        ? `${formatCurrency(mallard.invested, true)} invested · ${formatCurrency(mallard.cash, true)} cash`
+                        : 'Fund your account below to start investing'}
+                    </div>
+                  </div>
+                </div>
+                <div className="font-mono font-semibold shrink-0" style={{ color: 'var(--gold-light)', fontSize: 20, letterSpacing: '-0.02em' }}>
+                  {formatCurrency(mallard.accountValue, true)}
+                </div>
+              </div>
+            )}
           </div>
 
           <div data-tour="retirement-score" className="card-premium p-4 anim-fade-up d150 cursor-default">
@@ -480,7 +538,7 @@ export default function Dashboard({ onboardResult, userEmail }) {
           </div>
         </div>
 
-        <InvestPanel userEmail={userEmail} portfolio={portfolio} />
+        <InvestPanel userEmail={userEmail} portfolio={portfolio} onChange={() => setMallardNonce((n) => n + 1)} />
 
         <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
           <div className="card-premium p-5 anim-fade-up d400">
