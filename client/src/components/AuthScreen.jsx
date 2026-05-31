@@ -247,7 +247,10 @@ function SignUpForm({ onAuth }) {
       })
       onAuth({
         ...user,
+        name: user.name ?? form.name.trim(),
+        phone: user.phone ?? form.phone.trim(),
         address: user.address ?? form.address.trim(),
+        zip_code: user.zip_code ?? form.zip.trim(),
         home_value: user.home_value ?? homeValue,
         isNewUser: true,
       })

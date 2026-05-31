@@ -53,6 +53,7 @@ from persistence import (  # noqa: E402
     list_sessions,
     set_alpaca_account_id,
     set_session_status,
+    update_user_account,
     update_investment_account_cash,
     upsert_profile,
     verify_password,
@@ -1351,9 +1352,24 @@ async def register(req: api_models.AuthRequest, db: Session = Depends(get_db)) -
     if get_user(db, req.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    user = create_user(db, req.email, req.name, get_password_hash(req.password))
+    user = create_user(
+        db,
+        req.email,
+        req.name,
+        get_password_hash(req.password),
+        req.phone,
+        req.address,
+        req.zip_code,
+    )
     db.commit()
-    return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
+    return api_models.AuthResponse(
+        email=user.email,
+        name=user.name,
+        phone=user.phone,
+        address=user.address,
+        zip_code=user.zip_code,
+        token="mock-token-" + user.email,
+    )
 
 
 @router.post("/auth/login", response_model=api_models.AuthResponse)
@@ -1362,7 +1378,42 @@ async def login(req: api_models.AuthRequest, db: Session = Depends(get_db)) -> a
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
+    return api_models.AuthResponse(
+        email=user.email,
+        name=user.name,
+        phone=user.phone,
+        address=user.address,
+        zip_code=user.zip_code,
+        token="mock-token-" + user.email,
+    )
+
+
+@router.post("/account/update", response_model=api_models.AuthResponse)
+async def account_update(
+    request: api_models.UpdateAccountRequest,
+    db: Session = Depends(get_db),
+) -> api_models.AuthResponse:
+    if not get_user(db, request.user_email):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = update_user_account(
+        db,
+        request.user_email,
+        name=request.name,
+        phone=request.phone,
+        address=request.address,
+        zip_code=request.zip_code,
+    )
+    db.commit()
+    db.refresh(user)
+    return api_models.AuthResponse(
+        email=user.email,
+        name=user.name,
+        phone=user.phone,
+        address=user.address,
+        zip_code=user.zip_code,
+        token="mock-token-" + user.email,
+    )
 
 
 @router.post("/funding/mock/deposit", response_model=api_models.FundingTransactionOut)

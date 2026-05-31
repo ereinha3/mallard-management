@@ -14,8 +14,16 @@ binds to a clean per-process database no matter the collection order.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = ROOT / "backend"
+ENGINE_DIR = ROOT / "engine"
+for path in (ENGINE_DIR, BACKEND_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 _TEST_APP_DB = Path(tempfile.mkdtemp(prefix="mallard-test-app-")) / "mallard_app.db"
 os.environ["MALLARD_DB_URL"] = f"sqlite:///{_TEST_APP_DB}"

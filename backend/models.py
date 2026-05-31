@@ -11,12 +11,26 @@ class AuthRequest(BaseModel):
     email: str
     password: str
     name: Optional[str] = None  # Only for sign-up
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
 
 
 class AuthResponse(BaseModel):
     email: str
     name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
     token: str  # Dummy token for now
+
+
+class UpdateAccountRequest(BaseModel):
+    user_email: str
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
 
 
 # ── Chat / elicitation ────────────────────────────────────────────────────────
