@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, PiggyBank, BarChart3,
   Settings, Bell, Shield, ChevronRight, Feather, Zap, MessageCircle,
+  GraduationCap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -8,6 +9,7 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard',    id: 'dashboard' },
   { icon: Zap,             label: 'Greenlight',   id: 'greenlight', highlight: true },
   { icon: MessageCircle,   label: 'Ask Mallard',  id: 'advisor' },
+  { icon: GraduationCap,   label: 'Learn',        id: 'learn' },
   { icon: PiggyBank,       label: 'Accounts',     id: 'accounts' },
   { icon: BarChart3,       label: 'Portfolio',    id: 'portfolio' },
   { icon: Shield,          label: 'Risk',         id: 'risk' },
@@ -37,6 +39,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
     >
       {/* Logo */}
       <div
+        data-tour="brand"
         className="flex items-center gap-3 px-5 py-6"
         style={{ borderBottom: '1px solid var(--border)' }}
       >
@@ -45,7 +48,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
           style={{
             width: 36,
             height: 36,
-            background: 'linear-gradient(135deg, var(--gold), var(--gold-bright))',
+            background: 'linear-gradient(135deg, var(--green, var(--emerald)), var(--green-bright, var(--gold-bright)))',
           }}
         >
           <Feather size={18} style={{ color: '#070910' }} />
@@ -109,6 +112,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
           return (
             <button
               key={item.id}
+              data-tour={`nav-${item.id}`}
               onClick={() => onNavigate?.(item.id)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
@@ -159,6 +163,7 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
           return (
             <button
               key={item.id}
+              data-tour={`nav-${item.id}`}
               onClick={() => onNavigate?.(item.id)}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left"
               style={{

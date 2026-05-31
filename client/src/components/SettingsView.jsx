@@ -1,5 +1,6 @@
-import { Settings, User, SlidersHorizontal } from 'lucide-react'
+import { Settings, User, SlidersHorizontal, Sun, Moon } from 'lucide-react'
 import { formatCurrency } from '../lib/utils'
+import { useTheme } from '../theme/ThemeProvider'
 
 function formatValue(value) {
   if (value == null || value === '') return 'Not provided'
@@ -21,6 +22,7 @@ function Row({ label, value, currency = false }) {
 
 export default function SettingsView({ onboardResult, user }) {
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+  const { theme, setTheme } = useTheme()
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -43,6 +45,51 @@ export default function SettingsView({ onboardResult, user }) {
           <Row label="Email" value={user?.email} />
           <Row label="Filing status" value={profile.filing_status} />
           <Row label="Dependents" value={profile.dependents} />
+        </section>
+
+        <section className="card-premium p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Sun size={14} style={{ color: 'var(--green-light)' }} />
+            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Appearance
+            </div>
+          </div>
+          <div
+            className="grid gap-1 p-1"
+            style={{
+              gridTemplateColumns: '1fr 1fr',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}
+          >
+            {[
+              { value: 'light', label: 'Light', Icon: Sun },
+              { value: 'dark', label: 'Dark', Icon: Moon },
+            ].map(({ value, label, Icon }) => {
+              const active = theme === value
+
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTheme(value)}
+                  className="h-10 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors"
+                  style={{
+                    border: '1px solid',
+                    borderColor: active ? 'var(--border-gold)' : 'transparent',
+                    borderRadius: 8,
+                    background: active ? 'var(--bg-surface)' : 'transparent',
+                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  }}
+                  aria-pressed={active}
+                >
+                  <Icon size={15} style={{ color: active ? 'var(--green)' : 'var(--text-muted)' }} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
         </section>
 
         <section className="card-premium p-5">
