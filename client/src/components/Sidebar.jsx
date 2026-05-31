@@ -20,7 +20,7 @@ const bottomItems = [
   { icon: Settings, label: 'Settings', id: 'settings' },
 ]
 
-export default function Sidebar({ active, onNavigate, user, onboardResult }) {
+export default function Sidebar({ active, onNavigate, onAskMallard, user, onboardResult }) {
   const displayName = user?.name || user?.email || 'Signed-in user'
   const initials = displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
@@ -109,11 +109,20 @@ export default function Sidebar({ active, onNavigate, user, onboardResult }) {
         </div>
         {navItems.map((item) => {
           const isActive = (active || 'dashboard') === item.id
+          const handleClick = () => {
+            if (item.id === 'advisor') {
+              onAskMallard?.()
+              return
+            }
+
+            onNavigate?.(item.id)
+          }
+
           return (
             <button
               key={item.id}
               data-tour={`nav-${item.id}`}
-              onClick={() => onNavigate?.(item.id)}
+              onClick={handleClick}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative text-left',

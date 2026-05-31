@@ -1,4 +1,4 @@
-import { Settings, User, SlidersHorizontal, Sun, Moon } from 'lucide-react'
+import { Settings, User, SlidersHorizontal, Sun, Moon, LogOut } from 'lucide-react'
 import { formatCurrency } from '../lib/utils'
 import { useTheme } from '../theme/ThemeProvider'
 
@@ -26,9 +26,9 @@ function ReadOnlyField({ label, value, currency = false }) {
   )
 }
 
-export default function SettingsView({ onboardResult }) {
+export default function SettingsView({ onboardResult, user: signedInUser, onLogout }) {
   const profile = onboardResult?.validated_profile ?? {}
-  const user = onboardResult?.user ?? {}
+  const user = signedInUser ?? onboardResult?.user ?? {}
   const { theme, setTheme } = useTheme()
 
   return (
@@ -131,6 +131,34 @@ export default function SettingsView({ onboardResult }) {
             <ReadOnlyField label="Universe preference" value={profile.universe_pref} />
             <ReadOnlyField label="ESG exclusions" value={profile.esg_exclusions} />
             <ReadOnlyField label="Sector/theme tilts" value={profile.sector_theme_tilts} />
+          </div>
+        </section>
+
+        <section className="card-premium p-5" style={{ gridColumn: '1 / -1' }}>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Session
+              </div>
+              <div className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                Sign out of this Mallard Management session.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+              style={{
+                border: '1px solid rgba(217, 64, 64, 0.75)',
+                borderRadius: 8,
+                background: 'transparent',
+                color: 'var(--ruby)',
+                cursor: 'pointer',
+              }}
+            >
+              <LogOut size={15} />
+              Sign Out
+            </button>
           </div>
         </section>
       </div>
