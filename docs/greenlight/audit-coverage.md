@@ -131,9 +131,9 @@ After the `ethan` merge (DB universe seed, bucket allocation, `tilt.py`, BL/CVaR
 | G-37 | OPEN | `AlertsView` reads `gate.path_to_greenlight`; backend path under `financial_analysis` |
 | G-38 | PARTIAL | `SettingsView` ignores `onboardResult` (mitigated by editable `ProfileView`) |
 
-### Our pick from the remainder — **Portfolio maintenance: quarterly rebalance + elevate-to-active** (in build)
+### Our pick from the remainder — **Portfolio maintenance: quarterly rebalance + elevate-to-active** ✅ LANDED (commit `88bfbf8`)
 
-Highest pitch value: it makes the README's "**then maintains it automatically**" claim real and demoable, and closes the *execution* half (touches `G-28`, `G-33`, and the 01 §6 event-driven reallocation). Demo-safe build (confirmed): manual quarterly trigger endpoint, live data refresh with timeout→cached fallback, simulator execution (Alpaca behind flag). Lives in `backend/api/v1.py` (new routes) + `engine/rebalance/` + `engine/broker/` + `engine/data/ingest/refresh.py` + `backend/persistence.py` — collision-free vs ModuleA–G and CHAT.
+Highest pitch value: makes the README's "**then maintains it automatically**" claim real and demoable, and delivers the *execution/automation* half (advances `G-28`/`G-33` and the 01 §6 event-driven reallocation). Shipped: `POST /api/v1/maintenance/rebalance` with `trigger=quarterly` (guarded live data refresh, 20s timeout→cached fallback → drift-band `decide_rebalance` → execute if past 5pp band) and `trigger=reprofile` (merge profile patch → re-optimize → full transition via new `engine/rebalance/rebalancer.rebalance_to_target` → execute), both elevating the new portfolio to active through the simulator (Alpaca behind `BROKER_PROVIDER`). Engine 81 / backend 67 green. Remaining for full `G-33`: a live scheduler and/or `/sim/fast-forward`; frontend "Run quarterly rebalance" trigger is a teammate-lane follow-on.
 
 ---
 
