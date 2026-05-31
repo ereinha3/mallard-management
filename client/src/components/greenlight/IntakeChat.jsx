@@ -90,7 +90,7 @@ function ParamRow({ label, value, status, note }) {
   )
 }
 
-export default function IntakeChat({ onComplete }) {
+export default function IntakeChat({ onComplete, userEmail }) {
   const [messages, setMessages] = useState([])
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -101,6 +101,7 @@ export default function IntakeChat({ onComplete }) {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const calledRef = useRef(false)
+  const sessionIdRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -119,6 +120,11 @@ export default function IntakeChat({ onComplete }) {
 
     streamChat({
       messages: msgList,
+      user_email: userEmail,
+      session_id: sessionIdRef.current,
+      onSession: (session) => {
+        sessionIdRef.current = session?.session_id ?? session
+      },
       onToken: (chunk) => {
         accumulated += chunk
         setStreamingText(accumulated)
@@ -134,7 +140,7 @@ export default function IntakeChat({ onComplete }) {
         setProfile(profileData)
         setAnalyzing(true)
         try {
-          const result = await postOnboard(profileData)
+          const result = await postOnboard(profileData, userEmail)
           await new Promise(r => setTimeout(r, 800))
           onComplete(result)
         } catch {
@@ -157,7 +163,7 @@ export default function IntakeChat({ onComplete }) {
         setIsStreaming(false)
       },
     })
-  }, [onComplete])
+  }, [onComplete, userEmail])
 
   useEffect(() => {
     if (calledRef.current) return
