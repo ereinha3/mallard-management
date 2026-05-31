@@ -21,6 +21,7 @@ if str(BACKEND_DIR) not in sys.path:
 if str(ENGINE_DIR) not in sys.path:
     sys.path.append(str(ENGINE_DIR))
 
+from api import v1 as api_v1  # noqa: E402
 from data.seed import seed_database  # noqa: E402
 from schemas import constants  # noqa: E402
 
@@ -74,6 +75,28 @@ def greenlight_db(monkeypatch: pytest.MonkeyPatch, seeded_db_url: str) -> None:
 
 def _persona(name: str) -> dict:
     return json.loads((ENGINE_DIR / "fixtures" / name).read_text())
+
+
+def _projection_payload(weights: dict, seed: int | None = None) -> dict:
+    payload = {
+        "weights": weights,
+        "horizon_years": 5,
+        "monthly_contribution": 500,
+        "capital_on_hand": 7500,
+        "goal_target": 75000,
+        "generator": "stationary_bootstrap",
+        "n_paths": 200,
+    }
+    if seed is not None:
+        payload["seed"] = seed
+    return payload
+
+
+def _projection_reproducible_fields(projection: dict) -> dict:
+    return {
+        "p_success": projection["p_success"],
+        "percentile_paths": projection["percentile_paths"],
+    }
 
 
 def _register(client: TestClient, email: str, password: str = "correct-horse") -> dict:
@@ -242,6 +265,7 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     projection = projection_response.json()
     assert 0 <= projection["p_success"] <= 1
     assert len(projection["percentile_paths"]["p50"]) == 5
+    assert projection["seed"] == 7
 
     rebalance_response = client.post(
         "/api/v1/rebalance",
@@ -285,6 +309,91 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     tax = tax_response.json()
     assert tax["harvestable"][0]["ticker"] == "BND"
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
+
+
+def test_projection_same_explicit_seed_replays_identically(test_app: FastAPI):
+    client = _client(test_app)
+    portfolio_response = client.post(
+        "/api/v1/portfolio",
+        json={"profile": _persona("persona_greenlight.json")},
+    )
+    assert portfolio_response.status_code == 200
+    weights = portfolio_response.json()["weights"]
+    payload = _projection_payload(weights, seed=12345)
+
+    first_response = client.post("/api/v1/projection", json=payload)
+    second_response = client.post("/api/v1/projection", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_projection = first_response.json()
+    second_projection = second_response.json()
+    assert first_projection["seed"] == 12345
+    assert second_projection["seed"] == 12345
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(second_projection)
+
+
+def test_projection_without_seed_echoes_replayable_seed(test_app: FastAPI):
+    client = _client(test_app)
+    portfolio_response = client.post(
+        "/api/v1/portfolio",
+        json={"profile": _persona("persona_greenlight.json")},
+    )
+    assert portfolio_response.status_code == 200
+    weights = portfolio_response.json()["weights"]
+
+    first_response = client.post("/api/v1/projection", json=_projection_payload(weights))
+
+    assert first_response.status_code == 200
+    first_projection = first_response.json()
+    assert isinstance(first_projection["seed"], int)
+    assert not isinstance(first_projection["seed"], bool)
+    assert 0 <= first_projection["seed"] <= 2**31 - 1
+
+    replay_response = client.post(
+        "/api/v1/projection",
+        json=_projection_payload(weights, seed=first_projection["seed"]),
+    )
+
+    assert replay_response.status_code == 200
+    replay_projection = replay_response.json()
+    assert replay_projection["seed"] == first_projection["seed"]
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(replay_projection)
+
+
+def test_projection_without_seed_generates_fresh_replayable_seeds(
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    generated_seeds = iter([101, 202])
+    monkeypatch.setattr(api_v1.secrets, "randbelow", lambda upper: next(generated_seeds))
+    client = _client(test_app)
+    portfolio_response = client.post(
+        "/api/v1/portfolio",
+        json={"profile": _persona("persona_greenlight.json")},
+    )
+    assert portfolio_response.status_code == 200
+    weights = portfolio_response.json()["weights"]
+
+    first_response = client.post("/api/v1/projection", json=_projection_payload(weights))
+    second_response = client.post("/api/v1/projection", json=_projection_payload(weights))
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_projection = first_response.json()
+    second_projection = second_response.json()
+    assert first_projection["seed"] == 101
+    assert second_projection["seed"] == 202
+
+    for projection in (first_projection, second_projection):
+        replay_response = client.post(
+            "/api/v1/projection",
+            json=_projection_payload(weights, seed=projection["seed"]),
+        )
+        assert replay_response.status_code == 200
+        assert _projection_reproducible_fields(projection) == _projection_reproducible_fields(
+            replay_response.json()
+        )
 
 
 def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: FastAPI):

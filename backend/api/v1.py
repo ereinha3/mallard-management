@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import secrets
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -1178,6 +1179,7 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
     """Project goal success from target weights and cached engine return data."""
     try:
         weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+        seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         projection_result = project(
             weights=weights.by_ticker,
             returns=_ticker_monthly_returns(weights.by_ticker),
@@ -1186,12 +1188,12 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
             monthly_contribution=request.monthly_contribution,
             goal=request.goal_target,
             generator=request.generator,
-            seed=request.seed,
+            seed=seed,
             n_paths=request.n_paths,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_models.Projection.model_validate(projection_result.model_dump())
+    return api_models.Projection.model_validate({**projection_result.model_dump(), "seed": seed})
 
 
 @router.post("/rebalance", response_model=api_models.RebalanceDecision, summary="Decide rebalance action")
