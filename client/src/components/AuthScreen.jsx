@@ -3,10 +3,10 @@ import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
-  { num: '•', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
-  { num: '•', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
-  { num: '•', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
-  { num: '•', text: 'No nudges to buy what you should not.' },
+  { num: '01', text: 'Tells you not to invest when that is the right answer.' },
+  { num: '02', text: 'Shows the math, not just the verdict.' },
+  { num: '03', text: 'Builds a portfolio sized to what you can actually afford.' },
+  { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
 ]
 
 let _uid = 0

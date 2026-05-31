@@ -358,7 +358,7 @@ class TargetWeights(BaseModel):
     by_sleeve: Dict[Sleeve, float]
     by_bucket: Dict[str, float] = Field(default_factory=dict)
     blend_alpha: float = Field(ge=0, le=1)
-    method: Literal["erc", "black_litterman", "cvar"]
+    method: Literal["strategic", "erc", "black_litterman", "cvar"]
 
 
 class PortfolioETF(BaseModel):

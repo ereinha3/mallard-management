@@ -7,7 +7,14 @@ import pytest
 from data.loaders import load_prices, returns_matrix
 from optimizer.blend import build_target_weights
 from optimizer.erc import erc_weights
-from optimizer.tilt import momentum_vol_tilt
+from optimizer.tilt import (
+    BUCKET_TILT_MAX_WEIGHT,
+    _momentum,
+    _periods_per_year,
+    _risk_adjusted_momentum,
+    _volatility,
+    momentum_vol_tilt,
+)
 from schemas.constants import GAMMA_MAX, GAMMA_MIN
 from universe.builder import build_universe
 
@@ -34,7 +41,7 @@ def test_tilt_zero_gamma_max_reproduces_erc_weights_exactly():
     assert tilted == pytest.approx(erc, abs=1e-12)
 
 
-def test_aggressive_tilt_reduces_gold_and_raises_high_momentum_vol_equity():
+def test_aggressive_tilt_favors_risk_adjusted_momentum_not_raw_volatility():
     returns = _synthetic_risky_returns()
     erc = {
         "us_equity": 0.25,
@@ -47,18 +54,53 @@ def test_aggressive_tilt_reduces_gold_and_raises_high_momentum_vol_equity():
     conservative = momentum_vol_tilt(erc, returns, GAMMA_MAX)
 
     assert aggressive["gold"] < erc["gold"]
-    assert aggressive["reits"] > erc["reits"]
+    assert aggressive["us_equity"] > erc["us_equity"]
+    assert aggressive["reits"] < erc["reits"]
+    assert aggressive["us_equity"] > aggressive["reits"]
     assert conservative == pytest.approx(erc, abs=1e-12)
 
 
-def test_aggressive_tilt_reduces_gold_on_offline_fixture():
-    returns = returns_matrix(["us_equity", "intl_equity", "reits", "gold"])
+def test_aggressive_tilt_rewards_highest_risk_adjusted_momentum_on_offline_fixture():
+    buckets = ["us_equity", "intl_equity", "reits", "gold"]
+    returns = returns_matrix(buckets)
     erc = erc_weights(returns)
 
     aggressive = momentum_vol_tilt(erc, returns, GAMMA_MIN)
 
-    assert aggressive["gold"] < erc["gold"]
-    assert aggressive["reits"] > erc["reits"]
+    periods_per_year = _periods_per_year(returns.index)
+    momentum = _momentum(returns, 12, periods_per_year)
+    volatility = _volatility(returns, periods_per_year)
+    risk_adjusted = _risk_adjusted_momentum(momentum, volatility)
+    highest_risk_adjusted = buckets[int(np.argmax(risk_adjusted))]
+    highest_volatility = buckets[int(np.argmax(volatility))]
+
+    assert aggressive[highest_risk_adjusted] > erc[highest_risk_adjusted]
+    if highest_volatility != highest_risk_adjusted:
+        assert aggressive[highest_volatility] <= erc[highest_volatility]
+
+
+def test_tilt_caps_single_bucket_weight_when_cap_is_feasible():
+    periods = 320
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    step = np.arange(periods)
+    buckets = [f"bucket_{idx}" for idx in range(8)]
+    returns = pd.DataFrame(
+        {
+            "bucket_0": np.linspace(0.0020, 0.0040, periods),
+            **{
+                bucket: 0.0001 + 0.0015 * np.sin(step / (idx + 2))
+                for idx, bucket in enumerate(buckets[1:], start=1)
+            },
+        },
+        index=dates,
+    )
+    erc = {bucket: 1.0 / len(buckets) for bucket in buckets}
+
+    aggressive = momentum_vol_tilt(erc, returns, GAMMA_MIN, lam=25.0)
+
+    assert aggressive["bucket_0"] == pytest.approx(BUCKET_TILT_MAX_WEIGHT)
+    assert max(aggressive.values()) <= BUCKET_TILT_MAX_WEIGHT + 1e-12
+    assert sum(aggressive.values()) == pytest.approx(1.0)
 
 
 def test_tilt_weights_are_non_negative_and_sum_to_one_across_profiles():
@@ -103,18 +145,26 @@ def test_build_target_weights_applies_tilt_inside_risky_buckets():
             horizon_years=37,
         )
 
-    aggressive = build_target_weights(_profile(GAMMA_MIN), universe, prices)
-    conservative = build_target_weights(_profile(GAMMA_MAX), universe, prices)
+    aggressive = build_target_weights(_profile(GAMMA_MIN), universe, prices, method="erc")
+    conservative = build_target_weights(_profile(GAMMA_MAX), universe, prices, method="erc")
 
     risky = [bucket for bucket in universe.risky_buckets if bucket in aggressive.by_bucket]
     agg_risky_total = sum(aggressive.by_bucket[bucket] for bucket in risky)
     con_risky_total = sum(conservative.by_bucket[bucket] for bucket in risky)
 
-    # The most conservative profile (gamma_max) disables the tilt; an aggressive
-    # profile rotates the risky budget away from low-volatility gold.
+    # The most conservative profile (gamma_max) disables the tilt and leaves the
+    # ERC weights unchanged; an aggressive profile applies the risk-adjusted
+    # momentum tilt, which concentrates the risky budget into the high
+    # risk-adjusted-momentum broad core (us_total_market / us_large_blend) and
+    # away from volatile satellites (which are also held under SATELLITE_BUCKET_CAP).
+    assert aggressive.by_bucket != conservative.by_bucket
     assert (
-        aggressive.by_bucket["gold"] / agg_risky_total
-        < conservative.by_bucket["gold"] / con_risky_total
+        aggressive.by_bucket["us_total_market"] / agg_risky_total
+        > conservative.by_bucket["us_total_market"] / con_risky_total
+    )
+    assert (
+        aggressive.by_bucket["us_large_blend"] / agg_risky_total
+        > conservative.by_bucket["us_large_blend"] / con_risky_total
     )
     # Safe-bucket weight still equals 1 - blend_alpha.
     assert sum(

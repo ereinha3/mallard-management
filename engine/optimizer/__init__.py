@@ -2,6 +2,7 @@
 
 from optimizer.blend import build_target_weights, glide_factor, solve_blend_alpha
 from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions
+from optimizer.strategic import strategic_target_weights
 from optimizer.tilt import momentum_vol_tilt
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "momentum_vol_tilt",
     "risk_contributions",
     "solve_blend_alpha",
+    "strategic_target_weights",
 ]

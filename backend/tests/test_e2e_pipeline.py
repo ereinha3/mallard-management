@@ -115,7 +115,7 @@ def test_full_greenlight_pipeline_and_halt_gate(test_app: FastAPI):
     weights = portfolio["weights"]
     assert abs(sum(weights["by_ticker"].values()) - 1.0) < 1e-6
     assert weights["by_sleeve"]
-    assert weights["method"] == "erc"
+    assert weights["method"] == "strategic"
     assert portfolio["metrics"]["expected_vol"] > 0
 
     portfolio_response = client.post(
