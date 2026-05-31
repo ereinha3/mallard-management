@@ -117,6 +117,22 @@ export async function postOnboard(profile, userEmail = null) {
 }
 
 /**
+ * POST /api/v1/portfolio — build a portfolio from a profile.
+ */
+export async function postPortfolio(profile) {
+  const res = await fetch(`${BASE}/api/v1/portfolio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
  * POST /api/v1/portfolio/reoptimize — rerun optimizer from a risk dial target.
  */
 export async function postReoptimize({ profile, risk_dial, weights = null }) {
@@ -148,6 +164,45 @@ export async function postAnalyzeWeights({ profile, weights }) {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Analyze weights error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/portfolio/save — persist an edited portfolio for a user.
+ */
+export async function postSavePortfolio({ user_email, portfolio, risk_summary = null }) {
+  if (!user_email) throw new Error('Portfolio save requires a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/portfolio/save?user_email=${encodeURIComponent(user_email)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio,
+      ...(risk_summary ? { risk_summary } : {}),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Save portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/profile/update — persist profile changes and rerun the engine.
+ */
+export async function postUpdateProfile({ user_email, profile_patch }) {
+  if (!user_email) throw new Error('Profile update requires a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/profile/update?user_email=${encodeURIComponent(user_email)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile_patch }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Update profile error ${res.status}: ${text}`)
   }
   return res.json()
 }

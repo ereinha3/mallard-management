@@ -7,7 +7,6 @@ import AuthScreen from './components/AuthScreen'
 import OnboardingChat from './components/OnboardingChat'
 import AdvisorChat from './components/AdvisorChat'
 import AccountsTab from './components/AccountsTab'
-import PortfolioView from './components/greenlight/PortfolioView'
 import RiskView from './components/RiskView'
 import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
@@ -19,7 +18,7 @@ import { TourProvider } from './components/tour/TourProvider'
 import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'accounts', 'risk', 'alerts', 'settings']
 const AUTH_LOCAL_STORAGE_KEYS = []
 
 export default function App() {
@@ -87,11 +86,22 @@ export default function App() {
   const activeContent = (
     <>
       {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
-      {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
+      {activePage === 'greenlight' && (
+        <GreenlightFlow
+          onboardResult={onboardResult}
+          userEmail={user?.email}
+          onResult={setOnboardResult}
+        />
+      )}
       {activePage === 'learn' && <LearnView onboardResult={onboardResult} onAskMallard={() => setAskMallardOpen(true)} />}
-      {activePage === 'profile' && <ProfileView onboardResult={onboardResult} />}
+      {activePage === 'profile' && (
+        <ProfileView
+          onboardResult={onboardResult}
+          userEmail={user?.email}
+          onUpdated={setOnboardResult}
+        />
+      )}
       {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
-      {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} onApplied={setOnboardResult} />}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
       {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
       {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} />}

@@ -188,6 +188,81 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
 
 
+def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
+    client = _client(test_app)
+    email = "portfolio-save@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    portfolio = onboard_response.json()["portfolio"]
+    tickers = list(portfolio["weights"]["by_ticker"])
+    first, second = tickers[:2]
+    edited_by_ticker = dict(portfolio["weights"]["by_ticker"])
+    shift = min(0.01, edited_by_ticker[second] / 2.0)
+    edited_by_ticker[first] += shift
+    edited_by_ticker[second] -= shift
+    portfolio["weights"]["by_ticker"] = edited_by_ticker
+
+    save_response = client.post(
+        f"/api/v1/portfolio/save?user_email={email}",
+        json={
+            "portfolio": portfolio,
+            "risk_summary": {
+                "target_volatility_pct": 7.7,
+                "estimated_max_loss_1yr_pct": 12.3,
+            },
+        },
+    )
+
+    assert save_response.status_code == 200
+    assert save_response.json()["portfolio"]["weights"]["by_ticker"] == edited_by_ticker
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+    assert profile_response.status_code == 200
+    saved = profile_response.json()
+    assert saved["portfolio"]["weights"]["by_ticker"] == edited_by_ticker
+    assert saved["financial_analysis"]["risk"]["target_volatility_pct"] == 7.7
+    assert saved["financial_analysis"]["risk"]["estimated_max_loss_1yr_pct"] == 12.3
+
+
+def test_profile_update_persists_input_and_reweights_portfolio(test_app: FastAPI):
+    client = _client(test_app)
+    email = "profile-update@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    before_weights = onboard_response.json()["portfolio"]["weights"]["by_ticker"]
+
+    update_response = client.post(
+        f"/api/v1/profile/update?user_email={email}",
+        json={"profile_patch": {"esg_exclusions": []}},
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    after_weights = updated["portfolio"]["weights"]["by_ticker"]
+    assert updated["validated_profile"]["esg_exclusions"] == []
+    assert after_weights != before_weights
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+    assert profile_response.status_code == 200
+    saved = profile_response.json()
+    assert saved["validated_profile"]["esg_exclusions"] == []
+    assert saved["portfolio"]["weights"]["by_ticker"] == after_weights
+
+    record_response = client.get(f"/api/v1/users/{email}/record")
+    assert record_response.status_code == 200
+    assert record_response.json()["profile_input"]["esg_exclusions"] == []
+
+
 def test_onboard_halt_persona_returns_emergency_fund_math(test_app: FastAPI):
     client = _client(test_app)
     response = client.post("/api/v1/onboard", json=_persona("persona_halt.json"))
@@ -228,6 +303,8 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert "/api/v1/advisor/chat" in paths
     assert "/api/v1/auth/register" in paths
     assert "/api/v1/auth/login" in paths
+    assert "/api/v1/portfolio/save" in paths
+    assert "/api/v1/profile/update" in paths
     assert "/api/v1/portfolio/reoptimize" in paths
     assert "/api/v1/portfolio/analyze-weights" in paths
     assert "/api/v1/users/{email}/record" in paths

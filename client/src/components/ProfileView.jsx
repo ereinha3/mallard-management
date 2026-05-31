@@ -1,76 +1,344 @@
-import { Settings, SlidersHorizontal } from 'lucide-react'
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle, Loader, Save, Settings, SlidersHorizontal } from 'lucide-react'
+import { postUpdateProfile } from '../api/greenlightClient'
 import { formatCurrency } from '../lib/utils'
 
-function formatValue(value) {
-  if (value == null || value === '') return 'Not provided'
-  if (typeof value === 'number') return value.toLocaleString()
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'None'
-  return String(value).replace(/_/g, ' ')
+const MONEY_FIELDS = new Set(['household_income', 'monthly_expenses', 'capital_on_hand', 'emergency_fund', 'goal_target'])
+const NUMBER_FIELDS = new Set(['age', 'horizon_years', 'target_volatility_pct', ...MONEY_FIELDS])
+const ARRAY_FIELDS = new Set(['goals', 'esg_exclusions', 'sector_theme_tilts'])
+
+const FINANCIAL_FIELDS = [
+  { key: 'household_income', label: 'Household income', type: 'money' },
+  { key: 'monthly_expenses', label: 'Monthly expenses', type: 'money' },
+  { key: 'capital_on_hand', label: 'Capital on hand', type: 'money' },
+  { key: 'emergency_fund', label: 'Emergency fund', type: 'money' },
+  { key: 'age', label: 'Age', type: 'number' },
+  { key: 'horizon_years', label: 'Horizon years', type: 'number' },
+]
+
+const PREFERENCE_FIELDS = [
+  { key: 'goals', label: 'Goals', type: 'list', placeholder: 'retirement, house' },
+  { key: 'goal_target', label: 'Goal target', type: 'money' },
+  {
+    key: 'universe_pref',
+    label: 'Universe preference',
+    type: 'select',
+    options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
+  },
+  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'list', placeholder: 'tobacco, firearms' },
+  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'list', placeholder: 'clean energy, healthcare' },
+]
+
+const OPTIONAL_RISK_FIELDS = [
+  { key: 'risk_tolerance', label: 'Risk tolerance', type: 'select', options: ['conservative', 'balanced', 'growth', 'aggressive'] },
+  { key: 'loss_tolerance', label: 'Loss tolerance', type: 'select', options: ['low', 'medium', 'high'] },
+  { key: 'risk_capacity', label: 'Risk capacity', type: 'select', options: ['low', 'medium', 'high'] },
+  { key: 'income_stability', label: 'Income stability', type: 'select', options: ['low', 'medium', 'high', 'stable', 'variable'] },
+  { key: 'target_volatility_pct', label: 'Target volatility %', type: 'number' },
+]
+
+function getProfile(onboardResult) {
+  return onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
 }
 
-function ReadOnlyField({ label, value, currency = false }) {
-  const displayValue = currency && typeof value === 'number' ? formatCurrency(value) : formatValue(value)
+function getUserEmail(onboardResult, userEmail) {
+  return userEmail
+    ?? onboardResult?.validated_profile?.email
+    ?? onboardResult?.profile?.email
+    ?? onboardResult?.user?.email
+    ?? onboardResult?.email
+    ?? null
+}
+
+function labelize(value) {
+  return String(value ?? '').replace(/_/g, ' ')
+}
+
+function serializeField(value) {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function buildFormState(profile) {
+  return [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...OPTIONAL_RISK_FIELDS].reduce((acc, field) => {
+    acc[field.key] = serializeField(profile[field.key])
+    return acc
+  }, {})
+}
+
+function parseField(key, value) {
+  const trimmed = String(value ?? '').trim()
+
+  if (NUMBER_FIELDS.has(key)) {
+    if (!trimmed) return null
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (ARRAY_FIELDS.has(key)) {
+    if (!trimmed) return []
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        return JSON.parse(trimmed)
+      } catch {
+        return trimmed.split(',').map(item => item.trim()).filter(Boolean)
+      }
+    }
+    return trimmed.split(',').map(item => item.trim()).filter(Boolean)
+  }
+
+  return trimmed
+}
+
+function normalizedOriginalValue(key, value) {
+  if (NUMBER_FIELDS.has(key)) {
+    if (value == null || value === '') return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  if (ARRAY_FIELDS.has(key)) {
+    if (value == null || value === '') return []
+    return Array.isArray(value) ? value : parseField(key, value)
+  }
+  return value == null ? '' : String(value)
+}
+
+function sameValue(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function buildPatch(profile, formState, fields) {
+  return fields.reduce((patch, field) => {
+    const nextValue = parseField(field.key, formState[field.key])
+    const currentValue = normalizedOriginalValue(field.key, profile[field.key])
+    if (!sameValue(nextValue, currentValue)) patch[field.key] = nextValue
+    return patch
+  }, {})
+}
+
+function mergeProfileResult(onboardResult, patch) {
+  const profile = getProfile(onboardResult)
+  const nextProfile = { ...profile, ...patch }
+  return {
+    ...(onboardResult ?? {}),
+    profile: {
+      ...(onboardResult?.profile ?? profile),
+      ...patch,
+    },
+    validated_profile: {
+      ...(onboardResult?.validated_profile ?? profile),
+      ...patch,
+    },
+    optimizer_input: {
+      ...(onboardResult?.optimizer_input ?? {}),
+      ...(patch.capital_on_hand != null ? { capital_on_hand: patch.capital_on_hand } : {}),
+      ...(patch.monthly_surplus != null ? { monthly_surplus: patch.monthly_surplus } : {}),
+    },
+    _local_profile_patch: nextProfile,
+  }
+}
+
+function Field({ field, value, onChange }) {
+  const inputId = `profile-${field.key}`
+  const commonStyle = {
+    width: '100%',
+    borderRadius: 8,
+    border: '1px solid var(--border-bright)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text-primary)',
+    padding: '10px 11px',
+    fontSize: 13,
+    outline: 'none',
+  }
 
   return (
-    <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
-      <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <input
-        type="text"
-        disabled
-        value={displayValue}
-        className="w-full bg-transparent text-sm font-mono disabled:opacity-100"
-        style={{ color: 'var(--text-primary)' }}
-      />
+    <label className="block">
+      <span className="block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
+        {field.label}
+      </span>
+      {field.type === 'select' ? (
+        <select
+          id={inputId}
+          value={value}
+          onChange={event => onChange(field.key, event.target.value)}
+          style={commonStyle}
+        >
+          <option value="">Not provided</option>
+          {field.options.map(option => (
+            <option key={option} value={option}>{labelize(option)}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={inputId}
+          type={field.type === 'money' || field.type === 'number' ? 'number' : 'text'}
+          min={field.type === 'money' || field.type === 'number' ? '0' : undefined}
+          step={field.type === 'money' || field.type === 'number' ? '1' : undefined}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={event => onChange(field.key, event.target.value)}
+          style={commonStyle}
+        />
+      )}
+      {field.type === 'money' && value !== '' && Number.isFinite(Number(value)) && (
+        <span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+          {formatCurrency(Number(value))}
+        </span>
+      )}
     </label>
   )
 }
 
-export default function ProfileView({ onboardResult }) {
-  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+function FieldSection({ icon: Icon, title, fields, formState, onChange }) {
+  return (
+    <section className="card-premium p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Icon size={14} style={{ color: 'var(--gold-light)' }} />
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          {title}
+        </div>
+      </div>
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
+        {fields.map(field => (
+          <Field
+            key={field.key}
+            field={field}
+            value={formState[field.key] ?? ''}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export default function ProfileView({ onboardResult, userEmail, onUpdated }) {
+  const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
+  const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
+  const riskFields = useMemo(() => (
+    OPTIONAL_RISK_FIELDS.filter(field => profile[field.key] != null && profile[field.key] !== '')
+  ), [profile])
+  const editableFields = useMemo(() => (
+    [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...riskFields]
+  ), [riskFields])
+  const [formState, setFormState] = useState(() => buildFormState(profile))
+  const [saveState, setSaveState] = useState('idle')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    setFormState(buildFormState(profile))
+  }, [profile])
+
+  function handleChange(key, value) {
+    setFormState(prev => ({ ...prev, [key]: value }))
+    if (saveState !== 'saving') {
+      setSaveState('idle')
+      setMessage('')
+    }
+  }
+
+  async function handleSave(event) {
+    event.preventDefault()
+    const profilePatch = buildPatch(profile, formState, editableFields)
+
+    if (Object.keys(profilePatch).length === 0) {
+      setSaveState('success')
+      setMessage('No changes to save.')
+      return
+    }
+
+    setSaveState('saving')
+    setMessage('')
+
+    try {
+      const updated = resolvedUserEmail
+        ? await postUpdateProfile({ user_email: resolvedUserEmail, profile_patch: profilePatch })
+        : mergeProfileResult(onboardResult, profilePatch)
+      onUpdated?.(updated)
+      setSaveState(resolvedUserEmail ? 'success' : 'local')
+      setMessage(resolvedUserEmail ? 'Saved and reweighted.' : 'Saved locally for this session.')
+    } catch (error) {
+      onUpdated?.(mergeProfileResult(onboardResult, profilePatch))
+      setSaveState('local')
+      setMessage(error?.message ? `Saved locally. Backend update failed: ${error.message}` : 'Saved locally. Backend update failed.')
+    }
+  }
+
+  const isSaving = saveState === 'saving'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
       <header className="px-8 py-6" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-        <h1 className="font-display font-semibold text-2xl" style={{ color: 'var(--text-primary)' }}>Your Profile</h1>
-        <p className="text-xs text-muted mt-2 uppercase tracking-wide font-semibold">
-          Financial profile and investing preferences from your onboarding
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="font-display font-semibold text-2xl" style={{ color: 'var(--text-primary)' }}>Your Profile</h1>
+            <p className="text-xs mt-2 uppercase tracking-wide font-semibold" style={{ color: 'var(--text-muted)' }}>
+              Edit financial data and investing preferences used by Greenlight
+            </p>
+          </div>
+          <button
+            type="submit"
+            form="profile-edit-form"
+            disabled={isSaving}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all"
+            style={{
+              background: isSaving ? 'var(--bg-elevated)' : 'linear-gradient(135deg, var(--green, var(--emerald)), var(--green-bright))',
+              border: '1px solid var(--green-light, var(--green))',
+              color: isSaving ? 'var(--text-muted)' : '#07120d',
+              cursor: isSaving ? 'wait' : 'pointer',
+              boxShadow: isSaving ? 'none' : '0 14px 34px rgba(30,184,122,0.20)',
+            }}
+          >
+            {isSaving ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={16} />}
+            Save Changes
+          </button>
+        </div>
       </header>
 
-      <div className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <section className="card-premium p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Settings size={14} style={{ color: 'var(--gold-light)' }} />
-            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              Financial Profile
-            </div>
-          </div>
-          <ReadOnlyField label="Household income" value={profile.household_income} currency />
-          <ReadOnlyField label="Monthly expenses" value={profile.monthly_expenses} currency />
-          <ReadOnlyField label="Capital on hand" value={profile.capital_on_hand} currency />
-          <ReadOnlyField label="Emergency fund" value={profile.emergency_fund} currency />
-          <ReadOnlyField label="Age" value={profile.age} />
-          <ReadOnlyField label="Horizon years" value={profile.horizon_years} />
-        </section>
+      <form id="profile-edit-form" onSubmit={handleSave} className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr' }}>
+        <FieldSection
+          icon={Settings}
+          title="Financial Profile"
+          fields={FINANCIAL_FIELDS}
+          formState={formState}
+          onChange={handleChange}
+        />
 
-        <section className="card-premium p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <SlidersHorizontal size={14} style={{ color: 'var(--gold-light)' }} />
-            <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              Investing Preferences
-            </div>
-          </div>
-          <ReadOnlyField label="Goals" value={profile.goals} />
-          <ReadOnlyField label="Goal target" value={profile.goal_target} currency />
-          <ReadOnlyField label="Universe preference" value={profile.universe_pref} />
-          <ReadOnlyField label="ESG exclusions" value={profile.esg_exclusions} />
-          <ReadOnlyField label="Sector/theme tilts" value={profile.sector_theme_tilts} />
-        </section>
+        <FieldSection
+          icon={SlidersHorizontal}
+          title="Investing Preferences"
+          fields={PREFERENCE_FIELDS}
+          formState={formState}
+          onChange={handleChange}
+        />
 
-        <div className="card-premium p-4 text-sm font-semibold" style={{ gridColumn: '1 / -1', color: 'var(--gold-light)' }}>
-          To update these, complete a new Greenlight session.
-        </div>
-      </div>
+        {riskFields.length > 0 && (
+          <FieldSection
+            icon={SlidersHorizontal}
+            title="Risk Preferences"
+            fields={riskFields}
+            formState={formState}
+            onChange={handleChange}
+          />
+        )}
+
+        {message && (
+          <div
+            className="card-premium p-4 flex items-start gap-3 text-sm font-semibold"
+            style={{ color: saveState === 'local' ? 'var(--gold-light)' : 'var(--green)' }}
+          >
+            {saveState === 'local' ? <AlertTriangle size={17} /> : <CheckCircle size={17} />}
+            <span>{message}</span>
+          </div>
+        )}
+      </form>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+      `}</style>
     </div>
   )
 }

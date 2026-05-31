@@ -1035,6 +1035,50 @@ def _profile_input(profile: Profile | None) -> dict[str, Any] | None:
     return profile.get_input() if profile else None
 
 
+def _stored_profile_or_404(db: Session, email: str) -> Profile:
+    profile = db.query(Profile).filter(Profile.user_email == email).first()
+    if not profile or not profile.get_result():
+        raise HTTPException(status_code=404, detail="Stored profile not found")
+    return profile
+
+
+def _request_email(query_email: str | None, body_email: str | None) -> str:
+    email = query_email or body_email
+    if not email:
+        raise HTTPException(status_code=400, detail="user_email is required")
+    return email
+
+
+def _deep_merge(base: dict[str, Any], patch: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _apply_saved_risk_summary(
+    result: dict[str, Any],
+    risk_summary: api_models.PortfolioRiskSummary | None,
+) -> None:
+    if risk_summary is None:
+        return
+
+    summary = risk_summary.model_dump(mode="json")
+    financial_analysis = result.get("financial_analysis")
+    if isinstance(financial_analysis, dict) and isinstance(financial_analysis.get("risk"), dict):
+        financial_analysis["risk"].update(summary)
+
+    risk_profile = result.get("risk_profile")
+    target_volatility_pct = summary.get("target_volatility_pct")
+    if isinstance(risk_profile, dict) and target_volatility_pct is not None:
+        target_vol_band = risk_profile.get("target_vol_band")
+        if isinstance(target_vol_band, dict):
+            target_vol_band["mid"] = float(target_volatility_pct) / 100.0
+
+
 def _prepare_chat_session(
     session_id: str | None,
     user_email: str | None,
@@ -1293,6 +1337,69 @@ async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.O
         return api_models.OnboardResponse(status="no_profile")
 
     return api_models.OnboardResponse(**result)
+
+
+@router.post("/portfolio/save", response_model=api_models.OnboardResponse)
+async def portfolio_save(
+    request: api_models.SavePortfolioRequest,
+    user_email: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
+    email = _request_email(user_email, request.user_email)
+    profile = _stored_profile_or_404(db, email)
+    result = profile.get_result()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Stored profile not found")
+
+    result["portfolio"] = request.portfolio.model_dump(mode="json")
+    _apply_saved_risk_summary(result, request.risk_summary)
+    try:
+        response = api_models.OnboardResponse.model_validate(result)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    upsert_profile(
+        db,
+        email,
+        json.dumps(profile.get_input()),
+        response.model_dump_json(),
+    )
+    db.commit()
+    return response
+
+
+@router.post("/profile/update", response_model=api_models.OnboardResponse)
+async def profile_update(
+    request: api_models.UpdateProfileRequest,
+    user_email: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
+    email = _request_email(user_email, request.user_email)
+    profile = _stored_profile_or_404(db, email)
+    merged_input = _deep_merge(profile.get_input(), request.profile_patch)
+    try:
+        profile_input = api_models.UserProfileInput.model_validate(merged_input)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Updated profile is invalid.",
+                "clarification_requests": [
+                    clarification.model_dump()
+                    for clarification in _validation_clarifications(exc)
+                ],
+            },
+        ) from exc
+
+    response = _run_pipeline(profile_input)
+    upsert_profile(
+        db,
+        email,
+        profile_input.model_dump_json(),
+        response.model_dump_json(),
+    )
+    db.commit()
+    return response
 
 
 @router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")

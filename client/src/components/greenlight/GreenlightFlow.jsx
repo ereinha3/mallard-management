@@ -1,4 +1,5 @@
-import { useState } from 'react'
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useState } from 'react'
 import IntakeChat from './IntakeChat'
 import GateScreen from './GateScreen'
 import PortfolioView from './PortfolioView'
@@ -22,8 +23,15 @@ function getUserEmail(result) {
     ?? null
 }
 
-function gateStepFromStatus(status) {
-  return status === 'greenlight' ? STEPS.GATE_GREEN : STEPS.GATE_HALT
+function hasPortfolio(result) {
+  return Boolean(result?.portfolio ?? result?.optimizer_input?.portfolio)
+}
+
+function stepFromResult(result) {
+  const status = result?.gate_result?.status ?? result?.status
+  if (hasPortfolio(result) || status === 'greenlight') return STEPS.PORTFOLIO
+  if (status) return STEPS.GATE_HALT
+  return STEPS.INTAKE
 }
 
 function StepIndicator({ step }) {
@@ -76,22 +84,25 @@ function StepIndicator({ step }) {
   )
 }
 
-export default function GreenlightFlow({ onboardResult }) {
-  const initialStatus = onboardResult?.gate_result?.status
-  const [step, setStep] = useState(
-    initialStatus ? gateStepFromStatus(initialStatus)
-    : STEPS.INTAKE
-  )
+export default function GreenlightFlow({ onboardResult, userEmail, onResult }) {
+  const [step, setStep] = useState(() => stepFromResult(onboardResult))
   const [gateResult, setGateResult] = useState(onboardResult ?? null)
-  const userEmail = getUserEmail(gateResult)
+  const resolvedUserEmail = userEmail ?? getUserEmail(gateResult)
+
+  useEffect(() => {
+    setGateResult(onboardResult ?? null)
+    setStep(stepFromResult(onboardResult))
+  }, [onboardResult])
 
   function handleIntakeComplete(result) {
     setGateResult(result)
-    setStep(gateStepFromStatus(result?.gate_result?.status))
+    onResult?.(result)
+    setStep(stepFromResult(result))
   }
 
   function handlePortfolioApplied(result) {
     setGateResult(result)
+    onResult?.(result)
   }
 
   const isFullscreen = step === STEPS.GATE_HALT || step === STEPS.GATE_GREEN
@@ -152,7 +163,7 @@ export default function GreenlightFlow({ onboardResult }) {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         {step === STEPS.INTAKE && (
-          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} />
+          <IntakeChat onComplete={handleIntakeComplete} userEmail={resolvedUserEmail} />
         )}
         {step === STEPS.GATE_HALT && (
           <GateScreen
@@ -162,7 +173,7 @@ export default function GreenlightFlow({ onboardResult }) {
           />
         )}
         {step === STEPS.INTAKE_FIX && (
-          <IntakeChat onComplete={handleIntakeComplete} userEmail={userEmail} />
+          <IntakeChat onComplete={handleIntakeComplete} userEmail={resolvedUserEmail} />
         )}
         {step === STEPS.GATE_GREEN && (
           <GateScreen
@@ -174,6 +185,7 @@ export default function GreenlightFlow({ onboardResult }) {
         {step === STEPS.PORTFOLIO && (
           <PortfolioView
             onboardResult={gateResult}
+            userEmail={resolvedUserEmail}
             onRebalance={() => setStep(STEPS.REBALANCE)}
             onApplied={handlePortfolioApplied}
           />
