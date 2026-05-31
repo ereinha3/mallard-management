@@ -28,7 +28,7 @@ export default function RiskView({ onboardResult }) {
   const capacity = numberOrNull(riskProfile.capacity_score ?? risk.capacity_score)
   const tolerance = numberOrNull(riskProfile.tolerance_score ?? risk.tolerance_score)
   const gamma = numberOrNull(riskProfile.gamma_mid ?? riskProfile.gamma ?? risk.gamma_mid)
-  const gammaBand = riskProfile.gamma_band ?? riskProfile.band ?? riskProfile.label ?? risk.label
+  const gammaBand = risk.label ?? riskProfile.gamma_band_label ?? null
   const targetVol = numberOrNull(risk.target_volatility_pct)
   const maxLoss = numberOrNull(risk.estimated_max_loss_1yr_pct)
 
@@ -61,7 +61,7 @@ export default function RiskView({ onboardResult }) {
               <div key={item.label} className="mb-4">
                 <div className="flex justify-between text-sm mb-2">
                   <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                  <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{item.value ?? 'Not available'}</span>
+                  <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{item.value != null ? Math.round(item.value) : 'Not available'}</span>
                 </div>
                 <div className="h-2 rounded-full" style={{ background: 'var(--bg-elevated)' }}>
                   <div

@@ -13,15 +13,29 @@ const BASE =
  * AUTH ENDPOINTS
  */
 
-export async function register({ email, password, name, phone, zip, address }) {
+export async function register({ email, password, name, phone, zip, zip_code: providedZipCode, address }) {
+  const zip_code = providedZipCode ?? zip
   const res = await fetch(`${BASE}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name, phone, zip, address }),
+    body: JSON.stringify({ email, password, name, phone, zip_code, address }),
   })
   if (!res.ok) {
     const err = await res.json()
     throw new Error(err.detail ?? 'Registration failed')
+  }
+  return res.json()
+}
+
+export async function updateAccount({ user_email, name, phone, address, zip_code }) {
+  const res = await fetch(`${BASE}/api/v1/account/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, name, phone, address, zip_code }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.detail ?? 'Account update failed')
   }
   return res.json()
 }

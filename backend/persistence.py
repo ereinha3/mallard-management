@@ -44,6 +44,21 @@ class User(Base):
         nullable=False,
         comment="Display name supplied at registration.",
     )
+    phone: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        comment="Optional user phone number.",
+    )
+    address: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        comment="Optional user street address.",
+    )
+    zip_code: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        comment="Optional user postal ZIP code.",
+    )
     hashed_password: Mapped[str] = mapped_column(
         String,
         nullable=False,
@@ -368,7 +383,12 @@ def _ensure_additive_columns(db_engine: Engine) -> None:
             )
         }
         additive_columns = {
-            "users": {"updated_at": "DATETIME"},
+            "users": {
+                "updated_at": "DATETIME",
+                "phone": "VARCHAR",
+                "address": "VARCHAR",
+                "zip_code": "VARCHAR",
+            },
             "profiles": {"gate_status": "VARCHAR", "created_at": "DATETIME"},
             "chat_messages": {"updated_at": "DATETIME"},
             "investment_accounts": {
@@ -441,9 +461,47 @@ def get_user(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 
-def create_user(db: Session, email: str, name: str, pw_hash: str) -> User:
-    user = User(email=email, name=name, hashed_password=pw_hash)
+def create_user(
+    db: Session,
+    email: str,
+    name: str,
+    pw_hash: str,
+    phone: str | None = None,
+    address: str | None = None,
+    zip_code: str | None = None,
+) -> User:
+    user = User(
+        email=email,
+        name=name,
+        phone=phone,
+        address=address,
+        zip_code=zip_code,
+        hashed_password=pw_hash,
+    )
     db.add(user)
+    return user
+
+
+def update_user_account(
+    db: Session,
+    email: str,
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+    address: str | None = None,
+    zip_code: str | None = None,
+) -> User | None:
+    user = get_user(db, email)
+    if not user:
+        return None
+    if name is not None:
+        user.name = name
+    if phone is not None:
+        user.phone = phone
+    if address is not None:
+        user.address = address
+    if zip_code is not None:
+        user.zip_code = zip_code
     return user
 
 

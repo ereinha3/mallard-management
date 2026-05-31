@@ -11,12 +11,26 @@ class AuthRequest(BaseModel):
     email: str
     password: str
     name: Optional[str] = None  # Only for sign-up
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
 
 
 class AuthResponse(BaseModel):
     email: str
     name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
     token: str  # Dummy token for now
+
+
+class UpdateAccountRequest(BaseModel):
+    user_email: str
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    zip_code: Optional[str] = None
 
 
 # ── Chat / elicitation ────────────────────────────────────────────────────────
@@ -460,7 +474,7 @@ class RiskMetrics(BaseModel):
 
 class PortfolioRequest(BaseModel):
     profile: UserProfileInput
-    method: Optional[Literal["erc", "black_litterman", "cvar"]] = "erc"
+    method: Optional[Literal["strategic", "erc", "black_litterman", "cvar"]] = "strategic"
 
 
 class PortfolioResponse(BaseModel):
@@ -488,8 +502,15 @@ class BacktestEquityPoint(BaseModel):
     value: float
 
 
+class BacktestDrawdownPoint(BaseModel):
+    date: date
+    dd: float
+
+
 class BacktestMetricSet(BaseModel):
+    cagr: Optional[float] = None
     sharpe: float
+    deflated_sharpe: Optional[float] = None
     sortino: float
     max_drawdown: float
     calmar: float
@@ -498,13 +519,18 @@ class BacktestMetricSet(BaseModel):
 
 class BacktestStrategyResult(BaseModel):
     equity_curve: List[BacktestEquityPoint]
+    drawdown_curve: Optional[List[BacktestDrawdownPoint]] = None
     metrics: BacktestMetricSet
 
 
 class BacktestResponse(BaseModel):
     equity_curve: List[BacktestEquityPoint]
+    drawdown_curve: Optional[List[BacktestDrawdownPoint]] = None
     metrics: BacktestMetricSet
-    benchmarks: Dict[Literal["one_over_n", "sixty_forty", "target_date"], BacktestStrategyResult]
+    benchmarks: Dict[
+        Literal["one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy"],
+        BacktestStrategyResult,
+    ]
 
 
 class PortfolioRiskSummary(BaseModel):

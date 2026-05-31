@@ -114,6 +114,9 @@ def test_register_then_login_returns_mock_token(test_app: FastAPI):
     assert body == {
         "email": "auth-login@example.com",
         "name": "Test User",
+        "phone": None,
+        "address": None,
+        "zip_code": None,
         "token": "mock-token-auth-login@example.com",
     }
 
@@ -124,6 +127,94 @@ def test_register_then_login_returns_mock_token(test_app: FastAPI):
 
     assert response.status_code == 200
     assert response.json()["token"] == "mock-token-auth-login@example.com"
+
+
+def test_register_persists_account_contact_fields_and_login_returns_them(test_app: FastAPI):
+    client = _client(test_app)
+    payload = {
+        "email": "account-register@example.com",
+        "password": "correct-horse",
+        "name": "Account Register",
+        "phone": "415-555-1212",
+        "address": "123 Market Street",
+        "zip_code": "94105",
+    }
+
+    response = client.post("/api/v1/auth/register", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "email": "account-register@example.com",
+        "name": "Account Register",
+        "phone": "415-555-1212",
+        "address": "123 Market Street",
+        "zip_code": "94105",
+        "token": "mock-token-account-register@example.com",
+    }
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "account-register@example.com", "password": "correct-horse"},
+    )
+
+    assert login_response.status_code == 200
+    assert login_response.json() == response.json()
+
+
+def test_account_update_updates_subset_and_persists_to_login(test_app: FastAPI):
+    client = _client(test_app)
+    email = "account-update@example.com"
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": "correct-horse",
+            "name": "Original Name",
+            "phone": "415-555-0000",
+            "address": "1 First Street",
+            "zip_code": "94104",
+        },
+    )
+    assert register_response.status_code == 200
+
+    update_response = client.post(
+        "/api/v1/account/update",
+        json={
+            "user_email": email,
+            "name": "Updated Name",
+            "zip_code": "10001",
+        },
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json() == {
+        "email": email,
+        "name": "Updated Name",
+        "phone": "415-555-0000",
+        "address": "1 First Street",
+        "zip_code": "10001",
+        "token": f"mock-token-{email}",
+    }
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "correct-horse"},
+    )
+
+    assert login_response.status_code == 200
+    assert login_response.json() == update_response.json()
+
+
+def test_account_update_unknown_email_returns_404(test_app: FastAPI):
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/account/update",
+        json={"user_email": "missing-account@example.com", "name": "Missing"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "User not found"
 
 
 def test_duplicate_register_returns_400(test_app: FastAPI):
@@ -321,6 +412,7 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert "/api/v1/advisor/chat" in paths
     assert "/api/v1/auth/register" in paths
     assert "/api/v1/auth/login" in paths
+    assert "/api/v1/account/update" in paths
     assert "/api/v1/portfolio/save" in paths
     assert "/api/v1/profile/update" in paths
     assert "/api/v1/portfolio/reoptimize" in paths
@@ -404,6 +496,30 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     tax = tax_response.json()
     assert tax["harvestable"][0]["ticker"] == "BND"
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
+
+
+def test_backtest_response_surfaces_honest_metrics_and_naive_mvo(test_app: FastAPI):
+    client = _client(test_app)
+
+    response = client.post(
+        "/api/v1/backtest",
+        json={"profile": _persona("persona_greenlight.json")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "drawdown_curve" in body
+    assert "cagr" in body["metrics"]
+    assert "deflated_sharpe" in body["metrics"]
+    assert "naive_mvo" in body["benchmarks"]
+
+    strategies = [body, *body["benchmarks"].values()]
+    for strategy in strategies:
+        assert "drawdown_curve" in strategy
+        assert "cagr" in strategy["metrics"]
+        assert "deflated_sharpe" in strategy["metrics"]
+        if strategy["drawdown_curve"] is not None:
+            assert {"date", "dd"} <= set(strategy["drawdown_curve"][0])
 
 
 def test_marginal_federal_rate_picks_last_dollar_bracket():

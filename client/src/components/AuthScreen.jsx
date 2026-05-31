@@ -218,7 +218,7 @@ function SignUpForm({ onAuth }) {
     if (!form.phone.trim())   e.phone   = 'Phone number is required'
     else if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1'))) e.phone = 'Please enter a valid 10-digit US phone number'
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
-    else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
+    else if (!/^\d{5}$/.test(form.zip.trim())) e.zip = 'Enter a valid 5-digit ZIP code'
     if (!form.address.trim()) e.address = 'Street address is required'
     else if (!/^\d+\s+[a-zA-Z]/.test(form.address.trim())) e.address = 'Enter a valid street address (e.g. 123 Main St)'
     if (form.home_value.trim() && parseMoney(form.home_value) == null) e.home_value = 'Enter a valid home value'
@@ -247,7 +247,10 @@ function SignUpForm({ onAuth }) {
       })
       onAuth({
         ...user,
+        name: user.name ?? form.name.trim(),
+        phone: user.phone ?? form.phone.trim(),
         address: user.address ?? form.address.trim(),
+        zip_code: user.zip_code ?? form.zip.trim(),
         home_value: user.home_value ?? homeValue,
         isNewUser: true,
       })
@@ -275,7 +278,7 @@ function SignUpForm({ onAuth }) {
         <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
           placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" maxLength={14} />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
-          placeholder="94105" error={errors.zip} autoComplete="postal-code" maxLength={10} />
+          placeholder="94105" error={errors.zip} autoComplete="postal-code" maxLength={5} />
       </div>
 
       <Field label="Address" value={form.address} onChange={set('address')}
