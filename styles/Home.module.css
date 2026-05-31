@@ -1,0 +1,50 @@
+/* Placeholder module styles for the default Next.js starter page (pages/index.tsx).
+   The real Mallard UI is served by the Vite client; this file only exists so the
+   starter index page compiles. Classes are intentionally minimal. */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.logo {
+  height: auto;
+}
+
+.intro {
+  text-align: center;
+  line-height: 1.5;
+}
+
+.ctas {
+  display: flex;
+  gap: 1rem;
+}
+
+.primary,
+.secondary {
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.primary {
+  background: #111;
+  color: #fff;
+}
+
+.secondary {
+  border: 1px solid #ccc;
+  color: #111;
+}

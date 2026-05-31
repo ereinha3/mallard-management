@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
+import { Feather, Eye, EyeOff, ArrowRight, AlertCircle, FastForward } from 'lucide-react'
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
@@ -244,11 +244,35 @@ function SignUpForm({ onAuth }) {
 
 // ── Main AuthScreen ──────────────────────────────────────────────────────────
 
-export default function AuthScreen({ onAuth }) {
+export default function AuthScreen({ onAuth, onDevSkip }) {
   const [mode, setMode] = useState('signin')
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg-base)', overflow: 'hidden' }}>
+
+      {/* Dev-only: skip login + onboarding, load demo data */}
+      {onDevSkip && (
+        <button
+          type="button"
+          onClick={onDevSkip}
+          title="Developer shortcut: skip login and onboarding, load demo data"
+          style={{
+            position: 'absolute', top: 20, right: 24, zIndex: 10,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
+            background: 'var(--green-soft, rgba(26,107,66,0.12))',
+            border: '1px solid var(--green, var(--emerald))',
+            color: 'var(--green-bright, var(--emerald))',
+            fontSize: 11.5, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace',
+            letterSpacing: '0.04em', transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--green, var(--emerald))'; e.currentTarget.style.color = '#fff' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--green-soft, rgba(26,107,66,0.12))'; e.currentTarget.style.color = 'var(--green-bright, var(--emerald))' }}
+        >
+          <FastForward size={13} />
+          DEV: SKIP LOGIN
+        </button>
+      )}
 
       {/* Left brand panel */}
       <div style={{

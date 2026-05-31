@@ -10,9 +10,12 @@ import PortfolioView from './components/greenlight/PortfolioView'
 import RiskView from './components/RiskView'
 import AlertsView from './components/AlertsView'
 import SettingsView from './components/SettingsView'
+import LearnView from './components/learn/LearnView'
+import { TourProvider } from './components/tour/TourProvider'
+import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile } from './api/greenlightClient'
 
-const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'advisor', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
+const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'advisor', 'learn', 'accounts', 'portfolio', 'risk', 'alerts', 'settings']
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -43,6 +46,12 @@ export default function App() {
       <AuthScreen
         onAuth={(u) => {
           setUser(u)
+        }}
+        onDevSkip={() => {
+          // Developer shortcut: bypass login + onboarding, land in the app with demo data
+          setOnboardResult(DUMMY_ONBOARD_RESULT)
+          setOnboardingDone(true)
+          setUser(DUMMY_USER)
         }}
       />
     )
@@ -75,27 +84,30 @@ export default function App() {
 
   // Stage 3: full app
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--bg-base)' }}>
-      <Sidebar active={activePage} onNavigate={setActivePage} user={user} onboardResult={onboardResult} />
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
-        {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
-        {activePage === 'advisor' && <AdvisorChat context={onboardResult} user={user} />}
-        {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
-        {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} />}
-        {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
-        {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
-        {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} />}
-        
-        {!PAGES_WITH_CONTENT.includes(activePage) && (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
-              {activePage}
+    <TourProvider onNavigate={setActivePage}>
+      <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: 'var(--bg-base)' }}>
+        <Sidebar active={activePage} onNavigate={setActivePage} user={user} onboardResult={onboardResult} />
+        <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
+          {activePage === 'greenlight' && <GreenlightFlow onboardResult={onboardResult} />}
+          {activePage === 'advisor' && <AdvisorChat context={onboardResult} user={user} />}
+          {activePage === 'learn' && <LearnView onboardResult={onboardResult} />}
+          {activePage === 'accounts' && <AccountsTab onboardResult={onboardResult} />}
+          {activePage === 'portfolio' && <PortfolioView onboardResult={onboardResult} />}
+          {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
+          {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
+          {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} />}
+
+          {!PAGES_WITH_CONTENT.includes(activePage) && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 64, color: 'var(--text-muted)', lineHeight: 1 }}>
+                {activePage}
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
             </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Coming soon</div>
-          </div>
-        )}
-      </main>
-    </div>
+          )}
+        </main>
+      </div>
+    </TourProvider>
   )
 }

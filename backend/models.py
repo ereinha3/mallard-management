@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
+from datetime import datetime
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -8,13 +9,13 @@ from typing import Any, List, Optional, Dict, Literal, Tuple
 class AuthRequest(BaseModel):
     email: str
     password: str
-    name: Optional[str] = None
+    name: Optional[str] = None  # Only for sign-up
 
 
 class AuthResponse(BaseModel):
     email: str
     name: str
-    token: str
+    token: str  # Dummy token for now
 
 
 # ── Chat / elicitation ────────────────────────────────────────────────────────

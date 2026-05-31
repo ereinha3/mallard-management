@@ -1,0 +1,280 @@
+// DEMO-ONLY DATA — not real financial advice. Do not commit to production.
+
+export const DUMMY_USER = { name: 'Demo Mallard', email: 'demo@mallard.test' }
+
+const projection = [
+  { year: '2026', conservative: 250000, base: 280000, optimistic: 310000 },
+  { year: '2030', conservative: 395000, base: 470000, optimistic: 560000 },
+  { year: '2035', conservative: 640000, base: 835000, optimistic: 1090000 },
+  { year: '2040', conservative: 980000, base: 1410000, optimistic: 2010000 },
+  { year: '2045', conservative: 1420000, base: 2260000, optimistic: 3610000 },
+  { year: '2050', conservative: 1980000, base: 3480000, optimistic: 6120000 },
+  { year: '2054', conservative: 2580000, base: 4720000, optimistic: 8720000 },
+]
+
+const debts = [
+  {
+    id: 'mortgage-primary',
+    name: 'Primary Home Mortgage',
+    label: 'Primary Home Mortgage',
+    kind: 'mortgage',
+    type: 'mortgage',
+    balance: 340000,
+    rate: 0.064,
+    apr: 0.064,
+    effective_apr: 0.049,
+    min_payment: 2250,
+    monthly_interest_cost: 1813,
+    months_to_payoff: 323,
+  },
+  {
+    id: 'student-loan',
+    name: 'Federal Student Loan',
+    label: 'Federal Student Loan',
+    kind: 'student_loan',
+    type: 'student_loan',
+    balance: 18000,
+    rate: 0.058,
+    apr: 0.058,
+    effective_apr: 0.058,
+    min_payment: 235,
+    monthly_interest_cost: 87,
+    months_to_payoff: 91,
+  },
+]
+
+const assets = [
+  { id: 'cash-checking', type: 'cash', name: 'Checking and cash reserve', value: 55000, institution: 'Mallard Demo Bank', liquidity: 'high' },
+  { id: 'emergency-fund', type: 'savings', name: 'Emergency fund', value: 30000, institution: 'Mallard Demo Bank', liquidity: 'high' },
+  { id: '401k', type: 'retirement', name: 'Employer 401(k)', value: 120000, institution: 'Demo Workplace Plan', liquidity: 'retirement' },
+  { id: 'brokerage', type: 'brokerage', name: 'Taxable brokerage', value: 45000, institution: 'Mallard Brokerage', liquidity: 'marketable' },
+  { id: 'primary-home', type: 'home', name: 'Primary residence', value: 420000, institution: 'Personal property', liquidity: 'low' },
+]
+
+const liabilities = [
+  { id: 'mortgage-primary', type: 'mortgage', name: 'Primary Home Mortgage', balance: 340000, rate: 0.064, apr: 0.064, min_payment: 2250 },
+  { id: 'student-loan', type: 'student_loan', name: 'Federal Student Loan', balance: 18000, rate: 0.058, apr: 0.058, min_payment: 235 },
+]
+
+const holdings = [
+  { ticker: 'VTI', name: 'Vanguard Total Stock Market ETF', shares: 188.5, price: 265.25, value: 50000, weight: 0.38, sector: 'US Equity' },
+  { ticker: 'VXUS', name: 'Vanguard Total International Stock ETF', shares: 420.4, price: 62.55, value: 26300, weight: 0.2, sector: 'International Equity' },
+  { ticker: 'BND', name: 'Vanguard Total Bond Market ETF', shares: 313.6, price: 75.25, value: 23600, weight: 0.18, sector: 'Bonds' },
+  { ticker: 'SCHP', name: 'Schwab U.S. TIPS ETF', shares: 182.7, price: 57.45, value: 10500, weight: 0.08, sector: 'TIPS' },
+  { ticker: 'GLDM', name: 'SPDR Gold MiniShares Trust', shares: 473.2, price: 22.2, value: 10500, weight: 0.08, sector: 'Gold' },
+  { ticker: 'USRT', name: 'iShares Core U.S. REIT ETF', shares: 122.6, price: 85.65, value: 10500, weight: 0.08, sector: 'Real Estate' },
+]
+
+const accounts = [
+  { id: 'acct-checking', type: 'checking', name: 'Everyday Checking', balance: 25000, institution: 'Mallard Demo Bank', linked: false },
+  { id: 'acct-emergency', type: 'savings', name: 'Emergency Savings', balance: 30000, institution: 'Mallard Demo Bank', linked: false },
+  { id: 'acct-401k', type: 'retirement', name: 'Employer 401(k)', balance: 120000, institution: 'Demo Workplace Plan', linked: false },
+  { id: 'acct-brokerage', type: 'brokerage', name: 'Taxable Brokerage', balance: 45000, institution: 'Mallard Brokerage', linked: false },
+  { id: 'acct-home', type: 'home', name: 'Primary Residence', balance: 420000, institution: 'Personal property', linked: false },
+  { id: 'acct-mortgage', type: 'mortgage', name: 'Primary Home Mortgage', balance: -340000, institution: 'Demo Mortgage Co.', linked: false },
+]
+
+const alerts = [
+  { id: 'alert-greenlight', type: 'gate', severity: 'success', message: 'Emergency fund and debt checks passed for investing.', date: '2026-05-30' },
+  { id: 'alert-surplus', type: 'cash_flow', severity: 'info', message: 'Estimated monthly surplus supports a $2,150 recurring investment.', date: '2026-05-30' },
+  { id: 'alert-rebalance', type: 'portfolio', severity: 'info', message: 'Future live holdings can be checked against a 5 percentage point drift band.', date: '2026-05-30' },
+]
+
+export const DUMMY_ONBOARD_RESULT = {
+  status: 'complete',
+  validated_profile: {
+    name: 'Demo Mallard',
+    first_name: 'Demo',
+    email: 'demo@mallard.test',
+    age: 34,
+    horizon_years: 28,
+    household_income: 145000,
+    monthly_expenses: 6200,
+    monthly_surplus: 2150,
+    monthly_savings: 2150,
+    monthly_contribution: 2150,
+    capital_on_hand: 85000,
+    emergency_fund: 30000,
+    filing_status: 'married_filing_jointly',
+    dependents: 1,
+    goals: ['retirement', 'house'],
+    goal_target: 500000,
+    universe_pref: 'broad_market',
+    esg_exclusions: [],
+    sector_theme_tilts: [],
+    assets: {
+      emergency_savings: 30000,
+      cash_reserve: 55000,
+      retirement_401k: 120000,
+      taxable_brokerage: 45000,
+      primary_home: 420000,
+    },
+    debts,
+  },
+  profile: {
+    name: 'Demo Mallard',
+    first_name: 'Demo',
+    email: 'demo@mallard.test',
+    age: 34,
+    horizon_years: 28,
+    household_income: 145000,
+    monthly_expenses: 6200,
+    monthly_surplus: 2150,
+    monthly_savings: 2150,
+    monthly_contribution: 2150,
+    capital_on_hand: 85000,
+    emergency_fund: 30000,
+    filing_status: 'married_filing_jointly',
+    dependents: 1,
+    goals: ['retirement', 'house'],
+    goal_target: 500000,
+    universe_pref: 'broad_market',
+    esg_exclusions: [],
+    sector_theme_tilts: [],
+    assets: {
+      emergency_savings: 30000,
+      cash_reserve: 55000,
+      retirement_401k: 120000,
+      taxable_brokerage: 45000,
+      primary_home: 420000,
+    },
+    debts,
+  },
+  financial_analysis: {
+    snapshot: {
+      net_worth_estimate: 272000,
+      total_debt: 358000,
+      monthly_income: 12083,
+      monthly_expenses: 6200,
+      monthly_surplus: 2150,
+      savings_rate_pct: 17.8,
+      debt_to_income_ratio: 2.47,
+      emergency_fund_pct_complete: 161.3,
+    },
+    emergency_fund: {
+      current_amount: 30000,
+      target_amount: 18600,
+      shortfall: 0,
+      months_covered: 4.8,
+    },
+    debt: {
+      total_balance: 358000,
+      monthly_minimums: 2485,
+      debts,
+    },
+    risk: {
+      label: 'Growth with guardrails',
+      capacity_score: 78,
+      tolerance_score: 72,
+      gamma_mid: 3.15,
+      target_volatility_pct: 12.4,
+      estimated_max_loss_1yr_pct: 21.5,
+      binding_axis: 'capacity',
+      loss_aversion_flag: false,
+      contradiction_note: 'Capacity and stated tolerance are aligned for a diversified growth portfolio.',
+    },
+    projection,
+    scenarios: {
+      base: {
+        name: 'Base',
+        annual_return_pct: 0.065,
+        final_value: 4720000,
+        retirement_success_probability: 0.78,
+        projection: projection.map(point => ({ year: point.year, value: point.base })),
+      },
+      optimistic: {
+        name: 'Optimistic',
+        annual_return_pct: 0.082,
+        final_value: 8720000,
+        retirement_success_probability: 0.91,
+        projection: projection.map(point => ({ year: point.year, value: point.optimistic })),
+      },
+      conservative: {
+        name: 'Conservative',
+        annual_return_pct: 0.043,
+        final_value: 2580000,
+        retirement_success_probability: 0.62,
+        projection: projection.map(point => ({ year: point.year, value: point.conservative })),
+      },
+    },
+    path_to_greenlight: {
+      status: 'greenlight',
+      steps: [
+        { step: 1, action: 'Maintain at least three months of expenses in cash reserves', target_amount: 18600, months_estimated: 0, note: 'Current emergency fund already exceeds the target.' },
+        { step: 2, action: 'Invest monthly surplus into the target portfolio', target_amount: 2150, months_estimated: 1, note: 'Automate contributions after payroll clears.' },
+        { step: 3, action: 'Review mortgage refinance opportunities if rates decline', target_amount: 340000, months_estimated: 12, note: 'Debt is below the high-APR halt threshold.' },
+      ],
+    },
+    assets,
+    liabilities,
+    holdings,
+    alerts,
+    accounts,
+    retirement_score: 82,
+    score: 82,
+  },
+  gate_result: {
+    status: 'greenlight',
+    reason: 'Emergency fund is above the three-month threshold and no debt exceeds the 8% high-APR gate.',
+    checks: {
+      emergency_fund: { passed: true, current_amount: 30000, target_amount: 18600 },
+      high_apr_debt: { passed: true, market_return_after_tax: 0.058 },
+      monthly_surplus: { passed: true, amount: 2150 },
+      profile_complete: { passed: true },
+    },
+  },
+  optimizer_input: {
+    capital_on_hand: 85000,
+    monthly_surplus: 2150,
+    projection,
+    portfolio: {
+      weights: {
+        by_sleeve: {
+          us_equity: 0.38,
+          intl_equity: 0.2,
+          bonds: 0.18,
+          tips: 0.08,
+          gold: 0.08,
+          reits: 0.08,
+        },
+        by_ticker: {
+          VTI: 0.38,
+          VXUS: 0.2,
+          BND: 0.18,
+          SCHP: 0.08,
+          GLDM: 0.08,
+          USRT: 0.08,
+        },
+      },
+      universe: {
+        sleeves: {
+          us_equity: ['VTI'],
+          intl_equity: ['VXUS'],
+          bonds: ['BND'],
+          tips: ['SCHP'],
+          gold: ['GLDM'],
+          reits: ['USRT'],
+        },
+      },
+    },
+  },
+  risk_profile: {
+    label: 'Growth with guardrails',
+    capacity_score: 78,
+    tolerance_score: 72,
+    gamma_mid: 3.15,
+  },
+  assets,
+  liabilities,
+  holdings,
+  debts,
+  alerts,
+  accounts,
+  scenarios: {
+    base: { final_value: 4720000, projection: projection.map(point => ({ year: point.year, value: point.base })) },
+    optimistic: { final_value: 8720000, projection: projection.map(point => ({ year: point.year, value: point.optimistic })) },
+    conservative: { final_value: 2580000, projection: projection.map(point => ({ year: point.year, value: point.conservative })) },
+  },
+  retirement_score: 82,
+  score: 82,
+}
