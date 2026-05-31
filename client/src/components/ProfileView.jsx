@@ -2,14 +2,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle, Loader, Save, Settings, SlidersHorizontal } from 'lucide-react'
 import { postUpdateProfile } from '../api/greenlightClient'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 
-const MONEY_FIELDS = new Set(['household_income', 'monthly_expenses', 'capital_on_hand', 'emergency_fund', 'goal_target'])
-const NUMBER_FIELDS = new Set(['age', 'horizon_years', 'target_volatility_pct', ...MONEY_FIELDS])
+const MONEY_FIELDS = new Set([
+  'household_income',
+  'monthly_expenses',
+  'capital_on_hand',
+  'emergency_fund',
+  'home_value',
+  'non_liquid_savings',
+  'balance_401k',
+  'ira_balance',
+  'hsa_balance',
+  'goal_target',
+  'loss_aversion_probe',
+  'pretax_401k',
+  'pretax_ira',
+  'pretax_hsa',
+])
+const FRACTION_PERCENT_FIELDS = new Set(['bracket', 'employer_match_rate', 'employer_match_cap_pct'])
+const NUMBER_FIELDS = new Set([
+  'age',
+  'horizon_years',
+  'dependents',
+  'dohmen_risk',
+  ...FRACTION_PERCENT_FIELDS,
+  ...MONEY_FIELDS,
+])
+const BOOLEAN_FIELDS = new Set(['has_hsa_eligible_plan'])
 const ARRAY_FIELDS = new Set(['goals', 'esg_exclusions', 'sector_theme_tilts'])
 const TAG_OPTIONS = {
   goals: ['retirement', 'home purchase', 'education', 'emergency fund', 'wealth building', 'travel', 'other'],
-  esg_exclusions: ['fossil fuels', 'weapons', 'tobacco', 'gambling', 'alcohol', 'private prisons', 'none'],
+  esg_exclusions: ['fossil_fuels', 'weapons', 'tobacco', 'gambling', 'none'],
   sector_theme_tilts: ['clean energy', 'healthcare', 'technology', 'real estate', 'international', 'small cap', 'dividends', 'bonds', 'none'],
 }
 
@@ -18,7 +42,14 @@ const FINANCIAL_FIELDS = [
   { key: 'monthly_expenses', label: 'Monthly expenses', type: 'money' },
   { key: 'capital_on_hand', label: 'Liquid savings (investable)', type: 'money' },
   { key: 'emergency_fund', label: 'Emergency fund (set aside)', type: 'money' },
+  { key: 'home_value', label: 'Home value', type: 'money' },
+  { key: 'non_liquid_savings', label: 'Taxable brokerage / non-liquid savings', type: 'money' },
+  { key: 'balance_401k', label: '401(k) balance', type: 'money' },
+  { key: 'ira_balance', label: 'IRA balance', type: 'money' },
+  { key: 'hsa_balance', label: 'HSA balance', type: 'money' },
   { key: 'age', label: 'Age', type: 'number' },
+  { key: 'horizon_years', label: 'Goal horizon (years)', type: 'number' },
+  { key: 'dependents', label: 'Dependents', type: 'number' },
 ]
 
 const PREFERENCE_FIELDS = [
@@ -28,28 +59,38 @@ const PREFERENCE_FIELDS = [
     key: 'universe_pref',
     label: 'Universe preference',
     type: 'pills',
-    options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
+    options: ['etf', 'stock', 'mix'],
   },
   { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: TAG_OPTIONS.esg_exclusions },
   { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: TAG_OPTIONS.sector_theme_tilts },
 ]
 
-const OPTIONAL_RISK_FIELDS = [
-  { key: 'risk_tolerance', label: 'Risk tolerance', type: 'select', options: ['conservative', 'balanced', 'growth', 'aggressive'] },
-  { key: 'loss_tolerance', label: 'Loss tolerance', type: 'select', options: ['low', 'medium', 'high'] },
-  { key: 'risk_capacity', label: 'Risk capacity', type: 'select', options: ['low', 'medium', 'high'] },
-  { key: 'income_stability', label: 'Income stability', type: 'select', options: ['low', 'medium', 'high', 'stable', 'variable'] },
-  { key: 'target_volatility_pct', label: 'Target volatility %', type: 'number' },
+const RISK_SIGNAL_FIELDS = [
+  { key: 'income_stability', label: 'Income stability', type: 'select', options: ['bond_like', 'mixed', 'stock_like'] },
+  { key: 'dohmen_risk', label: 'Risk willingness (0-10)', type: 'number' },
+  { key: 'loss_scenario_response', label: 'Market drop response', type: 'select', options: ['sell_all', 'sell_some', 'hold', 'buy_more'] },
+  { key: 'loss_aversion_probe', label: 'Loss-aversion win threshold', type: 'money' },
+]
+
+const TAX_FIELDS = [
+  { key: 'filing_status', label: 'Filing status', type: 'select', options: ['single', 'married_joint', 'married_separate', 'head_of_household'] },
+  { key: 'bracket', label: 'Tax bracket', type: 'fraction_percent' },
+  { key: 'pretax_401k', label: 'Annual 401(k) contribution', type: 'money' },
+  { key: 'pretax_ira', label: 'Annual IRA contribution', type: 'money' },
+  { key: 'pretax_hsa', label: 'Annual HSA contribution', type: 'money' },
+  { key: 'employer_match_rate', label: 'Employer match rate', type: 'fraction_percent' },
+  { key: 'employer_match_cap_pct', label: 'Employer match cap', type: 'fraction_percent' },
+  { key: 'has_hsa_eligible_plan', label: 'HSA-eligible plan', type: 'boolean' },
+  { key: 'hsa_coverage', label: 'HSA coverage', type: 'select', options: ['self_only', 'family'] },
 ]
 
 function getProfile(onboardResult) {
-  return onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+  return onboardResult?.validated_profile ?? {}
 }
 
 function getUserEmail(onboardResult, userEmail) {
   return userEmail
     ?? onboardResult?.validated_profile?.email
-    ?? onboardResult?.profile?.email
     ?? onboardResult?.user?.email
     ?? onboardResult?.email
     ?? null
@@ -68,7 +109,7 @@ function serializeField(value) {
 }
 
 function buildFormState(profile) {
-  return [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...OPTIONAL_RISK_FIELDS].reduce((acc, field) => {
+  return [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...RISK_SIGNAL_FIELDS, ...TAX_FIELDS].reduce((acc, field) => {
     acc[field.key] = serializeField(profile[field.key])
     return acc
   }, {})
@@ -81,6 +122,11 @@ function parseField(key, value) {
     if (!trimmed) return null
     const parsed = Number(trimmed)
     return Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (BOOLEAN_FIELDS.has(key)) {
+    if (trimmed === '') return null
+    return trimmed === 'true'
   }
 
   if (ARRAY_FIELDS.has(key)) {
@@ -108,6 +154,10 @@ function normalizedOriginalValue(key, value) {
     if (value == null || value === '') return []
     return Array.isArray(value) ? value : parseField(key, value)
   }
+  if (BOOLEAN_FIELDS.has(key)) {
+    if (value == null || value === '') return null
+    return Boolean(value)
+  }
   return value == null ? '' : String(value)
 }
 
@@ -129,12 +179,8 @@ function mergeProfileResult(onboardResult, patch) {
   const nextProfile = { ...profile, ...patch }
   return {
     ...(onboardResult ?? {}),
-    profile: {
-      ...(onboardResult?.profile ?? profile),
-      ...patch,
-    },
     validated_profile: {
-      ...(onboardResult?.validated_profile ?? profile),
+      ...profile,
       ...patch,
     },
     optimizer_input: {
@@ -297,7 +343,18 @@ function Field({ field, value, onChange }) {
       <span className="block text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>
         {field.label}
       </span>
-      {field.type === 'select' ? (
+      {field.type === 'boolean' ? (
+        <select
+          id={inputId}
+          value={value}
+          onChange={event => onChange(field.key, event.target.value)}
+          style={commonStyle}
+        >
+          <option value="">Not provided</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      ) : field.type === 'select' ? (
         <select
           id={inputId}
           value={value}
@@ -368,9 +425,10 @@ function Field({ field, value, onChange }) {
       ) : (
         <input
           id={inputId}
-          type={field.type === 'money' || field.type === 'number' ? 'number' : 'text'}
-          min={field.type === 'money' || field.type === 'number' ? '0' : undefined}
-          step={field.type === 'money' || field.type === 'number' ? '1' : undefined}
+          type={field.type === 'money' || field.type === 'number' || field.type === 'fraction_percent' ? 'number' : 'text'}
+          min={field.type === 'money' || field.type === 'number' || field.type === 'fraction_percent' ? '0' : undefined}
+          max={field.type === 'fraction_percent' ? '1' : undefined}
+          step={field.type === 'fraction_percent' ? '0.001' : field.type === 'money' || field.type === 'number' ? '1' : undefined}
           value={value}
           placeholder={field.placeholder}
           onChange={event => onChange(field.key, event.target.value)}
@@ -380,6 +438,11 @@ function Field({ field, value, onChange }) {
       {field.type === 'money' && value !== '' && Number.isFinite(Number(value)) && (
         <span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
           {formatCurrency(Number(value))}
+        </span>
+      )}
+      {field.type === 'fraction_percent' && numberOrNull(value) != null && (
+        <span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+          {formatPercent(numberOrNull(value) * 100)}
         </span>
       )}
     </label>
@@ -412,12 +475,9 @@ function FieldSection({ icon: Icon, title, fields, formState, onChange, dataTour
 export default function ProfileView({ onboardResult, userEmail, onUpdated, embedded = false }) {
   const profile = useMemo(() => getProfile(onboardResult), [onboardResult])
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
-  const riskFields = useMemo(() => (
-    OPTIONAL_RISK_FIELDS.filter(field => profile[field.key] != null && profile[field.key] !== '')
-  ), [profile])
   const editableFields = useMemo(() => (
-    [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...riskFields]
-  ), [riskFields])
+    [...FINANCIAL_FIELDS, ...PREFERENCE_FIELDS, ...RISK_SIGNAL_FIELDS, ...TAX_FIELDS]
+  ), [])
   const [formState, setFormState] = useState(() => buildFormState(profile))
   const [saveState, setSaveState] = useState('idle')
   const [message, setMessage] = useState('')
@@ -511,15 +571,21 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
           dataTour="profile-preferences"
         />
 
-        {riskFields.length > 0 && (
-          <FieldSection
-            icon={SlidersHorizontal}
-            title="Risk Preferences"
-            fields={riskFields}
-            formState={formState}
-            onChange={handleChange}
-          />
-        )}
+        <FieldSection
+          icon={SlidersHorizontal}
+          title="Risk Inputs"
+          fields={RISK_SIGNAL_FIELDS}
+          formState={formState}
+          onChange={handleChange}
+        />
+
+        <FieldSection
+          icon={Settings}
+          title="Tax and Contributions"
+          fields={TAX_FIELDS}
+          formState={formState}
+          onChange={handleChange}
+        />
 
         {message && (
           <div

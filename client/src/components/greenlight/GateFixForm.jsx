@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getUserRecord, postOnboard } from '../../api/greenlightClient'
+import { formatCurrency, formatPercent } from '../../lib/utils'
 
 const HIGH_APR_FALLBACK = 0.08
 
@@ -23,8 +24,8 @@ function formatEditableNumber(value) {
 
 function formatMoney(value) {
   const parsed = numberOrNull(value)
-  if (parsed == null) return 'Not returned'
-  return `$${Math.round(parsed).toLocaleString()}`
+  if (parsed == null) return 'Not available'
+  return formatCurrency(parsed)
 }
 
 function normalizeApr(value) {
@@ -35,12 +36,12 @@ function normalizeApr(value) {
 
 function formatApr(value) {
   const normalized = normalizeApr(value)
-  if (normalized == null) return 'APR not returned'
-  return `${Math.round(normalized * 1000) / 10}% APR`
+  if (normalized == null) return 'APR not available'
+  return `${formatPercent(normalized * 100)} APR`
 }
 
 function getProfile(gateResult) {
-  return gateResult?.validated_profile ?? gateResult?.profile ?? gateResult ?? {}
+  return gateResult?.validated_profile ?? {}
 }
 
 function normalizeChecks(gateResult) {
@@ -90,7 +91,6 @@ function getGateText(gateResult) {
     gateResult?.gate_result?.recommended_action,
     gateResult?.gate_result?.preview_next_checks,
     gateResult?.financial_analysis?.path_to_greenlight?.steps,
-    gateResult?.path_to_greenlight?.steps,
   ].map(flattenText).join(' ').toLowerCase()
 }
 
@@ -101,21 +101,14 @@ function normalizeThreshold(value) {
 }
 
 function getHighAprThreshold(gateResult, checks) {
-  const candidates = [
-    gateResult?.gate?.high_apr_threshold,
-    gateResult?.gate_result?.high_apr_threshold,
-    gateResult?.gate_result?.thresholds?.high_apr_threshold,
-    gateResult?.gate_result?.thresholds?.high_apr,
-    gateResult?.financial_analysis?.gate?.high_apr_threshold,
-    gateResult?.financial_analysis?.high_apr_threshold,
-  ]
+  const candidates = []
 
   for (const candidate of candidates) {
     const normalized = normalizeThreshold(candidate)
     if (normalized != null) return normalized
   }
 
-  const highAprCheck = getCheck(checks, ['high_apr_debt', 'high_interest_debt'])
+  const highAprCheck = getCheck(checks, ['high_interest_debt'])
   const detail = String(highAprCheck?.detail ?? '')
   const match = detail.match(/threshold is\s+([\d.]+)%/i)
   const parsedDetailThreshold = match ? normalizeThreshold(match[1]) : null
@@ -123,7 +116,7 @@ function getHighAprThreshold(gateResult, checks) {
 }
 
 function isHighAprDebt(debt, threshold) {
-  const apr = normalizeApr(debt?.apr ?? debt?.interest_rate)
+  const apr = normalizeApr(debt?.apr)
   return apr != null && apr > threshold
 }
 
@@ -133,12 +126,10 @@ function getBlockers(gateResult) {
   const checks = normalizeChecks(gateResult)
   const gateText = getGateText(gateResult)
 
-  const monthlyExpenses = profile?.monthly_expenses ?? snapshot.monthly_expenses
+  const monthlyExpenses = numberOrNull(profile?.monthly_expenses ?? snapshot.monthly_expenses)
   const emergencyFundCheck = getCheck(checks, ['emergency_fund'])
-  const highAprCheck = getCheck(checks, ['high_apr_debt', 'high_interest_debt'])
+  const highAprCheck = getCheck(checks, ['high_interest_debt'])
   const efMath = gateResult?.gate_result?.math?.emergency_fund
-    ?? gateResult?.math?.emergency_fund
-    ?? gateResult?.financial_analysis?.emergency_fund
     ?? {}
   const efTarget = numberOrNull(
     efMath.target_balance
@@ -149,6 +140,7 @@ function getBlockers(gateResult) {
   const efShortfall = numberOrNull(
     efMath.shortfall
     ?? gateResult?.financial_analysis?.emergency_fund?.shortfall
+    ?? gateResult?.financial_analysis?.snapshot?.emergency_fund_shortfall
     ?? (efTarget != null && efCurrent != null ? Math.max(0, efTarget - efCurrent) : null)
   )
   const emergencyTextFailed = /emergency fund (is )?(below|short|shortfall)|build[^.]*emergency fund|build[^.]*liquid reserves/.test(gateText)
@@ -169,11 +161,11 @@ function getBlockers(gateResult) {
 }
 
 function getDebtLabel(debt, index) {
-  return debt?.kind ?? debt?.type ?? debt?.label ?? `Debt ${index + 1}`
+  return debt?.kind ?? `Debt ${index + 1}`
 }
 
 function getDebtBalance(debt) {
-  return numberOrNull(debt?.balance ?? debt?.amount)
+  return numberOrNull(debt?.balance)
 }
 
 function hydrateDebtRows(debts) {
@@ -183,9 +175,7 @@ function hydrateDebtRows(debts) {
 }
 
 function patchDebtBalance(debt, balance) {
-  const patched = { ...debt, balance }
-  if (debt?.amount != null && debt?.balance == null) patched.amount = balance
-  return patched
+  return { ...debt, balance }
 }
 
 const inputStyle = hasError => ({
@@ -537,7 +527,7 @@ export default function GateFixForm({ gateResult, userEmail, onComplete }) {
                   Pay down any high-APR balances
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 5 }}>
-                  Debts above {Math.round(blockers.debts.threshold * 1000) / 10}% APR are flagged by this gate.
+                  Debts above {formatPercent(blockers.debts.threshold * 100)} APR are flagged by this gate.
                 </div>
               </div>
 
@@ -548,7 +538,7 @@ export default function GateFixForm({ gateResult, userEmail, onComplete }) {
               ) : (
                 <div style={{ display: 'grid', gap: 12 }}>
                   {debtRows.map((row, index) => {
-                    const apr = row.debt?.apr ?? row.debt?.interest_rate
+                    const apr = row.debt?.apr
                     const highApr = isHighAprDebt(row.debt, blockers.debts.threshold)
                     const debtError = errors[`debt_${index}`]
 

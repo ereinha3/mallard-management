@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { XCircle, CheckCircle, ArrowRight, RefreshCw, AlertTriangle } from 'lucide-react'
+import { formatCurrency, formatPercent, numberOrNull } from '../../lib/utils'
 
 function AnimatedNumber({ target, prefix = '$', duration = 1200 }) {
   const [val, setVal] = useState(0)
@@ -18,34 +19,26 @@ function AnimatedNumber({ target, prefix = '$', duration = 1200 }) {
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-/** Pull the user's financial profile out of the onboard response.
- *  Ethan's backend may nest it under .profile or return it flat. */
 function getProfile(gateResult) {
-  return gateResult?.validated_profile ?? gateResult?.profile ?? gateResult ?? {}
+  return gateResult?.validated_profile ?? {}
 }
 
 /** High-APR debts are those above 8% APR (the market-return threshold). */
-function getHighAprDebts(profile) {
+function getHighAprDebts(profile, threshold = 0.08) {
   const debts = profile?.debts ?? []
-  return debts.filter(d => (d.apr ?? d.interest_rate ?? 0) > 0.08)
+  return debts.filter(d => numberOrNull(d.apr) > threshold)
 }
 
 function getLowAprDebts(profile) {
   const debts = profile?.debts ?? []
   return debts.filter(d => {
-    const apr = d.apr ?? d.interest_rate ?? 0
+    const apr = numberOrNull(d.apr)
     return apr > 0 && apr <= 0.08
   })
 }
 
 function formatCheckLabel(key) {
   return String(key ?? 'check').replace(/_/g, ' ')
-}
-
-function formatCurrency(value) {
-  const num = Number(value)
-  if (!Number.isFinite(num)) return 'Not available'
-  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 }
 
 function formatDuration(months) {
@@ -145,25 +138,28 @@ function getHaltReasons(gateResult) {
     ? Object.fromEntries(rawChecks.map(check => [check.key, { passed: check.status === 'pass', ...check }]))
     : rawChecks
 
-  const monthlyExpenses = profile?.monthly_expenses ?? snapshot.monthly_expenses
+  const monthlyExpenses = numberOrNull(profile?.monthly_expenses ?? snapshot.monthly_expenses)
   const efMath = gateResult?.gate_result?.math?.emergency_fund
-    ?? gateResult?.math?.emergency_fund
-    ?? gateResult?.financial_analysis?.emergency_fund
     ?? {}
-  const efRequired = efMath.target_balance
+  const efRequired = numberOrNull(efMath.target_balance
     ?? gateResult?.financial_analysis?.emergency_fund?.target_balance
     ?? (monthlyExpenses != null ? monthlyExpenses * 3 : null)
-  const efCurrent = profile?.emergency_fund
-  const efShortfall = efMath.shortfall
+  )
+  const efCurrent = numberOrNull(profile?.emergency_fund)
+  const efShortfall = numberOrNull(efMath.shortfall
     ?? gateResult?.financial_analysis?.emergency_fund?.shortfall
+    ?? gateResult?.financial_analysis?.snapshot?.emergency_fund_shortfall
     ?? (efRequired != null && efCurrent != null ? Math.max(0, efRequired - efCurrent) : null)
+  )
   const efFailed = checks?.emergency_fund?.passed === false || (efCurrent != null && efRequired != null && efCurrent < efRequired)
 
-  const highAprDebts = getHighAprDebts(profile)
-  const debtFailed = checks?.high_apr_debt?.passed === false || highAprDebts.length > 0
+  const highAprThreshold = 0.08
+  const highAprDebts = getHighAprDebts(profile, highAprThreshold)
+  const debtFailed = checks?.high_interest_debt?.passed === false || highAprDebts.length > 0
 
-  const marketReturn = checks?.high_apr_debt?.market_return_after_tax
-  const highAprThreshold = 8
+  const marketReturn = numberOrNull(
+    gateResult?.gate_result?.math?.debt?.expected_after_tax_market_return
+  )
 
   return {
     efFailed,
@@ -174,7 +170,7 @@ function getHaltReasons(gateResult) {
     debtFailed,
     highAprDebts,
     marketReturn,
-    highAprThreshold,
+    highAprThresholdPct: highAprThreshold * 100,
     lowAprDebts: getLowAprDebts(profile),
   }
 }
@@ -276,12 +272,13 @@ function HaltScreen({ onFix, gateResult }) {
 
   // Pick the worst high-APR debt for the display card (or show all if multiple)
   const worstDebt = r.highAprDebts[0] ?? null
-  const debtApr = worstDebt && worstDebt.apr != null ? Math.round((worstDebt.apr ?? worstDebt.interest_rate) * 1000) / 10 : null
-  const debtBalance = worstDebt?.balance ?? worstDebt?.amount
-  const debtLabel = worstDebt?.label ?? worstDebt?.type ?? 'Credit card'
+  const debtApr = numberOrNull(worstDebt?.apr)
+  const debtBalance = numberOrNull(worstDebt?.balance)
+  const debtLabel = worstDebt?.kind ?? 'credit_card'
 
-  const marketReturnPct = r.marketReturn != null ? Math.round(r.marketReturn * 10000) / 100 : null
-  const edgePp = debtApr != null && marketReturnPct != null ? Math.round((debtApr - marketReturnPct) * 10) / 10 : null
+  const marketReturnPct = r.marketReturn != null ? r.marketReturn * 100 : null
+  const debtAprPct = debtApr != null ? debtApr * 100 : null
+  const edgePp = debtAprPct != null && marketReturnPct != null ? Math.round((debtAprPct - marketReturnPct) * 10) / 10 : null
 
   const lowAprDebt = r.lowAprDebts[0]
 
@@ -362,13 +359,13 @@ function HaltScreen({ onFix, gateResult }) {
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--text-secondary)' }}>You have</span>
                   <span className="font-mono font-semibold" style={{ color: 'var(--ruby)' }}>
-                    {r.efCurrent != null ? `$${r.efCurrent.toLocaleString()}` : 'Not provided'}
+                    {r.efCurrent != null ? formatCurrency(r.efCurrent) : 'Not available'}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--text-secondary)' }}>3 months needed</span>
                   <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {r.efRequired != null ? `$${r.efRequired.toLocaleString()}` : 'Not provided'}
+                    {r.efRequired != null ? formatCurrency(r.efRequired) : 'Not available'}
                   </span>
                 </div>
                 <div
@@ -378,7 +375,7 @@ function HaltScreen({ onFix, gateResult }) {
                 <div className="flex justify-between text-sm font-semibold">
                   <span style={{ color: 'var(--text-primary)' }}>Shortfall</span>
                   <span className="font-mono" style={{ color: 'var(--ruby)' }}>
-                    {r.efShortfall != null ? <AnimatedNumber target={r.efShortfall} /> : 'Not provided'}
+                    {r.efShortfall != null ? <AnimatedNumber target={r.efShortfall} /> : 'Not available'}
                   </span>
                 </div>
               </div>
@@ -416,13 +413,13 @@ function HaltScreen({ onFix, gateResult }) {
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--text-secondary)' }}>Paydown return</span>
                   <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
-                    {debtApr != null ? `${debtApr.toFixed(1)}% guaranteed` : 'APR not provided'}
+                    {debtAprPct != null ? `${formatPercent(debtAprPct)} guaranteed` : 'APR not available'}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--text-secondary)' }}>Market return (after tax)</span>
                   <span className="font-mono font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                    {marketReturnPct != null ? `≈ ${marketReturnPct.toFixed(1)}% uncertain` : 'Not returned'}
+                    {marketReturnPct != null ? `≈ ${formatPercent(marketReturnPct)} uncertain` : 'Not available'}
                   </span>
                 </div>
                 <div
@@ -490,7 +487,7 @@ function HaltScreen({ onFix, gateResult }) {
               <li>
                 <span style={{ color: 'var(--gold-light)' }}>1.</span>{' '}
                 Build emergency fund to{' '}
-                <strong style={{ color: 'var(--text-primary)' }}>{r.efRequired != null ? `$${r.efRequired.toLocaleString()}` : 'the target amount'}</strong>{' '}
+                <strong style={{ color: 'var(--text-primary)' }}>{r.efRequired != null ? formatCurrency(r.efRequired) : 'the target amount'}</strong>{' '}
                 (3 months of expenses).
               </li>
             )}
@@ -499,9 +496,9 @@ function HaltScreen({ onFix, gateResult }) {
                 <span style={{ color: 'var(--gold-light)' }}>{r.efFailed ? '2.' : '1.'}</span>{' '}
                 Pay off the{' '}
                 <strong style={{ color: 'var(--text-primary)' }}>
-                  {debtBalance != null ? `$${debtBalance.toLocaleString()} ` : ''}{debtLabel}
+                  {debtBalance != null ? `${formatCurrency(debtBalance)} ` : ''}{debtLabel.replace(/_/g, ' ')}
                 </strong>{' '}
-                {debtApr != null ? `at ${debtApr.toFixed(1)}% APR ` : ''}in full.
+                {debtAprPct != null ? `at ${formatPercent(debtAprPct)} APR ` : ''}in full.
               </li>
             )}
             <li>
@@ -511,8 +508,8 @@ function HaltScreen({ onFix, gateResult }) {
           </ol>
           {lowAprDebt && (
             <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
-              The {lowAprDebt.apr != null || lowAprDebt.interest_rate != null ? `${Math.round((lowAprDebt.apr ?? lowAprDebt.interest_rate) * 1000) / 10}%` : ''}{' '}
-              {lowAprDebt.label ?? 'low-interest loan'} is below the {r.highAprThreshold}% threshold and won't block investing once the other issues are resolved.
+              The {numberOrNull(lowAprDebt.apr) != null ? formatPercent(numberOrNull(lowAprDebt.apr) * 100) : ''}{' '}
+              {(lowAprDebt.kind ?? 'low-interest loan').replace(/_/g, ' ')} is below the {formatPercent(r.highAprThresholdPct)} threshold and won't block investing once the other issues are resolved.
             </div>
           )}
         </div>
@@ -556,13 +553,13 @@ function GreenScreen({ onContinue, gateResult }) {
 
   const profile = getProfile(gateResult)
   const snapshot = gateResult?.financial_analysis?.snapshot ?? {}
-  const monthlyExpenses = profile?.monthly_expenses ?? snapshot.monthly_expenses
-  const efAmount = profile?.emergency_fund
+  const monthlyExpenses = numberOrNull(profile?.monthly_expenses ?? snapshot.monthly_expenses)
+  const efAmount = numberOrNull(profile?.emergency_fund)
   const monthsCovered = monthlyExpenses > 0 && efAmount != null
     ? Math.round((efAmount / monthlyExpenses) * 10) / 10
     : null
-  const capital = profile?.capital_on_hand ?? profile?.capital
-  const monthlyContrib = snapshot.monthly_surplus ?? gateResult?.optimizer_input?.monthly_surplus
+  const capital = numberOrNull(profile?.capital_on_hand ?? gateResult?.optimizer_input?.capital_on_hand)
+  const monthlyContrib = numberOrNull(snapshot.monthly_surplus ?? gateResult?.optimizer_input?.monthly_surplus)
 
   const lowAprDebts = getLowAprDebts(profile)
   const gateChecks = normalizeGateChecks(gateResult)
@@ -572,10 +569,10 @@ function GreenScreen({ onContinue, gateResult }) {
       status: 'pass',
       detail: monthsCovered != null
         ? `Emergency fund covers ${monthsCovered} months and meets the 3-month threshold.`
-        : `Emergency fund ${efAmount != null ? `$${efAmount.toLocaleString()}` : 'was accepted by the gate'}.`,
+        : `Emergency fund ${efAmount != null ? formatCurrency(efAmount) : 'was accepted by the gate'}.`,
     },
     {
-      key: 'high_apr_debt',
+      key: 'high_interest_debt',
       status: 'pass',
       detail: 'No high-interest liabilities blocking investing',
     },
@@ -667,7 +664,7 @@ function GreenScreen({ onContinue, gateResult }) {
             {[
               { step: 'Risk', label: 'Risk profile', note: 'Tolerance and capacity from backend analysis' },
               { step: 'Universe', label: 'Filtered universe', note: 'Exclusions returned by the optimizer universe' },
-              { step: 'Capital', label: 'Portfolio sizing', note: `${capital != null ? `$${capital.toLocaleString()} available capital` : 'Capital not returned'}${monthlyContrib != null && monthlyContrib > 0 ? ` + $${monthlyContrib.toLocaleString()}/mo surplus` : ''}` },
+              { step: 'Capital', label: 'Portfolio sizing', note: `${capital != null ? `${formatCurrency(capital)} available capital` : 'Capital not available'}${monthlyContrib != null && monthlyContrib > 0 ? ` + ${formatCurrency(monthlyContrib)}/mo surplus` : ''}` },
             ].map(s => (
               <div key={s.step} className="flex gap-3 items-start">
                 <div

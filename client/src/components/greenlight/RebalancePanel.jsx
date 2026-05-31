@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowRight, Info, Loader2, TrendingDown } from 'lucide-react'
+import { formatCurrency, numberOrNull } from '../../lib/utils'
 
 const SLEEVE_COLORS = ['#ddb84a', '#4a72e8', '#6b7280', '#22c27e', '#f0c060', '#8b5cf6', '#e64545', '#14b8a6']
+const EMPTY_VALUE = '—'
 
 function asArray(value) {
   if (Array.isArray(value)) return value
@@ -15,15 +17,76 @@ function asArray(value) {
 
 function pickNumber(...values) {
   for (const value of values) {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric)) return numeric
+    const numeric = numberOrNull(value)
+    if (numeric != null) return numeric
   }
   return 0
 }
 
+function firstNumber(...values) {
+  for (const value of values) {
+    const numeric = numberOrNull(value)
+    if (numeric != null) return numeric
+  }
+  return null
+}
+
 function toPercent(value) {
-  const numeric = pickNumber(value)
+  const numeric = numberOrNull(value)
+  if (numeric == null) return null
   return Math.abs(numeric) <= 1 ? numeric * 100 : numeric
+}
+
+function formatMoney(value) {
+  return formatCurrency(value)
+}
+
+function formatPercentPoint(value) {
+  const numeric = numberOrNull(value)
+  if (numeric == null) return EMPTY_VALUE
+  return `${numeric > 0 ? '+' : ''}${numeric.toFixed(1)}pp`
+}
+
+function formatPercentValue(value) {
+  const numeric = numberOrNull(value)
+  if (numeric == null) return EMPTY_VALUE
+  return `${numeric.toFixed(1)}%`
+}
+
+function displayText(value, fallback = EMPTY_VALUE) {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return fallback
+}
+
+function steerLabel(steer) {
+  if (typeof steer === 'string' && steer.trim()) return steer.replace(/_/g, ' ')
+  return displayText(steer?.ticker ?? steer?.symbol ?? steer?.asset ?? steer?.label, 'target sleeve')
+}
+
+function messageText(value) {
+  if (typeof value === 'string') return value.trim() ? value : EMPTY_VALUE
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (!value || typeof value !== 'object') return EMPTY_VALUE
+  for (const field of ['message', 'label', 'detail', 'reason']) {
+    const text = messageText(value[field])
+    if (text !== EMPTY_VALUE) return text
+  }
+  return 'Instruction available'
+}
+
+function tradeAmount(trade) {
+  if (!trade || typeof trade !== 'object') return null
+  return firstNumber(trade.amount, trade.value, trade.dollars, trade.notional)
+}
+
+function signedTradeAmount(trade) {
+  const amount = tradeAmount(trade)
+  if (amount == null) return null
+  const side = String(trade.action ?? trade.side ?? '').toLowerCase()
+  if (side.includes('sell')) return -Math.abs(amount)
+  if (side.includes('buy')) return Math.abs(amount)
+  return amount
 }
 
 function normalizeResponse(response) {
@@ -46,10 +109,16 @@ function costBasisFromPositions(positions) {
 }
 
 function DriftBar({ sleeve }) {
-  const drift = Number((sleeve.drift_pp ?? sleeve.current - sleeve.target).toFixed(1))
-  const breached = Math.abs(drift) > 5
-  const currentWidth = Math.max(0, Math.min(100, sleeve.current))
-  const targetLeft = Math.max(0, Math.min(100, sleeve.target))
+  const drift = numberOrNull(sleeve.drift_pp) ?? (
+    numberOrNull(sleeve.current) != null && numberOrNull(sleeve.target) != null
+      ? sleeve.current - sleeve.target
+      : null
+  )
+  const breached = drift != null && Math.abs(drift) > 5
+  const currentWidth = Math.max(0, Math.min(100, numberOrNull(sleeve.current) ?? 0))
+  const targetPct = numberOrNull(sleeve.target)
+  const targetLeft = Math.max(0, Math.min(100, targetPct ?? 0))
+  const bandStart = Math.max(0, (targetPct ?? 0) - 5)
 
   return (
     <div
@@ -74,7 +143,7 @@ function DriftBar({ sleeve }) {
               color: breached ? 'var(--ruby)' : 'var(--blue)',
             }}
           >
-            {drift > 0 ? '+' : ''}{drift}pp
+            {formatPercentPoint(drift)}
           </span>
         </div>
       </div>
@@ -96,8 +165,8 @@ function DriftBar({ sleeve }) {
         <div
           style={{
             position: 'absolute',
-            left: `${Math.max(0, sleeve.target - 5)}%`,
-            width: `${Math.min(10, 100 - Math.max(0, sleeve.target - 5))}%`,
+            left: `${bandStart}%`,
+            width: `${Math.min(10, 100 - bandStart)}%`,
             top: 0, bottom: 0,
             background: breached ? 'rgba(230,69,69,0.12)' : 'rgba(74,114,232,0.12)',
             zIndex: 1,
@@ -122,7 +191,7 @@ function DriftBar({ sleeve }) {
       <div className="flex justify-between mt-1.5 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
         <span>0%</span>
         <span style={{ color: 'var(--text-secondary)' }}>
-          Target <span style={{ color: sleeve.color }}>{sleeve.target}%</span> · Current <span style={{ color: breached ? 'var(--ruby)' : 'var(--text-primary)' }}>{sleeve.current}%</span>
+          Target <span style={{ color: sleeve.color }}>{formatPercentValue(sleeve.target)}</span> · Current <span style={{ color: breached ? 'var(--ruby)' : 'var(--text-primary)' }}>{formatPercentValue(sleeve.current)}</span>
         </span>
         <span>50%</span>
       </div>
@@ -130,7 +199,7 @@ function DriftBar({ sleeve }) {
       <div className="mt-2 text-xs" style={{ color: breached ? 'var(--ruby)' : 'var(--text-muted)' }}>
         {breached
             ? 'Breached band: corrective trade required'
-            : Math.abs(drift) > 2
+            : drift != null && Math.abs(drift) > 2
             ? `Within band: steer next contribution to ${drift < 0 ? 'increase' : 'reduce'}`
             : `On target`
         }
@@ -147,6 +216,8 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
   const steerTargets = rebalance.steer?.next_contribution_to ?? rebalance.steers ?? rebalance.contribution_steer ?? []
   const steers = Array.isArray(steerTargets) ? steerTargets : asArray(steerTargets)
   const trades = asArray(rebalance.trades ?? rebalance.trade_list ?? rebalance.orders)
+  const tradeNet = trades.reduce((sum, trade) => sum + (signedTradeAmount(trade) ?? 0), 0)
+  const tradeNetWarning = trades.some(trade => signedTradeAmount(trade) != null) && Math.abs(tradeNet) > 1
 
   return (
     <div
@@ -176,13 +247,18 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
               <div className="space-y-1">
                 {trades.map((trade, index) => (
                   <div key={`${trade.ticker ?? trade.symbol ?? 'trade'}-${index}`} className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                    <span className="font-mono">{trade.action ?? trade.side ?? 'Trade'}</span>
+                    <span className="font-mono">{displayText(trade.action ?? trade.side, 'Trade')}</span>
                     {' '}
-                    <span className="font-mono">{trade.ticker ?? trade.symbol ?? trade.asset ?? ''}</span>
-                    {trade.shares != null ? <span className="font-mono"> {Number(trade.shares).toFixed(2)} sh</span> : null}
-                    {trade.amount != null || trade.value != null ? <span className="font-mono"> ${Number(trade.amount ?? trade.value).toLocaleString()}</span> : null}
+                    <span className="font-mono">{displayText(trade.ticker ?? trade.symbol ?? trade.asset)}</span>
+                    {numberOrNull(trade.shares) != null ? <span className="font-mono"> {numberOrNull(trade.shares).toFixed(2)} sh</span> : null}
+                    {tradeAmount(trade) != null ? <span className="font-mono"> {formatMoney(tradeAmount(trade))}</span> : null}
                   </div>
                 ))}
+                {tradeNetWarning && (
+                  <div className="text-xs mt-2" style={{ color: 'var(--gold-light)' }}>
+                    Buy/sell trade dollars net to {formatMoney(tradeNet)}, so the returned order list does not fully net out.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
@@ -213,19 +289,19 @@ function RebalancePlan({ monthlyContrib, rebalance }) {
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
               {steers.length > 0
                 ? steers.map((steer, index) => (
-                  <div key={`${steer.ticker ?? steer.symbol ?? 'steer'}-${index}`}>
-                    Steer toward <span className="font-mono">{steer.ticker ?? steer.symbol ?? steer.asset ?? steer.label ?? steer}</span>
-                    {steer.amount != null || steer.value != null ? <span className="font-mono"> ${Number(steer.amount ?? steer.value).toLocaleString()}</span> : null}
+                  <div key={`${typeof steer === 'string' ? steer : steer?.ticker ?? steer?.symbol ?? 'steer'}-${index}`}>
+                    Steer toward <span className="font-mono">{steerLabel(steer)}</span>
+                    {tradeAmount(steer) != null ? <span className="font-mono"> {formatMoney(tradeAmount(steer))}</span> : null}
                   </div>
                 ))
                 : monthlyContrib != null && monthlyContrib > 0
-                ? <>Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> can be steered toward underweight target sleeves.</>
+                ? <>Next <span className="font-mono">{formatMoney(monthlyContrib)}/mo</span> can be steered toward underweight target sleeves.</>
                 : 'No positive monthly contribution was returned by the analysis.'}
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               {actions.length > 0
                 ? actions.map((action, index) => (
-                  <div key={`action-${index}`}>{typeof action === 'string' ? action : action.message ?? action.label ?? JSON.stringify(action)}</div>
+                  <div key={`action-${index}`}>{messageText(action)}</div>
                 ))
                 : 'Target sleeves come from optimizer output when available.'}
             </div>
@@ -281,21 +357,25 @@ function TaxPanel({ taxReport }) {
           <div className="flex items-start justify-between mb-3">
             <div>
               <div className="text-sm font-semibold font-mono" style={{ color: 'var(--text-primary)' }}>{flag.ticker ?? flag.symbol ?? 'Position'}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{flag.label ?? flag.reason ?? 'Harvestable unrealized loss'}</div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{messageText(flag.label ?? flag.reason) || 'Harvestable unrealized loss'}</div>
             </div>
             <div className="text-right">
-              <div className="font-mono font-semibold text-sm" style={{ color: 'var(--ruby)' }}>-${Math.abs(pickNumber(flag.loss, flag.harvestable_loss, flag.unrealized_loss)).toLocaleString()}</div>
+              <div className="font-mono font-semibold text-sm" style={{ color: 'var(--ruby)' }}>
+                {firstNumber(flag.loss, flag.harvestable_loss, flag.unrealized_loss) != null
+                  ? formatMoney(-Math.abs(firstNumber(flag.loss, flag.harvestable_loss, flag.unrealized_loss)))
+                  : EMPTY_VALUE}
+              </div>
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>harvestable loss</div>
             </div>
           </div>
           <div className="grid gap-2 text-xs" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Cost basis: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.costBasis, flag.cost_basis, flag.basis).toLocaleString()}</span>
+              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{firstNumber(flag.costBasis, flag.cost_basis, flag.basis) != null ? formatMoney(firstNumber(flag.costBasis, flag.cost_basis, flag.basis)) : EMPTY_VALUE}</span>
             </div>
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Current value: </span>
-              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>${pickNumber(flag.currentValue, flag.current_value, flag.market_value).toLocaleString()}</span>
+              <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{firstNumber(flag.currentValue, flag.current_value, flag.market_value) != null ? formatMoney(firstNumber(flag.currentValue, flag.current_value, flag.market_value)) : EMPTY_VALUE}</span>
             </div>
           </div>
         </div>
@@ -321,7 +401,7 @@ function TaxPanel({ taxReport }) {
             Wash-Sale Warning
           </div>
           <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            {warning.message ?? warning.reason ?? (
+            {messageText(warning.message ?? warning.reason) !== EMPTY_VALUE ? messageText(warning.message ?? warning.reason) : (
               <>
                 Selling <span className="font-mono">{warning.sold_ticker ?? warning.source ?? warning.ticker ?? 'the loss position'}</span> may conflict with recent
                 {' '}<span className="font-mono">{warning.suggested_replacement ?? warning.replacement ?? warning.replacement_ticker ?? warning.security ?? 'replacement'}</span> activity inside the {warning.window_days ?? 30}-day window.
@@ -363,7 +443,7 @@ export default function RebalancePanel({ onboardResult, userEmail }) {
     ticker: drift.ticker ?? drift.symbol ?? drift.asset ?? drift.label ?? `S${index + 1}`,
     target: toPercent(drift.target ?? drift.target_weight ?? drift.target_pct),
     current: toPercent(drift.current ?? drift.current_weight ?? drift.current_pct ?? drift.actual),
-    drift_pp: pickNumber(drift.drift_pp),
+    drift_pp: numberOrNull(drift.drift_pp),
     color: drift.color ?? SLEEVE_COLORS[index % SLEEVE_COLORS.length],
   }))
 

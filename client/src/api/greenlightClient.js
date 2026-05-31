@@ -148,7 +148,7 @@ export async function postOnboard(profile, userEmail = null, sessionId = null) {
 /**
  * POST /api/v1/portfolio — build a portfolio from a profile.
  */
-export async function postPortfolio(profile, method = 'erc') {
+export async function postPortfolio(profile, method = 'strategic') {
   const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -212,15 +212,11 @@ export async function postTaxReport(payload) {
 /**
  * POST /api/v1/portfolio/reoptimize — rerun optimizer from a risk dial target.
  */
-export async function postReoptimize({ profile, risk_dial, weights = null }) {
+export async function postReoptimize({ profile, risk_dial }) {
   const res = await fetch(`${BASE}/api/v1/portfolio/reoptimize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      profile,
-      risk_dial,
-      ...(weights ? { weights: { by_sleeve: weights?.by_sleeve ?? weights } } : {}),
-    }),
+    body: JSON.stringify({ profile, risk_dial }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)

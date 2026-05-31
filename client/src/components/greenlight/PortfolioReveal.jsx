@@ -66,6 +66,8 @@ export function CountUpNumber({
 
   const renderedValue = reducedMotion && Number.isFinite(numericValue) ? numericValue : displayValue
 
+  if (!Number.isFinite(numericValue)) return '—'
+
   return format(renderedValue)
 }
 

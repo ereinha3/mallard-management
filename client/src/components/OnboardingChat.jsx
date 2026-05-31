@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Feather, CheckCircle, Send, AlertTriangle } from 'lucide-react'
 import { streamChat, postOnboard } from '../api/greenlightClient'
 import IntakeForm from './greenlight/IntakeForm.jsx'
+import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 
 // ── Building / analysis screen ────────────────────────────────────────────────
 
@@ -21,6 +22,8 @@ function BuildingScreen({ onboardResult }) {
 
   const gateStatus = onboardResult?.gate_result?.status
   const snapshot = onboardResult?.financial_analysis?.snapshot
+  const monthlySurplus = numberOrNull(snapshot?.monthly_surplus)
+  const savingsRatePct = numberOrNull(snapshot?.savings_rate_pct)
 
   const steps = [
     { label: 'Profile validated',       done: progress > 20 },
@@ -61,7 +64,7 @@ function BuildingScreen({ onboardResult }) {
           </div>
           <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             {phase === 'done' && snapshot
-              ? `Monthly surplus: $${Math.round(snapshot.monthly_surplus).toLocaleString()} · Savings rate: ${snapshot.savings_rate_pct.toFixed(1)}%`
+              ? `Monthly surplus: ${formatCurrency(monthlySurplus)} · Savings rate: ${formatPercent(savingsRatePct)}`
               : 'Running the responsibility gate and risk calibration...'}
           </div>
         </div>
@@ -185,6 +188,9 @@ const TAX_PROFILE_FIELDS = [
   'pretax_401k',
   'pretax_ira',
   'pretax_hsa',
+  'balance_401k',
+  'ira_balance',
+  'hsa_balance',
   'employer_match_rate',
   'employer_match_cap_pct',
   'has_hsa_eligible_plan',
@@ -203,7 +209,9 @@ function normalizeFilingStatus(value) {
 
 function normalizePercent(value) {
   if (value == null) return value
-  return value > 1 ? value / 100 : value
+  const parsed = numberOrNull(String(value).replace('%', ''))
+  if (parsed == null) return null
+  return parsed > 1 ? parsed / 100 : parsed
 }
 
 function normalizeHsaCoverage(value) {
@@ -220,13 +228,16 @@ function getTaxProfilePayload(taxProfile) {
     home_value: taxProfile.home_value,
     state: taxProfile.state,
     filing_status: normalizeFilingStatus(taxProfile.filing_status),
-    pretax_401k: contributions.traditional_401k,
-    pretax_ira: contributions.traditional_ira,
-    pretax_hsa: contributions.hsa_contribution,
-    employer_match_rate: normalizePercent(contributions.employer_match_rate_pct),
-    employer_match_cap_pct: normalizePercent(contributions.employer_match_cap_pct_salary),
-    has_hsa_eligible_plan: contributions.hsa_eligible,
-    hsa_coverage: normalizeHsaCoverage(contributions.hsa_coverage),
+    pretax_401k: taxProfile.pretax_401k ?? contributions.traditional_401k,
+    pretax_ira: taxProfile.pretax_ira ?? contributions.traditional_ira,
+    pretax_hsa: taxProfile.pretax_hsa ?? contributions.hsa_contribution,
+    balance_401k: taxProfile.balance_401k,
+    ira_balance: taxProfile.ira_balance,
+    hsa_balance: taxProfile.hsa_balance,
+    employer_match_rate: normalizePercent(taxProfile.employer_match_rate ?? contributions.employer_match_rate_pct),
+    employer_match_cap_pct: normalizePercent(taxProfile.employer_match_cap_pct ?? contributions.employer_match_cap_pct_salary),
+    has_hsa_eligible_plan: taxProfile.has_hsa_eligible_plan ?? contributions.hsa_eligible,
+    hsa_coverage: normalizeHsaCoverage(taxProfile.hsa_coverage ?? contributions.hsa_coverage),
   }
 
   return TAX_PROFILE_FIELDS.reduce((payload, field) => {
@@ -250,8 +261,8 @@ function formatTaxProfileSeed(taxProfile) {
   if (payload.has_hsa_eligible_plan != null) parts.push(`HSA eligibility is ${payload.has_hsa_eligible_plan ? 'yes' : 'no'}`)
   if (payload.pretax_hsa != null) parts.push(`annual HSA contribution is $${payload.pretax_hsa}`)
   if (payload.hsa_coverage) parts.push(`HSA coverage is ${payload.hsa_coverage}`)
-  if (payload.employer_match_rate != null) parts.push(`employer match rate is ${payload.employer_match_rate}`)
-  if (payload.employer_match_cap_pct != null) parts.push(`employer match cap is ${payload.employer_match_cap_pct}`)
+  if (payload.employer_match_rate != null) parts.push(`employer match rate is ${formatPercent(payload.employer_match_rate * 100)}`)
+  if (payload.employer_match_cap_pct != null) parts.push(`employer match cap is ${formatPercent(payload.employer_match_cap_pct * 100)} of salary`)
 
   if (!parts.length) return ''
   return ` The user also completed TaxProfileForm: ${parts.join(', ')}. Do NOT ask about any TaxProfileForm fields.`
@@ -408,7 +419,7 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
     }
     setStep('chat')
 
-    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, non-liquid savings are $${capturedFields.nonLiquidSavings}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, non-liquid savings are $${capturedFields.nonLiquidSavings}, age is ${capturedFields.age}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}.${formatTaxProfileSeed(taxProfile)} Do NOT ask about any of those form fields again, and do NOT ask about their job, income, or income stability — infer income stability from the employment details above. Focus only on what the form did not capture: their goals and time horizon, any outstanding debts, investment preferences, and — most importantly — their risk attitude. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)
@@ -627,10 +638,10 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
 function ProfileSummary({ profile }) {
   const fields = [
     { label: 'Age', value: profile.age },
-    { label: 'Annual Income', value: profile.household_income ? `$${Math.round(profile.household_income).toLocaleString()}` : null },
-    { label: 'Monthly Expenses', value: profile.monthly_expenses ? `$${Math.round(profile.monthly_expenses).toLocaleString()}` : null },
-    { label: 'Capital on Hand', value: profile.capital_on_hand != null ? `$${Math.round(profile.capital_on_hand).toLocaleString()}` : null },
-    { label: 'Emergency Fund', value: profile.emergency_fund != null ? `$${Math.round(profile.emergency_fund).toLocaleString()}` : null },
+    { label: 'Annual Income', value: numberOrNull(profile.household_income) != null ? formatCurrency(profile.household_income) : null },
+    { label: 'Monthly Expenses', value: numberOrNull(profile.monthly_expenses) != null ? formatCurrency(profile.monthly_expenses) : null },
+    { label: 'Capital on Hand', value: numberOrNull(profile.capital_on_hand) != null ? formatCurrency(profile.capital_on_hand) : null },
+    { label: 'Emergency Fund', value: numberOrNull(profile.emergency_fund) != null ? formatCurrency(profile.emergency_fund) : null },
     { label: 'Horizon', value: profile.horizon_years ? `${profile.horizon_years} yrs` : null },
     { label: 'Filing Status', value: profile.filing_status },
     { label: 'Income Stability', value: profile.income_stability },

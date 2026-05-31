@@ -4,7 +4,7 @@ import {
   Calendar, ArrowUpRight, ArrowDownRight,
   Home, Car, Briefcase, PiggyBank, CreditCard, Building, Landmark,
 } from 'lucide-react'
-import { formatCurrency, formatPercent } from '../lib/utils'
+import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 import RetirementScore from './RetirementScore'
 import ProjectionChart from './ProjectionChart'
 
@@ -27,13 +27,13 @@ const LIABILITY_ICONS = {
   other:        { icon: DollarSign,color: '#6b7280' },
 }
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
-}
-
 function formatMaybeCurrency(value, compact = false) {
   return value == null ? 'Not available' : formatCurrency(value, compact)
+}
+
+function sumNumbersOrNull(values) {
+  const numbers = values.map(numberOrNull).filter(value => value != null)
+  return numbers.length > 0 ? numbers.reduce((sum, value) => sum + value, 0) : null
 }
 
 function bucketStatus(bucket) {
@@ -48,7 +48,16 @@ function bucketStatus(bucket) {
 }
 
 function getProfile(onboardResult) {
-  return onboardResult?.validated_profile ?? onboardResult?.profile ?? onboardResult ?? {}
+  return onboardResult?.validated_profile ?? {}
+}
+
+function getRiskDisplay(onboardResult) {
+  const summary = onboardResult?.financial_analysis?.risk ?? {}
+  const profileRisk = onboardResult?.risk_profile ?? {}
+  return {
+    capacity_score: numberOrNull(summary.capacity_score ?? profileRisk.capacity_score),
+    label: typeof summary.label === 'string' && summary.label.trim() ? summary.label : null,
+  }
 }
 
 function addAssetRow(rows, covered, row, aliases = []) {
@@ -69,8 +78,8 @@ function getAssetRows(profile) {
   const covered = new Set()
   const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
 
-  addAssetRow(rows, covered, { key: 'capital_on_hand', label: 'Liquid Cash', value: profile.capital_on_hand, type: 'cash' }, ['liquid_cash', 'cash'])
-  addAssetRow(rows, covered, { key: 'emergency_fund', label: 'Emergency Fund', value: profile.emergency_fund, type: 'emergency' })
+  addAssetRow(rows, covered, { key: 'capital_on_hand', label: 'Liquid Cash', value: profile.capital_on_hand, type: 'cash' }, ['liquid_cash', 'cash', 'cash_reserve'])
+  addAssetRow(rows, covered, { key: 'emergency_fund', label: 'Emergency Fund', value: profile.emergency_fund, type: 'emergency' }, ['emergency', 'emergency_savings'])
   addAssetRow(rows, covered, { key: 'balance_401k', label: '401(k)', value: profile.balance_401k, type: 'retirement' }, ['401k', 'retirement_401k'])
   addAssetRow(rows, covered, { key: 'ira_balance', label: 'IRA', value: profile.ira_balance, type: 'retirement' }, ['ira'])
   addAssetRow(rows, covered, { key: 'hsa_balance', label: 'HSA', value: profile.hsa_balance, type: 'other' }, ['hsa'])
@@ -114,7 +123,8 @@ function getAssetRows(profile) {
 
 function getLiabilityRows(onboardResult, profile) {
   const analyzedDebts = onboardResult?.financial_analysis?.debt?.debts
-  const sourceDebts = analyzedDebts?.length ? analyzedDebts : profile.debts ?? []
+  const profileDebts = Array.isArray(profile.debts) ? profile.debts : []
+  const sourceDebts = Array.isArray(analyzedDebts) && analyzedDebts.length ? analyzedDebts : profileDebts
   return sourceDebts
     .map((debt, index) => {
       const balance = numberOrNull(debt.balance)
@@ -131,10 +141,12 @@ function getLiabilityRows(onboardResult, profile) {
     .filter(Boolean)
 }
 
-function getProjectionInputs(onboardResult, profile) {
+function getProjectionInputs(onboardResult) {
   const optimizer = onboardResult?.optimizer_input ?? {}
+  const profile = getProfile(onboardResult)
+  const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
-  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? snapshot.monthly_surplus ?? profile.monthly_surplus)
   const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
   const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
 
@@ -153,7 +165,7 @@ function getProjectionInputs(onboardResult, profile) {
 function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon: Icon, color, delay = '', dataTour }) {
   const isPos = delta >= 0
   const displayValue = typeof value === 'number'
-    ? (suffix ? value.toFixed(1) : formatCurrency(value))
+    ? (suffix === '%' ? formatPercent(value) : suffix ? value.toFixed(1) : formatCurrency(value))
     : value
   return (
     <div data-tour={dataTour} className={`card-premium p-5 flex flex-col gap-3 cursor-default anim-fade-up ${delay}`}>
@@ -171,7 +183,7 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon
       <div>
         <span className="font-display font-semibold"
           style={{ fontSize: 32, lineHeight: 1, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
-          {displayValue}{suffix && value != null && <span className="font-display text-2xl" style={{ color: 'var(--text-secondary)' }}>{suffix}</span>}
+          {displayValue}{suffix && suffix !== '%' && value != null && <span className="font-display text-2xl" style={{ color: 'var(--text-secondary)' }}>{suffix}</span>}
         </span>
       </div>
       {delta !== undefined && value != null && (
@@ -195,6 +207,7 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon
 }
 
 function AssetRow({ label, value, percent, icon: Icon, color }) {
+  const safePercent = Math.min(100, Math.max(0, numberOrNull(percent) ?? 0))
   return (
     <div className="flex items-center gap-3 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
       <div className="flex items-center justify-center rounded-lg"
@@ -204,14 +217,14 @@ function AssetRow({ label, value, percent, icon: Icon, color }) {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</div>
         <div className="mt-1.5 h-1 rounded-full" style={{ background: 'var(--bg-elevated)' }}>
-          <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, background: color }} />
+          <div className="h-full rounded-full transition-all" style={{ width: `${safePercent}%`, background: color }} />
         </div>
       </div>
       <div className="text-right shrink-0">
         <div className="text-sm font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
           {formatCurrency(value, true)}
         </div>
-        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{percent.toFixed(0)}%</div>
+        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{formatPercent(safePercent)}</div>
       </div>
     </div>
   )
@@ -225,28 +238,24 @@ export default function Dashboard({ onboardResult }) {
   const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const taxBreakdown = onboardResult?.tax_breakdown ?? null
   const bucketPlan = onboardResult?.bucket_plan ?? null
-  const risk = onboardResult?.financial_analysis?.risk
+  const risk = getRiskDisplay(onboardResult)
   const portfolio = onboardResult?.portfolio ?? null
   const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
 
-  const assets = getAssetRows(profile)
-  const liabilities = getLiabilityRows(onboardResult, profile)
-  const rowAssetTotal = assets.reduce((sum, row) => sum + row.value, 0)
-  const totalDebt = numberOrNull(snapshot.total_debt)
-    ?? liabilities.reduce((sum, row) => sum + row.balance, 0)
-  const totalAssets = rowAssetTotal > 0
-    ? rowAssetTotal
-    : (numberOrNull(snapshot.net_worth_estimate) != null && totalDebt != null
-      ? numberOrNull(snapshot.net_worth_estimate) + totalDebt
-      : null)
-  const netWorth = totalAssets != null && totalDebt != null
-    ? totalAssets - totalDebt
-    : numberOrNull(snapshot.net_worth_estimate)
   const cashFlow = numberOrNull(snapshot.monthly_surplus)
   const savingsRate = numberOrNull(snapshot.savings_rate_pct)
   const monthlyIncome = numberOrNull(snapshot.monthly_income)
   const monthlyExpenses = numberOrNull(snapshot.monthly_expenses)
-  const score = numberOrNull(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
+  const score = numberOrNull(risk?.capacity_score)
+  const assets = getAssetRows(profile)
+  const assetRowsTotal = assets.reduce((sum, row) => sum + row.value, 0)
+  const liabilities = getLiabilityRows(onboardResult, profile)
+  const rowDebtTotal = liabilities.reduce((sum, row) => sum + row.balance, 0)
+  const snapshotDebt = numberOrNull(snapshot.total_debt)
+  const totalDebt = liabilities.length > 0 ? rowDebtTotal : snapshotDebt ?? (assets.length > 0 ? 0 : null)
+  const snapshotNetWorth = numberOrNull(snapshot.net_worth_estimate)
+  const netWorth = assets.length > 0 && totalDebt != null ? assetRowsTotal - totalDebt : snapshotNetWorth
+  const totalAssets = assetRowsTotal > 0 ? assetRowsTotal : netWorth != null && totalDebt != null ? netWorth + totalDebt : null
   const retirementYear = numberOrNull(profile.horizon_years) ? new Date().getFullYear() + Number(profile.horizon_years) : null
 
   useEffect(() => {
@@ -263,7 +272,7 @@ export default function Dashboard({ onboardResult }) {
       setProjectionLoading(true)
       setProjectionError(null)
       try {
-        const projectionInputs = getProjectionInputs(onboardResult, profile)
+        const projectionInputs = getProjectionInputs(onboardResult)
         if (!projectionInputs) {
           setProjection(null)
           setProjectionError('Projection inputs were not returned by the backend.')
@@ -295,7 +304,7 @@ export default function Dashboard({ onboardResult }) {
     loadProjection()
 
     return () => { cancelled = true }
-  }, [onboardResult, portfolio, profile])
+  }, [onboardResult, portfolio])
 
   const snapshotRows = [
     { label: 'Monthly Income', value: monthlyIncome, positive: true },
@@ -303,9 +312,11 @@ export default function Dashboard({ onboardResult }) {
     { label: 'Monthly Surplus', value: cashFlow, positive: (cashFlow ?? 0) >= 0 },
   ].filter(row => row.value != null)
   const ficaTotal = taxBreakdown
-    ? (numberOrNull(taxBreakdown.fica_social_security) ?? 0)
-      + (numberOrNull(taxBreakdown.fica_medicare) ?? 0)
-      + (numberOrNull(taxBreakdown.additional_medicare) ?? 0)
+    ? sumNumbersOrNull([
+      taxBreakdown.fica_social_security,
+      taxBreakdown.fica_medicare,
+      taxBreakdown.additional_medicare,
+    ])
     : null
   const taxRows = taxBreakdown ? [
     { label: 'Gross Income', value: numberOrNull(taxBreakdown.gross_income) },
@@ -323,9 +334,10 @@ export default function Dashboard({ onboardResult }) {
     },
     { label: 'Net Take-Home', value: numberOrNull(taxBreakdown.net_income), highlight: true },
   ] : []
-  const bucketRows = bucketPlan?.buckets ?? []
+  const bucketRows = Array.isArray(bucketPlan?.buckets) ? bucketPlan.buckets : []
   const bucketTaxSavings = numberOrNull(bucketPlan?.total_tax_savings)
-  const bucketNetTakeHome = numberOrNull(bucketPlan?.net_income_after_optimization)
+  const bucketPretaxContributions = numberOrNull(bucketPlan?.total_pretax_contributions)
+  const bucketRemainingTaxable = numberOrNull(bucketPlan?.remaining_annual_surplus_for_taxable)
 
   return (
     <div role="main" className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -389,8 +401,6 @@ export default function Dashboard({ onboardResult }) {
           <MetricCard
             label="Monthly Cash Flow"
             value={cashFlow ?? 'Not available'}
-            delta={cashFlow == null ? undefined : cashFlow > 0 ? 1 : -1}
-            deltaLabel="from analysis"
             icon={TrendingUp}
             color="var(--emerald)"
             delay="d200"
@@ -482,7 +492,7 @@ export default function Dashboard({ onboardResult }) {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.action}</div>
                     <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      {item.target_amount != null ? `${formatCurrency(Number(item.target_amount))} target` : 'No dollar target'}{item.months_estimated != null ? ` · ${item.months_estimated} months` : ''}
+                      {numberOrNull(item.target_amount) != null ? `${formatCurrency(item.target_amount)} target` : 'No dollar target'}{numberOrNull(item.months_estimated) != null ? ` · ${numberOrNull(item.months_estimated)} months` : ''}
                     </div>
                   </div>
                 </div>
@@ -512,10 +522,10 @@ export default function Dashboard({ onboardResult }) {
                     <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.label}</div>
                     {item.apr != null && (
                       <div className="text-xs font-mono mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        {(item.apr * 100).toFixed(2)}% APR
+                        {formatPercent(item.apr * 100)} APR
                         {hasDiscount && (
                           <span style={{ color: 'var(--emerald)', marginLeft: 4 }}>
-                            to {(item.effectiveApr * 100).toFixed(2)}% effective
+                            to {formatPercent(item.effectiveApr * 100)} effective
                           </span>
                         )}
                       </div>
@@ -572,7 +582,7 @@ export default function Dashboard({ onboardResult }) {
                 {cashFlow == null ? 'Not available' : `${cashFlow >= 0 ? '+' : ''}${formatCurrency(cashFlow)}`}
               </span>
             </div>
-            {risk?.label && (
+            {risk.label && (
               <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
                 Risk label: <span style={{ color: 'var(--text-secondary)' }}>{risk.label}</span>
               </div>
@@ -595,7 +605,7 @@ export default function Dashboard({ onboardResult }) {
                       {row.value == null
                         ? 'Not available'
                         : row.percent
-                          ? `${(row.value * 100).toFixed(1)}%`
+                          ? formatPercent(row.value * 100)
                           : formatCurrency(row.value)}
                     </span>
                   </div>
@@ -630,8 +640,8 @@ export default function Dashboard({ onboardResult }) {
               <div className="space-y-2">
                 {bucketRows.map((bucket) => {
                   const status = bucketStatus(bucket)
-                  const contribution = numberOrNull(bucket.annual_contribution) ?? 0
-                  const savings = numberOrNull(bucket.tax_savings) ?? 0
+                  const contribution = numberOrNull(bucket.annual_contribution)
+                  const savings = numberOrNull(bucket.tax_savings)
                   return (
                     <div key={bucket.name} className="grid items-center gap-3 rounded-lg px-3 py-3"
                       style={{
@@ -651,13 +661,13 @@ export default function Dashboard({ onboardResult }) {
                       </div>
                       <div className="text-right">
                         <div className="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>Recommended Annual</div>
-                        <div className="font-mono text-sm font-medium" style={{ color: contribution > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        <div className="font-mono text-sm font-medium" style={{ color: (contribution ?? 0) > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                           {formatCurrency(contribution)}
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="text-xs mb-0.5" style={{ color: 'var(--text-muted)' }}>Tax Savings</div>
-                        <div className="font-mono text-sm font-medium" style={{ color: savings > 0 ? 'var(--emerald)' : 'var(--text-muted)' }}>
+                        <div className="font-mono text-sm font-medium" style={{ color: (savings ?? 0) > 0 ? 'var(--emerald)' : 'var(--text-muted)' }}>
                           {formatCurrency(savings)}
                         </div>
                       </div>
@@ -667,10 +677,13 @@ export default function Dashboard({ onboardResult }) {
               </div>
               <div className="mt-4 pt-3 flex items-center justify-between gap-4 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  Total tax savings: <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>{formatCurrency(bucketTaxSavings ?? 0)}</span>
+                  Total tax savings: <span className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>{formatCurrency(bucketTaxSavings)}</span>
                 </span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  Net take-home after optimization: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(bucketNetTakeHome ?? 0)}</span>
+                  Pre-tax contributions: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(bucketPretaxContributions)}</span>
+                </span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Remaining annual surplus: <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(bucketRemainingTaxable)}</span>
                 </span>
               </div>
             </>

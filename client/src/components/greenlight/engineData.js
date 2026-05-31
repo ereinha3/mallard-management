@@ -12,11 +12,7 @@ export const SLEEVE_META = {
 }
 
 export function getProfile(onboardResult) {
-  return onboardResult?.validated_profile
-    ?? onboardResult?.profile
-    ?? onboardResult?.optimizer_input
-    ?? onboardResult
-    ?? {}
+  return onboardResult?.validated_profile ?? {}
 }
 
 export function getCapital(onboardResult) {
@@ -29,9 +25,7 @@ export function getCapital(onboardResult) {
 }
 
 export function getPortfolio(onboardResult) {
-  return onboardResult?.portfolio
-    ?? onboardResult?.optimizer_input?.portfolio
-    ?? null
+  return onboardResult?.portfolio ?? null
 }
 
 export function getSleeveWeights(onboardResult) {
@@ -45,16 +39,16 @@ export function getSleeveWeights(onboardResult) {
 export function getMonthlyContribution(onboardResult) {
   const profile = getProfile(onboardResult)
   const monthly = Number(
-    onboardResult?.optimizer_input?.monthly_surplus
+    onboardResult?.financial_analysis?.snapshot?.monthly_surplus
+      ?? onboardResult?.optimizer_input?.monthly_surplus
       ?? profile.monthly_surplus
-      ?? profile.monthly_savings
-      ?? profile.monthly_contribution,
   )
   return Number.isFinite(monthly) ? Math.max(0, monthly) : null
 }
 
 export function formatMoney(value, compact = false) {
-  const amount = Number(value ?? 0)
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -64,12 +58,15 @@ export function formatMoney(value, compact = false) {
 }
 
 export function formatPercent(value, digits = 1) {
-  const pct = Number(value ?? 0) * 100
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '—'
+  const pct = parsed * 100
   return `${pct.toFixed(digits)}%`
 }
 
 export function formatPctPoints(value, digits = 1) {
-  return `${Number(value ?? 0).toFixed(digits)}pp`
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? `${parsed.toFixed(digits)}pp` : '—'
 }
 
 export function sleeveLabel(sleeve) {
@@ -209,7 +206,8 @@ export function allocationRows(portfolio, capitalOnHand) {
   const byTicker = portfolio?.weights?.by_ticker ?? {}
   const bySleeve = portfolio?.weights?.by_sleeve ?? {}
   const sleeveMap = tickerSleeveMap(portfolio?.universe)
-  const total = Math.max(0, Number(capitalOnHand ?? 0))
+  const parsedTotal = Number(capitalOnHand)
+  const total = Number.isFinite(parsedTotal) ? Math.max(0, parsedTotal) : null
 
   return Object.entries(byTicker)
     .filter(([, weight]) => Number(weight) > 0)
@@ -222,7 +220,7 @@ export function allocationRows(portfolio, capitalOnHand) {
         weight: Number(weight),
         pct: Number(weight) * 100,
         sleeveWeight: Number(bySleeve[sleeve] ?? weight),
-        amount: Math.round(total * Number(weight)),
+        amount: total != null ? Math.round(total * Number(weight)) : null,
         color: sleeveColor(sleeve),
       }
     })

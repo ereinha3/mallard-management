@@ -4,14 +4,13 @@ import { AlertCircle, ArrowRight, Feather, MapPin, PiggyBank } from 'lucide-reac
 const FILING_STATUSES = [
   { value: '', label: 'Select filing status' },
   { value: 'single', label: 'Single' },
-  { value: 'married_filing_jointly', label: 'Married filing jointly' },
-  { value: 'married_filing_separately', label: 'Married filing separately' },
+  { value: 'married_joint', label: 'Married filing jointly' },
+  { value: 'married_separate', label: 'Married filing separately' },
   { value: 'head_of_household', label: 'Head of household' },
-  { value: 'qualifying_surviving_spouse', label: 'Qualifying surviving spouse' },
 ]
 
 const HSA_COVERAGE = [
-  { value: 'self', label: 'Self' },
+  { value: 'self_only', label: 'Self' },
   { value: 'family', label: 'Family' },
 ]
 
@@ -191,8 +190,20 @@ function Section({ icon, title, children }) {
 
 function toNumber(value) {
   if (value === '') return null
-  const parsed = Number(value)
+  const parsed = Number(String(value).replace(/[$,%\s,]/g, ''))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function toNonNegativeNumber(value) {
+  const parsed = toNumber(value)
+  return parsed != null && parsed >= 0 ? parsed : null
+}
+
+function toFractionPercent(value) {
+  const parsed = toNumber(value)
+  if (parsed == null) return null
+  if (parsed < 0 || parsed > 100) return null
+  return parsed / 100
 }
 
 function handleFocus(hasError) {
@@ -244,7 +255,7 @@ const initialForm = {
   hsaEligible: false,
   hsaContribution: '',
   hsaBalance: '',
-  hsaCoverage: 'self',
+  hsaCoverage: 'self_only',
 }
 
 export default function TaxProfileForm({ onComplete, zip, homeValue }) {
@@ -262,13 +273,39 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
       hsaEligible: value,
       hsaContribution: value ? prev.hsaContribution : '',
       hsaBalance: value ? prev.hsaBalance : '',
-      hsaCoverage: value ? prev.hsaCoverage : 'self',
+      hsaCoverage: value ? prev.hsaCoverage : 'self_only',
     }))
   }
 
   function validate() {
     const nextErrors = {}
     if (!form.filingStatus) nextErrors.filingStatus = 'Filing status is required'
+
+    const nonNegativeFields = [
+      ['annual401k', 'Enter zero or more'],
+      ['balance401k', 'Enter zero or more'],
+      ['traditionalIra', 'Enter zero or more'],
+      ['iraBalance', 'Enter zero or more'],
+    ]
+    if (form.hsaEligible) {
+      nonNegativeFields.push(
+        ['hsaContribution', 'Enter zero or more'],
+        ['hsaBalance', 'Enter zero or more'],
+      )
+    }
+
+    nonNegativeFields.forEach(([field, message]) => {
+      if (form[field] !== '' && toNonNegativeNumber(form[field]) == null) nextErrors[field] = message
+    })
+
+    const percentFields = ['employerMatchRate', 'employerMatchCap']
+    percentFields.forEach(field => {
+      const parsed = form[field] === '' ? null : toFractionPercent(form[field])
+      if (form[field] !== '' && parsed == null) {
+        nextErrors[field] = 'Enter a percent from 0 to 100'
+      }
+    })
+
     return nextErrors
   }
 
@@ -280,22 +317,36 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
       return
     }
 
+    const pretax401k = toNonNegativeNumber(form.annual401k)
+    const pretaxIra = toNonNegativeNumber(form.traditionalIra)
+    const pretaxHsa = form.hsaEligible ? toNonNegativeNumber(form.hsaContribution) : null
+    const employerMatchRate = toFractionPercent(form.employerMatchRate)
+    const employerMatchCapPct = toFractionPercent(form.employerMatchCap)
+    const hsaCoverage = form.hsaEligible ? form.hsaCoverage : null
+
     onComplete({
       zip_code: zip?.trim() || null,
       home_value: homeValue ?? null,
       state: form.state.trim() || null,
       filing_status: form.filingStatus,
-      balance_401k: toNumber(form.balance401k),
-      ira_balance: toNumber(form.iraBalance),
-      hsa_balance: toNumber(form.hsaBalance),
+      balance_401k: toNonNegativeNumber(form.balance401k),
+      ira_balance: toNonNegativeNumber(form.iraBalance),
+      hsa_balance: form.hsaEligible ? toNonNegativeNumber(form.hsaBalance) : null,
+      pretax_401k: pretax401k,
+      pretax_ira: pretaxIra,
+      pretax_hsa: pretaxHsa,
+      employer_match_rate: employerMatchRate,
+      employer_match_cap_pct: employerMatchCapPct,
+      has_hsa_eligible_plan: form.hsaEligible,
+      hsa_coverage: hsaCoverage,
       pre_tax_contributions_annual: {
-        traditional_401k: toNumber(form.annual401k),
-        employer_match_rate_pct: toNumber(form.employerMatchRate),
-        employer_match_cap_pct_salary: toNumber(form.employerMatchCap),
-        traditional_ira: toNumber(form.traditionalIra),
+        traditional_401k: pretax401k,
+        employer_match_rate_pct: employerMatchRate,
+        employer_match_cap_pct_salary: employerMatchCapPct,
+        traditional_ira: pretaxIra,
         hsa_eligible: form.hsaEligible,
-        hsa_contribution: form.hsaEligible ? toNumber(form.hsaContribution) : null,
-        hsa_coverage: form.hsaEligible ? form.hsaCoverage : null,
+        hsa_contribution: pretaxHsa,
+        hsa_coverage: hsaCoverage,
       },
     })
   }

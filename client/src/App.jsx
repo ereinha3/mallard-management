@@ -40,6 +40,24 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
 
+    const isDemoUrl = new URLSearchParams(window.location.search).has('demo')
+    if (isDemoUrl) {
+      queueMicrotask(() => {
+        if (cancelled) return
+
+        setLoadingProfile(false)
+        setResumeSession(null)
+        setOnboardResult(DUMMY_ONBOARD_RESULT)
+        setTaxProfileDone(true)
+        setOnboardingDone(true)
+        setAuthenticatedThisSession(true)
+        setUser({ ...DUMMY_USER, isDemo: true })
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
     try {
       const storedUser = JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY))
       if (storedUser && typeof storedUser === 'object' && storedUser.email) {

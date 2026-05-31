@@ -1,10 +1,5 @@
 import { Shield, Activity, Gauge, AlertTriangle } from 'lucide-react'
-import { formatPercent } from '../lib/utils'
-
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
-}
+import { formatPercent, numberOrNull } from '../lib/utils'
 
 function Metric({ label, value, icon: Icon, color = 'var(--gold-light)' }) {
   return (
@@ -22,15 +17,32 @@ function Metric({ label, value, icon: Icon, color = 'var(--gold-light)' }) {
   )
 }
 
+function getRiskValues(onboardResult) {
+  const summary = onboardResult?.financial_analysis?.risk ?? {}
+  const profileRisk = onboardResult?.risk_profile ?? {}
+  const fallbackTargetVol = numberOrNull(profileRisk.target_vol_band?.mid)
+
+  return {
+    capacity: numberOrNull(summary.capacity_score ?? profileRisk.capacity_score),
+    tolerance: numberOrNull(summary.tolerance_score ?? profileRisk.tolerance_score),
+    gamma: numberOrNull(summary.gamma_mid ?? profileRisk.gamma_band?.mid),
+    label: typeof summary.label === 'string' && summary.label.trim() ? summary.label : null,
+    targetVol: numberOrNull(summary.target_volatility_pct) ?? (fallbackTargetVol == null ? null : fallbackTargetVol * 100),
+    maxLoss: numberOrNull(summary.estimated_max_loss_1yr_pct),
+    bindingAxis: summary.binding_axis ?? profileRisk.binding_axis ?? null,
+    lossAversionFlag: summary.loss_aversion_flag ?? profileRisk.loss_aversion_flag ?? null,
+    contradictionNote: summary.contradiction_note ?? profileRisk.contradiction_note ?? null,
+  }
+}
+
 export default function RiskView({ onboardResult }) {
-  const riskProfile = onboardResult?.risk_profile ?? {}
-  const risk = onboardResult?.financial_analysis?.risk ?? {}
-  const capacity = numberOrNull(riskProfile.capacity_score ?? risk.capacity_score)
-  const tolerance = numberOrNull(riskProfile.tolerance_score ?? risk.tolerance_score)
-  const gamma = numberOrNull(riskProfile.gamma_mid ?? riskProfile.gamma ?? risk.gamma_mid)
-  const gammaBand = risk.label ?? riskProfile.gamma_band_label ?? null
-  const targetVol = numberOrNull(risk.target_volatility_pct)
-  const maxLoss = numberOrNull(risk.estimated_max_loss_1yr_pct)
+  const risk = getRiskValues(onboardResult)
+  const capacity = risk.capacity
+  const tolerance = risk.tolerance
+  const gamma = risk.gamma
+  const gammaLabel = risk.label
+  const targetVol = risk.targetVol
+  const maxLoss = risk.maxLoss
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -43,7 +55,7 @@ export default function RiskView({ onboardResult }) {
 
       <div className="p-8 space-y-5 max-w-6xl">
         <div data-tour="risk-overview" className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <Metric label="Gamma Band" value={gammaBand} icon={Shield} />
+          <Metric label="Risk Label" value={gammaLabel} icon={Shield} />
           <Metric label="Risk Aversion Gamma" value={gamma != null ? gamma.toFixed(2) : null} icon={Gauge} />
           <Metric label="Target Volatility" value={targetVol != null ? formatPercent(targetVol) : null} icon={Activity} color="var(--emerald)" />
           <Metric label="Estimated 1Y Max Loss" value={maxLoss != null ? formatPercent(maxLoss) : null} icon={AlertTriangle} color="var(--ruby)" />
@@ -72,7 +84,7 @@ export default function RiskView({ onboardResult }) {
               </div>
             ))}
             <div className="text-xs mt-5" style={{ color: 'var(--text-muted)' }}>
-              Binding axis: <span style={{ color: 'var(--text-secondary)' }}>{risk.binding_axis ?? 'Not available'}</span>
+              Binding axis: <span style={{ color: 'var(--text-secondary)' }}>{risk.bindingAxis ?? 'Not available'}</span>
             </div>
           </div>
 
@@ -83,13 +95,13 @@ export default function RiskView({ onboardResult }) {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between gap-4">
                 <span style={{ color: 'var(--text-secondary)' }}>Loss aversion flag</span>
-                <span style={{ color: risk.loss_aversion_flag ? 'var(--ruby)' : 'var(--emerald)' }}>
-                  {risk.loss_aversion_flag == null ? 'Not available' : risk.loss_aversion_flag ? 'Yes' : 'No'}
+                <span style={{ color: risk.lossAversionFlag ? 'var(--ruby)' : 'var(--emerald)' }}>
+                  {risk.lossAversionFlag == null ? 'Not available' : risk.lossAversionFlag ? 'Yes' : 'No'}
                 </span>
               </div>
               <div>
                 <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Contradiction note</div>
-                <div style={{ color: 'var(--text-secondary)' }}>{risk.contradiction_note || 'None returned'}</div>
+                <div style={{ color: 'var(--text-secondary)' }}>{risk.contradictionNote || 'None returned'}</div>
               </div>
             </div>
           </div>
