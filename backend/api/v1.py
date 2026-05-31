@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -84,8 +85,8 @@ from tax.rates import (  # noqa: E402
     ltcg_rate_for_bracket,
 )
 from tax.report import tax_report  # noqa: E402
-from tax.bucket_optimizer import BucketOptimizer  # noqa: E402
-from tax.calculator import TaxCalculator  # noqa: E402
+from taxplanning.bucket_optimizer import BucketOptimizer  # noqa: E402
+from taxplanning.calculator import TaxCalculator  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
 router = APIRouter()
@@ -1613,6 +1614,23 @@ async def profile_update(
     return response
 
 
+def _marginal_federal_rate(tax_breakdown: Any) -> float | None:
+    """Marginal (last-dollar) federal ordinary rate implied by Gilbert's computed
+    tax breakdown. This is the bracket-aware input the gate / TLH math (G-03)
+    consume — derived from the real federal brackets + taxable income rather than
+    a manual guess. Returns None if the breakdown is malformed."""
+    try:
+        federal = tax_breakdown.tax_rate_bundle.federal
+        taxable = max(0.0, float(tax_breakdown.agi) - float(federal.standard_deduction))
+        marginal: float | None = None
+        for bracket in sorted(federal.brackets, key=lambda b: float(b.min_income)):
+            if taxable > float(bracket.min_income):
+                marginal = float(bracket.rate)
+        return marginal
+    except Exception:
+        return None
+
+
 @router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
 async def onboard(
     profile_input: api_models.UserProfileInput,
@@ -1627,21 +1645,35 @@ async def onboard(
     When ``session_id`` is supplied, the elicitation session that produced this
     profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
-    response = _run_pipeline(profile_input)
-
+    # Compute Gilbert's gross-to-net tax breakdown FIRST (best-effort, LLM-backed,
+    # so guarded + timed out), then feed its marginal federal bracket into the
+    # gate / TLH math instead of the manual `bracket` field. If it is absent or
+    # fails, the gate falls back to the deterministic default (G-03).
+    tax_breakdown = None
     if profile_input.zip_code:
         try:
             calculator = TaxCalculator()
-            response.tax_breakdown = await calculator.calculate(
-                gross_income=profile_input.household_income,
-                filing_status=profile_input.filing_status,
-                zip_code=profile_input.zip_code,
-                pretax_401k=profile_input.pretax_401k or 0.0,
-                pretax_ira=profile_input.pretax_ira or 0.0,
-                pretax_hsa=profile_input.pretax_hsa or 0.0,
+            tax_breakdown = await asyncio.wait_for(
+                calculator.calculate(
+                    gross_income=profile_input.household_income,
+                    filing_status=profile_input.filing_status,
+                    zip_code=profile_input.zip_code,
+                    pretax_401k=profile_input.pretax_401k or 0.0,
+                    pretax_ira=profile_input.pretax_ira or 0.0,
+                    pretax_hsa=profile_input.pretax_hsa or 0.0,
+                ),
+                timeout=15.0,
             )
         except Exception:
-            pass
+            tax_breakdown = None
+
+    if tax_breakdown is not None and profile_input.bracket is None:
+        marginal = _marginal_federal_rate(tax_breakdown)
+        if marginal is not None:
+            profile_input = profile_input.model_copy(update={"bracket": marginal})
+
+    response = _run_pipeline(profile_input)
+    response.tax_breakdown = tax_breakdown
 
     if response.validated_profile is not None:
         try:
@@ -1655,7 +1687,7 @@ async def onboard(
                 employer_match_cap_pct=response.validated_profile.employer_match_cap_pct,
                 has_hsa=response.validated_profile.has_hsa_eligible_plan,
                 hsa_coverage=response.validated_profile.hsa_coverage,
-                tax_brackets=response.tax_breakdown.tax_rate_bundle if response.tax_breakdown else None,
+                tax_brackets=tax_breakdown.tax_rate_bundle if tax_breakdown else None,
             )
         except Exception:
             pass

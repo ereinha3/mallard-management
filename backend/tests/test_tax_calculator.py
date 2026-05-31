@@ -1,8 +1,8 @@
 import pytest
 
-import tax.calculator as calculator_module
-from tax.calculator import TaxCalculator
-from tax.models import (
+import taxplanning.calculator as calculator_module
+from taxplanning.calculator import TaxCalculator
+from taxplanning.models import (
     FederalTaxInfo,
     LocalTaxInfo,
     StateTaxInfo,

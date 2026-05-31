@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 from google import genai
 from pydantic import ValidationError
 
-from tax.models import FederalTaxInfo, LocalTaxInfo, StateTaxInfo, TaxRateBundle
+from taxplanning.models import FederalTaxInfo, LocalTaxInfo, StateTaxInfo, TaxRateBundle
 
 GEMINI_MODEL = "gemini-2.5-pro"
 

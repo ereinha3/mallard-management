@@ -1,5 +1,5 @@
-from tax.bucket_optimizer import BucketOptimizer
-from tax.models import (
+from taxplanning.bucket_optimizer import BucketOptimizer
+from taxplanning.models import (
     FederalTaxInfo,
     LocalTaxInfo,
     StateTaxInfo,

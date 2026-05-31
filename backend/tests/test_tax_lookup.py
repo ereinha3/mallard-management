@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from tax.lookup import TaxLookup, TaxLookupError
-from tax.models import TaxRateBundle
+from taxplanning.lookup import TaxLookup, TaxLookupError
+from taxplanning.models import TaxRateBundle
 
 
 class MockResponse:

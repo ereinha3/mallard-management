@@ -17,6 +17,7 @@ import PageTransition from './components/visual/PageTransition'
 import TopoBackground from './components/visual/TopoBackground'
 import { TourProvider } from './components/tour/TourProvider'
 import { getProfile, getActiveOnboarding } from './api/greenlightClient'
+import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
 const AUTH_STORAGE_KEY = 'mallard.auth'
