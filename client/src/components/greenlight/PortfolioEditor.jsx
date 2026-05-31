@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle, Loader, RotateCcw, SlidersHorizontal, Zap } from 'lucide-react'
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { postAnalyzeWeights, postReoptimize, postSavePortfolio } from '../../api/greenlightClient'
+import { formatPercent as formatWholePercent, numberOrNull } from '../../lib/utils'
 import {
   RISKY_SLEEVES,
   SAFE_SLEEVES,
@@ -23,21 +24,48 @@ import {
 } from './engineData'
 
 const DIAL_LABELS = ['Conservative', 'Balanced', 'Aggressive']
+const EMPTY_VALUE = '—'
 
 function formatPct(value, digits = 1) {
-  if (value == null || Number.isNaN(Number(value))) return 'N/A'
-  const numeric = Number(value)
-  const pct = numeric > 1 ? numeric : numeric * 100
-  return `${pct.toFixed(digits)}%`
+  const numeric = numberOrNull(value)
+  if (numeric == null) return EMPTY_VALUE
+  return formatWholePercent(Number(numeric.toFixed(digits)))
 }
 
 function summaryFromResult(onboardResult, metrics) {
   const risk = onboardResult?.financial_analysis?.risk ?? {}
   const fromMetrics = riskSummaryFromMetrics(metrics)
   return {
-    target_volatility_pct: risk.target_volatility_pct ?? fromMetrics.target_volatility_pct,
-    estimated_max_loss_1yr_pct: risk.estimated_max_loss_1yr_pct ?? fromMetrics.estimated_max_loss_1yr_pct,
+    target_volatility_pct: risk.target_volatility_pct ?? fromMetrics?.target_volatility_pct ?? null,
+    estimated_max_loss_1yr_pct: risk.estimated_max_loss_1yr_pct ?? fromMetrics?.estimated_max_loss_1yr_pct ?? null,
   }
+}
+
+function percentText(value, digits = 1) {
+  const numeric = numberOrNull(value)
+  return numeric == null ? EMPTY_VALUE : formatWholePercent(Number(numeric.toFixed(digits)))
+}
+
+function safeMessage(value, fallback = null) {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (value && typeof value === 'object') {
+    return safeMessage(value.message)
+      ?? safeMessage(value.detail)
+      ?? safeMessage(value.reason)
+      ?? safeMessage(value.field)
+      ?? fallback
+  }
+  return fallback
+}
+
+function weightSumPct(weights) {
+  if (!weights || typeof weights !== 'object') return null
+  const values = Object.values(weights)
+    .map(numberOrNull)
+    .filter(value => value != null)
+  if (!values.length) return null
+  return values.reduce((sum, value) => sum + value, 0) * 100
 }
 
 function mergePortfolioResult(baseResult, portfolio, riskSummary = null) {
@@ -59,10 +87,6 @@ function mergePortfolioResult(baseResult, portfolio, riskSummary = null) {
 
 function getUserEmail(result, propEmail) {
   return propEmail
-    ?? result?.validated_profile?.email
-    ?? result?.profile?.email
-    ?? result?.user?.email
-    ?? result?.email
     ?? null
 }
 
@@ -75,9 +99,10 @@ function buildPortfolio(basePortfolio, weights, metrics) {
         const sleeve = Object.entries(sleeves).find(([, tickers]) => tickers?.includes(ticker))?.[0]
         const sleeveWeight = normalized[sleeve]
         const originalSleeveWeight = Number(basePortfolio?.weights?.by_sleeve?.[sleeve] ?? 0)
-        acc[ticker] = originalSleeveWeight > 0
+        const nextWeight = originalSleeveWeight > 0
           ? sleeveWeight * (Number(weight) / originalSleeveWeight)
           : sleeveWeight / Math.max(1, sleeves[sleeve]?.length ?? 1)
+        if (Number.isFinite(nextWeight) && nextWeight > 0) acc[ticker] = nextWeight
         return acc
       }, {})
     : {}
@@ -110,7 +135,7 @@ function AllocationTooltip({ active, payload }) {
   return (
     <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
       <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{row.label}</div>
-      <div className="font-mono" style={{ color: row.color }}>{row.pct.toFixed(1)}%</div>
+      <div className="font-mono" style={{ color: row.color }}>{percentText(row.pct)}</div>
     </div>
   )
 }
@@ -162,7 +187,9 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
   const barData = allocation.map(row => ({ ...row, value: row.pct }))
   const split = useMemo(() => portfolioSplit(weights), [weights])
   const mixes = useMemo(() => groupWeights(weights), [weights])
-  const validationWarnings = validation?.warnings ?? []
+  const validationWarnings = Array.isArray(validation?.warnings) ? validation.warnings : []
+  const weightTotalPct = weightSumPct(weights)
+  const clientWeightWarning = weightTotalPct != null && Math.abs(weightTotalPct - 100) > 0.5
   const resolvedUserEmail = getUserEmail(onboardResult, userEmail)
 
   useEffect(() => {
@@ -307,7 +334,12 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
     onApplied?.(updatedResult)
   }
 
-  const validationMessage = validation?.message ?? validation?.detail ?? null
+  const validationMessage = safeMessage(validation)
+    ?? safeMessage(validation?.message)
+    ?? safeMessage(validation?.detail)
+  const validationWarningMessages = validationWarnings
+    .map(warning => safeMessage(warning))
+    .filter(Boolean)
   const isApplying = applyState === 'pending'
   const growthPct = split.risky * 100
   const safePct = split.safe * 100
@@ -321,7 +353,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             {title}
           </div>
           <div className="font-mono text-xs" style={{ color: 'var(--green-bright, var(--green))' }}>
-            Mix 100% · Portfolio {(share * 100).toFixed(1)}%
+            Mix 100% · Portfolio {percentText(share * 100)}
           </div>
         </div>
         <div className="space-y-3">
@@ -336,7 +368,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
                     {sleeveLabel(sleeve)}
                   </span>
                   <span className="font-mono text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    {withinPct.toFixed(1)}% mix · {finalPct.toFixed(1)}% final
+                    {percentText(withinPct)} mix · {percentText(finalPct)} final
                   </span>
                 </label>
                 <input
@@ -389,7 +421,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             <label htmlFor="risk-dial" className="flex items-center justify-between gap-3 mb-3">
               <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Growth vs Safe Split</span>
               <span className="font-mono text-sm font-semibold" style={{ color: 'var(--green-bright, var(--green))' }}>
-                Growth {growthPct.toFixed(0)}% / Safe {safePct.toFixed(0)}%
+                Growth {percentText(growthPct, 0)} / Safe {percentText(safePct, 0)}
               </span>
             </label>
             <input
@@ -398,7 +430,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
               min="0"
               max="100"
               value={Math.round(riskDial * 100)}
-              aria-valuetext={`${riskLabel(riskDial)}, ${growthPct.toFixed(0)} percent growth and ${safePct.toFixed(0)} percent safe`}
+              aria-valuetext={`${riskLabel(riskDial)}, ${percentText(growthPct, 0)} growth and ${percentText(safePct, 0)} safe`}
               onChange={handleRiskDialChange}
               style={{ width: '100%', accentColor: 'var(--green)' }}
             />
@@ -409,7 +441,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             <div className="mt-4 overflow-hidden rounded-lg" style={{ height: 10, background: 'var(--bg-surface)' }}>
               <div
                 style={{
-                  width: `${growthPct}%`,
+                  width: `${Math.max(0, Math.min(100, growthPct))}%`,
                   height: '100%',
                   background: 'linear-gradient(90deg, var(--green, var(--emerald)), var(--green-bright))',
                 }}
@@ -419,13 +451,13 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
               <div>
                 <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Expected volatility</div>
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--green-bright, var(--green))' }}>
-                  {displaySummary?.target_volatility_pct != null ? formatPct(displaySummary.target_volatility_pct, 1) : 'N/A'}
+                  {formatPct(displaySummary?.target_volatility_pct, 1)}
                 </div>
               </div>
               <div>
                 <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Est. max 1Y loss</div>
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--ruby)' }}>
-                  {displaySummary?.estimated_max_loss_1yr_pct != null ? formatPct(displaySummary.estimated_max_loss_1yr_pct, 1) : 'N/A'}
+                  {formatPct(displaySummary?.estimated_max_loss_1yr_pct, 1)}
                 </div>
               </div>
             </div>
@@ -455,7 +487,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                   <div className="text-center">
                 <div className="font-display font-semibold text-2xl" style={{ color: 'var(--text-primary)' }}>
-                      {Math.round(growthPct)}%
+                      {percentText(growthPct, 0)}
                     </div>
                     <div className="text-xs" style={{ color: 'var(--text-muted)' }}>growth</div>
                   </div>
@@ -482,26 +514,32 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             </div>
             <div className="grid gap-2">
               {SLEEVE_ORDER.map((sleeve) => {
-                const contribution = Number(displayMetrics?.risk_contributions?.[sleeve] ?? 0) * 100
+                const contribution = numberOrNull(displayMetrics?.risk_contributions?.[sleeve])
+                const contributionPct = contribution == null ? null : contribution * 100
                 return (
                   <div key={sleeve} className="flex items-center gap-3 text-xs">
                     <div style={{ width: 86, color: 'var(--text-secondary)' }}>{sleeveLabel(sleeve)}</div>
                     <div className="h-2 rounded-full overflow-hidden" style={{ flex: 1, background: 'var(--bg-surface)' }}>
-                      <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, contribution))}%`, background: sleeveColor(sleeve) }} />
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, contributionPct ?? 0))}%`, background: sleeveColor(sleeve) }} />
                     </div>
-                    <div className="font-mono text-right" style={{ width: 48, color: 'var(--text-muted)' }}>{contribution.toFixed(1)}%</div>
+                    <div className="font-mono text-right" style={{ width: 48, color: 'var(--text-muted)' }}>{percentText(contributionPct)}</div>
                   </div>
                 )
               })}
             </div>
+            {clientWeightWarning && (
+              <div className="mt-3 rounded-lg p-2 text-xs" style={{ background: 'rgba(240,192,96,0.10)', border: '1px solid rgba(240,192,96,0.30)', color: 'var(--gold-light)' }}>
+                Sleeve weights currently sum to {percentText(weightTotalPct)}.
+              </div>
+            )}
             {validationMessage && (
               <div className="mt-3 rounded-lg p-2 text-xs" style={{ background: 'rgba(217,64,64,0.08)', border: '1px solid rgba(217,64,64,0.25)', color: 'var(--ruby)' }}>
                 {validationMessage}
               </div>
             )}
-            {validationWarnings.length > 0 && (
+            {validationWarningMessages.length > 0 && (
               <div className="mt-3 rounded-lg p-2 text-xs" style={{ background: 'rgba(240,192,96,0.10)', border: '1px solid rgba(240,192,96,0.30)', color: 'var(--gold-light)' }}>
-                {validationWarnings.join(' ')}
+                {validationWarningMessages.join(' ')}
               </div>
             )}
           </div>

@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { formatCurrency, formatPercent } from '../lib/utils'
+import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 import { ChartContainer, ChartTooltipContent } from './ui/chart'
 
 // Percentile series shown in the hover tooltip (ranged bands stay out of it).
@@ -21,16 +21,12 @@ const TOOLTIP_SERIES = [
   { key: 'p5', label: 'Downside · 5th', color: 'var(--ruby)' },
 ]
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
-}
-
 function getProjectionInputs(onboardResult) {
   const optimizer = onboardResult?.optimizer_input ?? {}
-  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+  const profile = onboardResult?.validated_profile ?? {}
+  const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
   const horizonYears = numberOrNull(optimizer.horizon_years ?? profile.horizon_years)
-  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? profile.monthly_contribution ?? profile.monthly_savings)
+  const monthlyContribution = numberOrNull(optimizer.monthly_surplus ?? snapshot.monthly_surplus ?? profile.monthly_surplus)
   const capitalOnHand = numberOrNull(optimizer.capital_on_hand ?? profile.capital_on_hand)
   const goalTarget = numberOrNull(optimizer.goal_target ?? profile.goal_target)
 
@@ -56,21 +52,19 @@ function rowsFromProjection(projection) {
     paths.p95?.length ?? 0,
   )
 
-  const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : undefined)
-
   return Array.from({ length }, (_, i) => {
-    const p5 = finite(paths.p5?.[i])
-    const p25 = finite(paths.p25?.[i])
-    const p50 = finite(paths.p50?.[i])
-    const p75 = finite(paths.p75?.[i])
-    const p95 = finite(paths.p95?.[i])
+    const p5 = numberOrNull(paths.p5?.[i])
+    const p25 = numberOrNull(paths.p25?.[i])
+    const p50 = numberOrNull(paths.p50?.[i])
+    const p75 = numberOrNull(paths.p75?.[i])
+    const p95 = numberOrNull(paths.p95?.[i])
     return {
       year: i + 1,
-      p5,
-      p25,
-      p50,
-      p75,
-      p95,
+      p5: p5 ?? undefined,
+      p25: p25 ?? undefined,
+      p50: p50 ?? undefined,
+      p75: p75 ?? undefined,
+      p95: p95 ?? undefined,
       // Ranged areas for Recharts (rendered as shaded confidence bands).
       band90: p5 != null && p95 != null ? [p5, p95] : undefined,
       band50: p25 != null && p75 != null ? [p25, p75] : undefined,
@@ -161,6 +155,9 @@ export default function ProjectionChart({ projection: providedProjection, onboar
   }, [projection, inputs])
   const referenceYear = projection?.horizon_years ?? retirementYear
   const scale = useMemo(() => projectionScale(data), [data])
+  const successPercent = numberOrNull(projection?.p_success)
+  const medianTerminal = numberOrNull(projection?.median_terminal)
+  const badCaseTerminal = numberOrNull(projection?.bad_case_terminal)
 
   // % ROI of a percentile value vs. dollars invested to that year (sign-colored).
   const roiForValue = (value, row) => {
@@ -181,7 +178,7 @@ export default function ProjectionChart({ projection: providedProjection, onboar
     )
   }
 
-  if (!projection && !getProjectionInputs(onboardResult)) {
+  if (!projection && !inputs) {
     return (
       <div
         className="flex items-center justify-center text-sm"
@@ -228,19 +225,19 @@ export default function ProjectionChart({ projection: providedProjection, onboar
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Success Probability</div>
             <div className="font-display font-semibold" style={{ color: 'var(--emerald)', fontSize: 24, lineHeight: 1 }}>
-              {(Number(projection.p_success ?? 0) * 100).toFixed(0)}%
+              {successPercent == null ? '—' : formatPercent(successPercent * 100)}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: 'var(--bg-elevated)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Median Terminal</div>
             <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)', fontSize: 16 }}>
-              {formatCurrency(Number(projection.median_terminal ?? 0), true)}
+              {formatCurrency(medianTerminal, true)}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: 'rgba(230,69,69,0.08)', border: '1px solid rgba(230,69,69,0.16)' }}>
             <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Bad Case</div>
             <div className="font-mono font-semibold" style={{ color: 'var(--ruby)', fontSize: 16 }}>
-              {formatCurrency(Number(projection.bad_case_terminal ?? 0), true)}
+              {formatCurrency(badCaseTerminal, true)}
             </div>
           </div>
         </div>

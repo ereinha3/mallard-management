@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { postOnboard } from "../api/greenlightClient";
 
+function stableKey(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /**
  * Hook that runs the full Greenlight profile pipeline.
  *
@@ -14,24 +22,32 @@ export function useFinancialProfile(profileInput) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const profileInputKey = JSON.stringify(profileInput);
+  const profileInputKey = stableKey(profileInput);
 
   const load = useCallback(async () => {
-    if (!profileInput) return;
+    if (!profileInput) {
+      setData(null);
+      setLoading(false);
+      setError(null);
+      return null;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const result = await postOnboard(profileInput);
       setData(result);
+      return result;
     } catch (err) {
-      setError(err.message ?? "Failed to load financial profile");
+      setData(null);
+      setError(err?.message ?? "Failed to load financial profile");
+      return null;
     } finally {
       setLoading(false);
     }
   }, [profileInput]);
 
   useEffect(() => {
-    void profileInputKey;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load, profileInputKey]); // re-fetch when input changes

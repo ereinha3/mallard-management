@@ -5,13 +5,12 @@ import { ArrowRight, Bot, CheckCircle, MessageCircle, SlidersHorizontal, X } fro
 import IntakeChat from './IntakeChat'
 import PortfolioEditor from './PortfolioEditor'
 import { postPortfolio } from '../../api/greenlightClient'
+import { formatCurrency, formatPercent as formatWholePercent, numberOrNull } from '../../lib/utils'
 import { CountUpNumber, PortfolioRevealStyles, RevealItem, usePrefersReducedMotion } from './PortfolioReveal'
 import RebalancePanel from './RebalancePanel'
 import { useTour } from '../tour/TourProvider'
 import {
   SLEEVE_ORDER,
-  formatMoney,
-  formatPercent,
   getCapital,
   getMonthlyContribution,
   getPortfolio,
@@ -24,23 +23,26 @@ import {
   weightsToAllocation,
 } from './engineData'
 
-function formatMetricPct(decimalValue, pctValue, digits = 1) {
-  if (decimalValue != null && Number.isFinite(Number(decimalValue))) return formatPercent(decimalValue, digits)
-  if (pctValue != null && Number.isFinite(Number(pctValue))) return `${Number(pctValue).toFixed(digits)}%`
-  return 'N/A'
+const EMPTY_VALUE = '—'
+
+function formatMoney(value, compact = false) {
+  return formatCurrency(value, compact)
 }
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
+function formatMetricPct(decimalValue, pctValue, digits = 1) {
+  const decimalNumber = numberOrNull(decimalValue)
+  if (decimalNumber != null) return formatWholePercent(decimalNumber * 100)
+  const pctNumber = numberOrNull(pctValue)
+  if (pctNumber != null) return formatWholePercent(Number(pctNumber.toFixed(digits)))
+  return EMPTY_VALUE
 }
 
 function metricCountConfig(decimalValue, pctValue, digits = 1) {
   const decimalNumber = numberOrNull(decimalValue)
   if (decimalNumber != null) {
     return {
-      value: decimalNumber,
-      format: v => formatPercent(v, digits),
+      value: decimalNumber * 100,
+      format: v => formatWholePercent(Number(v.toFixed(digits))),
     }
   }
 
@@ -48,7 +50,7 @@ function metricCountConfig(decimalValue, pctValue, digits = 1) {
   if (pctNumber != null) {
     return {
       value: pctNumber,
-      format: v => `${Number(v).toFixed(digits)}%`,
+      format: v => formatWholePercent(Number(v.toFixed(digits))),
     }
   }
 
@@ -86,6 +88,24 @@ function portfolioMethodLabel(method) {
   return PORTFOLIO_METHODS.find(option => option.value === method)?.label ?? method
 }
 
+function percentText(value, digits = 1) {
+  const numeric = numberOrNull(value)
+  return numeric == null ? EMPTY_VALUE : formatWholePercent(Number(numeric.toFixed(digits)))
+}
+
+function weightTotalPct(weightsMap) {
+  if (!weightsMap || typeof weightsMap !== 'object') return null
+  const values = Object.values(weightsMap)
+    .map(numberOrNull)
+    .filter(value => value != null)
+  if (!values.length) return null
+  return values.reduce((sum, value) => sum + value, 0) * 100
+}
+
+function isOutOfTolerance(totalPct) {
+  return totalPct != null && Math.abs(totalPct - 100) > 0.5
+}
+
 const CustomTooltipAlloc = ({ active, payload }) => {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
@@ -93,7 +113,7 @@ const CustomTooltipAlloc = ({ active, payload }) => {
     <div className="rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}>
       <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{d.label}</div>
       <div className="font-mono mt-0.5" style={{ color: d.color }}>
-        {d.pct.toFixed(1)}%{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}
+        {percentText(d.pct)}{d.amount != null ? ` · ${formatMoney(d.amount)}` : ''}
       </div>
     </div>
   )
@@ -196,13 +216,13 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const optimizerInput = activeResult?.optimizer_input ?? {}
   const snapshot = activeResult?.financial_analysis?.snapshot ?? {}
   const risk = activeResult?.financial_analysis?.risk ?? activeResult?.risk_profile ?? {}
-  const clientName = profile?.name ?? profile?.first_name ?? 'You'
+  const clientName = 'You'
   const capitalOnHand = getCapital(activeResult)
   const capital = Number.isFinite(capitalOnHand) && capitalOnHand > 0
     ? capitalOnHand
     : numberOrNull(profile?.capital_on_hand ?? optimizerInput.capital_on_hand)
   const monthlyContrib = getMonthlyContribution(activeResult)
-    || numberOrNull(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus ?? profile?.monthly_contribution)
+    ?? numberOrNull(snapshot.monthly_surplus ?? optimizerInput.monthly_surplus)
   const horizonYears = Number.isFinite(Number(profile?.horizon_years)) ? Number(profile.horizon_years) : null
   const weights = useMemo(() => getSleeveWeights(activeResult), [activeResult])
   const riskDial = inferRiskDialFromWeights(weights)
@@ -210,6 +230,11 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const allocation = useMemo(() => (
     portfolio ? weightsToAllocation(weights, portfolio, capital) : []
   ), [capital, portfolio, weights])
+  const allocationTotalPct = allocation.reduce((sum, row) => sum + (numberOrNull(row.pct) ?? 0), 0)
+  const tickerTotalPct = weightTotalPct(portfolio?.weights?.by_ticker)
+  const sleeveTotalPct = weightTotalPct(portfolio?.weights?.by_sleeve)
+  const allocationTotalWarning = isOutOfTolerance(tickerTotalPct ?? sleeveTotalPct ?? allocationTotalPct)
+  const targetAmountTotal = targetRows => targetRows.reduce((sum, row) => sum + (numberOrNull(row.amount) ?? 0), 0)
   const realPortfolioPresent = Boolean(resultPortfolio)
   const fetchedPortfolioPresent = Boolean(fetchedPortfolio)
   const method = (portfolio ? explicitPortfolioMethod(portfolio) : null) ?? selectedMethod
@@ -291,6 +316,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     amount: row.amount,
     color: row.color,
   }))
+  const targetRowsAmountTotal = targetAmountTotal(targetRows)
 
   const riskContributions = useMemo(() => (
     SLEEVE_ORDER
@@ -455,8 +481,8 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               />
               <RiskMetric
                 label="Growth Weight"
-                value={`${Math.round(riskDial * 100)}%`}
-                countConfig={{ value: riskDial * 100, format: v => `${Math.round(v)}%` }}
+                value={percentText(riskDial * 100, 0)}
+                countConfig={{ value: riskDial * 100, format: v => percentText(v, 0) }}
                 reducedMotion={reducedMotion}
                 delay={260}
                 color="var(--green, var(--emerald))"
@@ -471,7 +497,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
               />
               <RiskMetric
                 label="Capital Available"
-                value={capital != null ? formatMoney(capital) : 'N/A'}
+                value={capital != null ? formatMoney(capital) : EMPTY_VALUE}
                 countConfig={capital != null ? { value: capital, format: v => formatMoney(v) } : null}
                 reducedMotion={reducedMotion}
                 delay={400}
@@ -497,6 +523,11 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     {portfolioError && (
                       <div className="text-xs mt-1" style={{ color: 'var(--gold-light)' }}>
                         Optimization failed; showing the prior allocation.
+                      </div>
+                    )}
+                    {allocationTotalWarning && (
+                      <div className="text-xs mt-1" style={{ color: 'var(--gold-light)' }}>
+                        Weights sum to {percentText(tickerTotalPct ?? sleeveTotalPct ?? allocationTotalPct)}; amounts may not fully reconcile.
                       </div>
                     )}
                   </div>
@@ -566,7 +597,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     <div className="font-display font-semibold" style={{ fontSize: 22, color: 'var(--text-primary)' }}>
                       <CountUpNumber
                         value={growthPct}
-                        format={v => `${Number(v).toFixed(0)}%`}
+                        format={v => percentText(v, 0)}
                         delay={360}
                         reducedMotion={reducedMotion}
                       />
@@ -579,7 +610,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     <RevealItem key={a.key} className="flex items-center gap-2 text-xs" index={index} reducedMotion={reducedMotion}>
                       <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.color }} />
                       <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{a.label}</span>
-                      <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{a.pct.toFixed(1)}%</span>
+                      <span className="font-mono" style={{ color: 'var(--text-muted)' }}>{percentText(a.pct)}</span>
                     </RevealItem>
                   ))}
                 </div>
@@ -620,9 +651,9 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                         >
                           <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
                           <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
-                          <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
+                          <td className="py-2.5 font-mono" style={{ color: a.color }}>{percentText(a.pct)}</td>
                           <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
-                            {a.amount != null ? formatMoney(a.amount) : 'N/A'}
+                            {a.amount != null ? formatMoney(a.amount) : EMPTY_VALUE}
                           </td>
                           <td className="py-2.5">
                             <span
@@ -638,8 +669,19 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     <tfoot>
                       <tr>
                         <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
-                        <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
+                        <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : EMPTY_VALUE}</td>
                         <td />
+                      </tr>
+                      <tr>
+                        <td colSpan={3} className="pt-1 text-xs font-semibold" style={{ color: allocationTotalWarning ? 'var(--gold-light)' : 'var(--text-muted)' }}>
+                          Target total
+                        </td>
+                        <td className="pt-1 font-mono font-semibold" style={{ color: allocationTotalWarning ? 'var(--gold-light)' : 'var(--text-primary)' }}>
+                          {targetRowsAmountTotal > 0 ? formatMoney(targetRowsAmountTotal) : EMPTY_VALUE}
+                        </td>
+                        <td className="pt-1 font-mono text-xs" style={{ color: allocationTotalWarning ? 'var(--gold-light)' : 'var(--text-muted)' }}>
+                          {percentText(tickerTotalPct ?? sleeveTotalPct ?? allocationTotalPct)}
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
@@ -673,7 +715,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     <RevealItem key={item.sleeve} index={index} reducedMotion={reducedMotion}>
                       <div className="flex items-center justify-between text-xs mb-1.5">
                         <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                        <span className="font-mono" style={{ color: item.color }}>{formatPercent(item.value)}</span>
+                        <span className="font-mono" style={{ color: item.color }}>{percentText(item.value * 100)}</span>
                       </div>
                       <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-elevated)' }}>
                         <div className="h-full rounded-full portfolio-risk-fill" style={{ width: `${Math.min(100, Math.max(0, item.value * 100))}%`, background: item.color }} />
@@ -701,7 +743,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                 <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                   <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Horizon</div>
                   <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {horizonYears != null ? `${horizonYears} years` : 'N/A'}
+                    {horizonYears != null ? `${horizonYears} years` : EMPTY_VALUE}
                   </div>
                 </div>
                 <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>

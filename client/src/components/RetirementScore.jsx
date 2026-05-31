@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { numberOrNull } from '../lib/utils'
 
 const RADIUS = 54
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
@@ -18,8 +19,9 @@ function getScoreLabel(score) {
 
 export default function RetirementScore({ score }) {
   const [displayed, setDisplayed] = useState(0)
-  const hasScore = Number.isFinite(score)
-  const safeScore = hasScore ? score : 0
+  const parsedScore = numberOrNull(score)
+  const hasScore = parsedScore != null
+  const safeScore = hasScore ? Math.min(100, Math.max(0, parsedScore)) : 0
 
   useEffect(() => {
     if (!hasScore) {

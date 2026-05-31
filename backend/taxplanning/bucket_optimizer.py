@@ -50,7 +50,12 @@ class BucketOptimizer:
         hsa_coverage: str | None = None,
         tax_brackets: Any = None,
     ) -> BucketPlan:
-        annual_surplus = max(0.0, float(monthly_surplus) * 12.0)
+        gross_income = max(0.0, float(gross_income or 0.0))
+        age = int(age or 0)
+        filing_status = self._normalize_filing_status(filing_status)
+        employer_match_rate = max(0.0, float(employer_match_rate or 0.0))
+        employer_match_cap_pct = max(0.0, float(employer_match_cap_pct or 0.0))
+        annual_surplus = max(0.0, float(monthly_surplus or 0.0) * 12.0)
         remaining = annual_surplus
         taxable_remaining = 0.0
         buckets: list[BucketAllocation] = []
@@ -170,6 +175,7 @@ class BucketOptimizer:
         )
 
     def _trad_ira_deductible_limit(self, filing_status: str, magi: float, ira_limit: float) -> float:
+        filing_status = self._normalize_filing_status(filing_status)
         phaseout = TRAD_IRA_PHASEOUT.get(filing_status)
         if phaseout is None:
             return 0.0
@@ -181,6 +187,7 @@ class BucketOptimizer:
         return ira_limit * ((end - magi) / (end - start))
 
     def _roth_ira_allowed_limit(self, filing_status: str, magi: float, ira_limit: float) -> float:
+        filing_status = self._normalize_filing_status(filing_status)
         phaseout = ROTH_IRA_PHASEOUT.get(filing_status)
         if phaseout is None:
             return 0.0
@@ -199,6 +206,17 @@ class BucketOptimizer:
         if age >= 55:
             limit += HSA_CATCH_UP_55_PLUS
         return limit
+
+    def _normalize_filing_status(self, filing_status: str | None) -> str:
+        aliases = {
+            "married_filing_jointly": "married_joint",
+            "married_jointly": "married_joint",
+            "qualifying_surviving_spouse": "married_joint",
+            "married_filing_separately": "married_separate",
+            "married_separate": "married_separate",
+        }
+        value = (filing_status or "single").strip().lower()
+        return aliases.get(value, value)
 
     def _tax_context(self, tax_brackets: Any) -> _TaxContext | None:
         if tax_brackets is None:

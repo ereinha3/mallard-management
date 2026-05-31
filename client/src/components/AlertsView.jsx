@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle, Route } from 'lucide-react'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, numberOrNull } from '../lib/utils'
 
 function statusLabel(status) {
   if (!status) return 'No gate status returned'
@@ -68,27 +68,31 @@ export default function AlertsView({ onboardResult }) {
               Path To Greenlight
             </div>
           </div>
-          {steps.length > 0 ? steps.map((item, index) => (
-            <div key={`${item.step ?? index}-${item.action ?? 'step'}`} className="py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-              <div className="flex justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <CheckCircle size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--emerald)' }} />
-                  <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {item.action ?? `Step ${index + 1}`}
+          {steps.length > 0 ? steps.map((item, index) => {
+            const targetAmount = numberOrNull(item.target_amount)
+            const monthsEstimated = numberOrNull(item.months_estimated)
+            return (
+              <div key={`${item.step ?? index}-${item.action ?? 'step'}`} className="py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                <div className="flex justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--emerald)' }} />
+                    <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {typeof item.action === 'string' && item.action ? item.action : `Step ${index + 1}`}
+                    </div>
                   </div>
+                  {targetAmount != null && (
+                    <div className="font-mono text-sm" style={{ color: 'var(--gold-light)' }}>
+                      {formatCurrency(targetAmount)}
+                    </div>
+                  )}
                 </div>
-                {item.target_amount != null && (
-                  <div className="font-mono text-sm" style={{ color: 'var(--gold-light)' }}>
-                    {formatCurrency(Number(item.target_amount))}
-                  </div>
-                )}
+                <div className="text-xs mt-1 ml-7" style={{ color: 'var(--text-muted)' }}>
+                  {monthsEstimated != null ? `${monthsEstimated} months estimated` : 'No timeline returned'}
+                  {typeof item.note === 'string' && item.note ? ` · ${item.note}` : ''}
+                </div>
               </div>
-              <div className="text-xs mt-1 ml-7" style={{ color: 'var(--text-muted)' }}>
-                {item.months_estimated != null ? `${item.months_estimated} months estimated` : 'No timeline returned'}
-                {item.note ? ` · ${item.note}` : ''}
-              </div>
-            </div>
-          )) : (
+            )
+          }) : (
             <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
               No path-to-greenlight steps were returned.
             </div>

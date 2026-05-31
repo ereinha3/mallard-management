@@ -3,7 +3,7 @@ import {
   Building, Briefcase, Home, TrendingUp, PiggyBank, Car,
   CreditCard, Plus, ExternalLink, ShieldCheck, Lock, ArrowRight, X
 } from 'lucide-react'
-import { formatCurrency, formatPercent } from '../lib/utils'
+import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 
 const ASSET_ICONS = {
   retirement: { icon: Briefcase, color: '#ddb84a', bg: 'rgba(221, 184, 74, 0.1)' },
@@ -17,6 +17,7 @@ const ASSET_ICONS = {
 const LIABILITY_ICONS = {
   mortgage:     { icon: Building,  color: '#4a72e8', bg: 'rgba(74, 114, 232, 0.1)' },
   auto:         { icon: Car,       color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)' },
+  student:      { icon: Briefcase, color: '#e64545', bg: 'rgba(230, 69, 69, 0.1)' },
   student_loan: { icon: Briefcase, color: '#e64545', bg: 'rgba(230, 69, 69, 0.1)' },
   credit_card:  { icon: CreditCard,color: '#e64545', bg: 'rgba(230, 69, 69, 0.1)' },
   other:        { icon: CreditCard,color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)' },
@@ -31,11 +32,6 @@ const ACCOUNTS_SURFACE_STYLE = {
   boxShadow: '0 14px 38px rgba(0, 0, 0, 0.08)',
 }
 
-function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
-}
-
 function titleize(value) {
   return String(value || 'Other').replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
 }
@@ -46,17 +42,8 @@ function firstPresent(...values) {
 
 function formatProfilePercent(value) {
   const num = numberOrNull(value)
-  if (num == null) return 'Not provided'
+  if (num == null) return '—'
   return formatPercent(Math.abs(num) <= 1 ? num * 100 : num)
-}
-
-function assetTypeFor(key) {
-  if (key.includes('401') || key.includes('ira') || key.includes('retirement')) return 'retirement'
-  if (key.includes('home') || key.includes('real_estate')) return 'home'
-  if (key.includes('brokerage')) return 'brokerage'
-  if (key.includes('vehicle') || key.includes('auto')) return 'vehicle'
-  if (key.includes('cash') || key.includes('savings')) return 'savings'
-  return 'other'
 }
 
 function AccountCard({ account, isLiability }) {
@@ -116,15 +103,15 @@ function AccountCard({ account, isLiability }) {
             <>
               <div className="flex justify-between">
                 <span className="text-muted">APR</span>
-                <span className="font-mono text-primary">{account.apr != null ? formatPercent(account.apr * 100) : 'Not provided'}</span>
+                <span className="font-mono text-primary">{account.apr != null ? formatPercent(account.apr * 100) : '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Monthly interest cost</span>
-                <span className="font-mono text-primary">{account.monthly_interest_cost != null ? formatCurrency(account.monthly_interest_cost) : 'Not provided'}</span>
+                <span className="font-mono text-primary">{account.monthly_interest_cost != null ? formatCurrency(account.monthly_interest_cost) : '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Months to payoff</span>
-                <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : 'Not provided'}</span>
+                <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Optimized payoff month</span>
@@ -175,10 +162,9 @@ function LinkModal({ onClose }) {
 
 export default function AccountsTab({ onboardResult, embedded = false }) {
   const [showLinkModal, setShowLinkModal] = useState(false)
-  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
-  const fallbackProfile = onboardResult?.profile ?? {}
-  const profileValue = (key) => firstPresent(profile[key], fallbackProfile[key])
-  const homeAddress = firstPresent(profile.address, fallbackProfile.address, onboardResult?.user?.address, 'Address not on file')
+  const profile = onboardResult?.validated_profile ?? {}
+  const snapshot = onboardResult?.financial_analysis?.snapshot ?? {}
+  const homeAddress = firstPresent(profile.address, onboardResult?.user?.address, 'Address not on file')
   const debtAnalysis = onboardResult?.financial_analysis?.debt ?? {}
   const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
   const payoffByKind = new Map((payoffPlan?.per_debt ?? []).map(item => [item.kind, item]))
@@ -187,73 +173,83 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
     : Array.isArray(profile.debts) ? profile.debts : []
   const incomeFields = [
     { label: 'Household Income', value: numberOrNull(profile.household_income), cadence: 'Annual' },
-    { label: 'Monthly Income', value: numberOrNull(profile.monthly_income), cadence: 'Monthly' },
-    { label: 'Monthly Surplus', value: numberOrNull(profile.monthly_surplus), cadence: 'Monthly' },
-    { label: 'Monthly Savings', value: numberOrNull(profile.monthly_savings), cadence: 'Monthly' },
-    { label: 'Monthly Contribution', value: numberOrNull(profile.monthly_contribution), cadence: 'Monthly' },
+    { label: 'Monthly Income', value: numberOrNull(snapshot.monthly_income), cadence: 'Monthly' },
+    { label: 'Monthly Expenses', value: numberOrNull(snapshot.monthly_expenses ?? profile.monthly_expenses), cadence: 'Monthly' },
+    { label: 'Monthly Surplus', value: numberOrNull(snapshot.monthly_surplus ?? profile.monthly_surplus), cadence: 'Monthly' },
   ].filter(item => item.value != null)
 
   const assets = [
-    { label: 'Liquid Cash', balance: numberOrNull(profile.capital_on_hand), type: 'savings', subtitle: 'Validated profile', key: 'validated_profile.capital_on_hand' },
-    { label: 'Emergency Fund', balance: numberOrNull(profile.emergency_fund), type: 'savings', subtitle: 'Validated profile', key: 'validated_profile.emergency_fund' },
-  ]
-
-  if (profile.assets && typeof profile.assets === 'object') {
-    Object.entries(profile.assets).forEach(([key, value]) => {
-      const lowerKey = String(key).toLowerCase()
-      const label = titleize(key)
-      const balance = numberOrNull(value)
-      const is401k = lowerKey.includes('401')
-      const isPrimaryHome = lowerKey === 'home' || lowerKey === 'primary_home' || lowerKey.includes('primary home') || lowerKey.includes('primary_residence') || label === 'Primary Home'
-      const pretax401k = numberOrNull(profileValue('pretax_401k'))
-
-      assets.push({
-        label,
-        balance,
-        type: assetTypeFor(key),
-        subtitle: 'Validated profile',
-        key: `validated_profile.assets.${key}`,
-        details: is401k ? [
-          { label: 'Current balance', value: balance != null ? formatCurrency(balance) : 'Not provided' },
-          { label: 'Annual contribution', value: pretax401k != null ? formatCurrency(pretax401k) : 'Not provided' },
-          { label: 'Employer match rate', value: formatProfilePercent(profileValue('employer_match_rate')) },
-          { label: 'Employer match cap', value: formatProfilePercent(profileValue('employer_match_cap_pct')) },
-        ] : isPrimaryHome ? [
-          { label: 'Address', value: homeAddress },
-          { label: 'Home value', value: balance != null ? formatCurrency(balance) : 'Not provided' },
-        ] : undefined,
-      })
-    })
-  }
-
-  const nonLiquidVal = numberOrNull(profileValue('non_liquid_savings'))
-  const homeVal = numberOrNull(profileValue('home_value'))
-
-  const assetsCovered = new Set(
-    (profile.assets && typeof profile.assets === 'object')
-      ? Object.keys(profile.assets).map(k => k.toLowerCase())
-      : []
-  )
-
-  if (nonLiquidVal != null && nonLiquidVal > 0 && !assetsCovered.has('taxable_brokerage') && !assetsCovered.has('non_liquid_savings')) {
-    assets.push({ label: 'Stocks & Brokerage', balance: nonLiquidVal, type: 'brokerage', subtitle: 'Validated profile', key: 'non_liquid_savings' })
-  }
-
-  if (homeVal != null && homeVal > 0 && !assetsCovered.has('primary_home') && !assetsCovered.has('home')) {
-    assets.push({
+    {
+      label: 'Liquid Cash',
+      balance: numberOrNull(profile.capital_on_hand),
+      type: 'savings',
+      subtitle: 'validated_profile.capital_on_hand',
+      key: 'capital_on_hand',
+    },
+    {
+      label: 'Emergency Fund',
+      balance: numberOrNull(profile.emergency_fund),
+      type: 'savings',
+      subtitle: 'validated_profile.emergency_fund',
+      key: 'emergency_fund',
+    },
+    {
+      label: '401(k)',
+      balance: numberOrNull(profile.balance_401k),
+      type: 'retirement',
+      subtitle: 'validated_profile.balance_401k',
+      key: 'balance_401k',
+      details: [
+        { label: 'Current balance', value: formatCurrency(profile.balance_401k) },
+        { label: 'Annual contribution', value: formatCurrency(profile.pretax_401k) },
+        { label: 'Employer match rate', value: formatProfilePercent(profile.employer_match_rate) },
+        { label: 'Employer match cap', value: formatProfilePercent(profile.employer_match_cap_pct) },
+      ],
+    },
+    {
+      label: 'IRA',
+      balance: numberOrNull(profile.ira_balance),
+      type: 'retirement',
+      subtitle: 'validated_profile.ira_balance',
+      key: 'ira_balance',
+      details: [
+        { label: 'Current balance', value: formatCurrency(profile.ira_balance) },
+        { label: 'Annual contribution', value: formatCurrency(profile.pretax_ira) },
+      ],
+    },
+    {
+      label: 'HSA',
+      balance: numberOrNull(profile.hsa_balance),
+      type: 'retirement',
+      subtitle: 'validated_profile.hsa_balance',
+      key: 'hsa_balance',
+      details: [
+        { label: 'Current balance', value: formatCurrency(profile.hsa_balance) },
+        { label: 'Annual contribution', value: formatCurrency(profile.pretax_hsa) },
+      ],
+    },
+    {
+      label: 'Stocks & Brokerage',
+      balance: numberOrNull(profile.non_liquid_savings),
+      type: 'brokerage',
+      subtitle: 'validated_profile.non_liquid_savings',
+      key: 'non_liquid_savings',
+    },
+    {
       label: 'Primary Home',
-      balance: homeVal,
+      balance: numberOrNull(profile.home_value),
       type: 'home',
-      subtitle: 'Validated profile',
+      subtitle: 'validated_profile.home_value',
       key: 'home_value',
       details: [
         { label: 'Address', value: homeAddress },
-        { label: 'Home value', value: formatCurrency(homeVal) },
+        { label: 'Home value', value: formatCurrency(profile.home_value) },
       ],
-    })
-  }
+    },
+  ]
 
   const displayAssets = assets.filter(asset => asset.balance != null && asset.balance > 0)
+  const totalAssets = displayAssets.reduce((sum, asset) => sum + asset.balance, 0)
   const liabilities = debts
     .map((debt, index) => {
       const balance = numberOrNull(firstPresent(debt.balance, debt.current_balance, debt.total_balance))
@@ -263,7 +259,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
       return {
         label: titleize(kind),
         balance,
-        type: kind,
+        type: String(kind),
         subtitle: apr != null ? `${formatPercent(apr * 100)} APR` : 'Debt from profile',
         apr,
         monthly_interest_cost: numberOrNull(firstPresent(debt.monthly_interest_cost, debt.monthly_interest)),
@@ -273,6 +269,13 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
       }
     })
     .filter(Boolean)
+  const rowDebtTotal = liabilities.reduce((sum, liability) => sum + liability.balance, 0)
+  const totalDebt = liabilities.length > 0
+    ? rowDebtTotal
+    : numberOrNull(debtAnalysis.total_balance ?? snapshot.total_debt) ?? (displayAssets.length > 0 ? 0 : null)
+  const netWorth = displayAssets.length > 0 && totalDebt != null
+    ? totalAssets - totalDebt
+    : numberOrNull(snapshot.net_worth_estimate)
 
   return (
     <div className={embedded ? 'flex flex-col bg-base' : 'flex flex-col h-full bg-base overflow-y-auto'} style={embedded ? { background: 'transparent' } : ACCOUNTS_PAGE_STYLE}>
@@ -333,8 +336,13 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
             <div className="text-right">
               <div className="text-[10px] font-bold text-muted uppercase tracking-widest">Total Profile Assets</div>
               <div className="text-xl font-mono font-bold text-emerald">
-                {formatCurrency(displayAssets.reduce((s, a) => s + a.balance, 0), true)}
+                {formatCurrency(totalAssets, true)}
               </div>
+              {netWorth != null && (
+                <div className="text-[10px] font-mono text-muted mt-1">
+                  Net worth {formatCurrency(netWorth, true)}
+                </div>
+              )}
             </div>
           </div>
           {displayAssets.length > 0 ? (
@@ -359,7 +367,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
             <div className="text-right">
               <div className="text-[10px] font-bold text-muted uppercase tracking-widest">Total Debt</div>
               <div className="text-xl font-mono font-bold text-ruby">
-                {formatCurrency(numberOrNull(debtAnalysis.total_balance) ?? liabilities.reduce((s, a) => s + a.balance, 0), true)}
+                {formatCurrency(totalDebt, true)}
               </div>
             </div>
           </div>

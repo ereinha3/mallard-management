@@ -13,12 +13,12 @@ const BASE =
  * AUTH ENDPOINTS
  */
 
-export async function register({ email, password, name, phone, zip, zip_code: providedZipCode, address }) {
+export async function register({ email, password, name, phone, zip, zip_code: providedZipCode, address, home_value }) {
   const zip_code = providedZipCode ?? zip
   const res = await fetch(`${BASE}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name, phone, zip_code, address }),
+    body: JSON.stringify({ email, password, name, phone, zip_code, address, home_value }),
   })
   if (!res.ok) {
     const err = await res.json()
@@ -148,7 +148,7 @@ export async function postOnboard(profile, userEmail = null, sessionId = null) {
 /**
  * POST /api/v1/portfolio — build a portfolio from a profile.
  */
-export async function postPortfolio(profile, method = 'erc') {
+export async function postPortfolio(profile, method = 'strategic') {
   const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -212,15 +212,11 @@ export async function postTaxReport(payload) {
 /**
  * POST /api/v1/portfolio/reoptimize — rerun optimizer from a risk dial target.
  */
-export async function postReoptimize({ profile, risk_dial, weights = null }) {
+export async function postReoptimize({ profile, risk_dial }) {
   const res = await fetch(`${BASE}/api/v1/portfolio/reoptimize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      profile,
-      risk_dial,
-      ...(weights ? { weights: { by_sleeve: weights?.by_sleeve ?? weights } } : {}),
-    }),
+    body: JSON.stringify({ profile, risk_dial }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)

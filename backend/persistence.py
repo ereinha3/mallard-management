@@ -59,6 +59,11 @@ class User(Base):
         nullable=True,
         comment="Optional user postal ZIP code.",
     )
+    home_value: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Optional estimated current home value.",
+    )
     hashed_password: Mapped[str] = mapped_column(
         String,
         nullable=False,
@@ -422,6 +427,7 @@ def _ensure_additive_columns(db_engine: Engine) -> None:
                 "phone": "VARCHAR",
                 "address": "VARCHAR",
                 "zip_code": "VARCHAR",
+                "home_value": "FLOAT",
             },
             "profiles": {"gate_status": "VARCHAR", "created_at": "DATETIME"},
             "chat_messages": {"updated_at": "DATETIME"},
@@ -531,6 +537,7 @@ def create_user(
     phone: str | None = None,
     address: str | None = None,
     zip_code: str | None = None,
+    home_value: float | None = None,
 ) -> User:
     user = User(
         email=email,
@@ -538,6 +545,7 @@ def create_user(
         phone=phone,
         address=address,
         zip_code=zip_code,
+        home_value=home_value,
         hashed_password=pw_hash,
     )
     db.add(user)

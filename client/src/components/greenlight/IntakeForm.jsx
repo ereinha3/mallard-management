@@ -35,12 +35,14 @@ const EMPLOYMENT_FIELDS = [
   },
 ]
 
-function parsePositiveNumber(value) {
+function parseNumber(value, { min = 0, integer = false } = {}) {
   const cleaned = String(value).replace(/,/g, '').trim()
   if (!cleaned) return null
 
   const parsed = Number(cleaned)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  if (!Number.isFinite(parsed) || parsed < min) return null
+  if (integer && !Number.isInteger(parsed)) return null
+  return parsed
 }
 
 function parseBoundedInteger(value, min, max) {
@@ -100,9 +102,10 @@ export default function IntakeForm({ onSubmit }) {
         return
       }
 
-      const parsed = parsePositiveNumber(values[field.name])
+      const min = ['income', 'expenses', 'age'].includes(field.name) ? 1 : 0
+      const parsed = parseNumber(values[field.name], { min, integer: field.type === 'number' })
       if (parsed === null) {
-        nextErrors[field.name] = 'Enter a positive number.'
+        nextErrors[field.name] = min > 0 ? 'Enter a positive number.' : 'Enter zero or more.'
       } else {
         parsedValues[field.name] = parsed
       }

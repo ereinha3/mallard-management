@@ -17,15 +17,13 @@ const STEPS = {
 }
 
 function getUserEmail(result) {
-  return result?.validated_profile?.email
-    ?? result?.profile?.email
-    ?? result?.user?.email
+  return result?.user?.email
     ?? result?.email
     ?? null
 }
 
 function hasPortfolio(result) {
-  return Boolean(result?.portfolio ?? result?.optimizer_input?.portfolio)
+  return Boolean(result?.portfolio)
 }
 
 function stepFromResult(result) {

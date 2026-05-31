@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckCircle, AlertTriangle, Send, Loader } from 'lucide-react'
 import { streamChat, postOnboard } from '../../api/greenlightClient'
+import { formatCurrency, numberOrNull } from '../../lib/utils'
 
 function AgentBubble({ text, isStreaming }) {
   return (
@@ -204,32 +205,32 @@ export default function IntakeChat({ onComplete, userEmail, prefillData }) {
   const paramRows = profile ? [
     {
       label: 'Annual Income',
-      value: `$${Math.round(profile.household_income).toLocaleString()}`,
+      value: formatCurrency(profile.household_income),
       status: 'ok',
     },
     {
       label: 'Monthly Expenses',
-      value: `$${Math.round(profile.monthly_expenses).toLocaleString()}`,
+      value: formatCurrency(profile.monthly_expenses),
       status: 'ok',
     },
     {
       label: 'Emergency Fund',
-      value: `$${Math.round(profile.emergency_fund).toLocaleString()}`,
-      status: profile.emergency_fund < profile.monthly_expenses * 3 ? 'warn' : 'ok',
-      note: profile.emergency_fund < profile.monthly_expenses * 3
+      value: formatCurrency(profile.emergency_fund),
+      status: numberOrNull(profile.emergency_fund) != null && numberOrNull(profile.monthly_expenses) != null && profile.emergency_fund < profile.monthly_expenses * 3 ? 'warn' : 'ok',
+      note: numberOrNull(profile.emergency_fund) != null && numberOrNull(profile.monthly_expenses) != null && profile.emergency_fund < profile.monthly_expenses * 3
         ? 'May be below 3-month threshold'
         : 'Meets 3-month threshold',
     },
     {
       label: 'Capital on Hand',
-      value: `$${Math.round(profile.capital_on_hand).toLocaleString()}`,
+      value: formatCurrency(profile.capital_on_hand),
       status: 'ok',
     },
     {
       label: 'Debts',
       value: profile.debts?.length ? `${profile.debts.length} item(s)` : 'None',
-      status: profile.debts?.some(d => d.apr > 0.08) ? 'warn' : 'ok',
-      note: profile.debts?.some(d => d.apr > 0.08) ? 'High-APR debt detected (>8%)' : null,
+      status: profile.debts?.some(d => numberOrNull(d.apr) > 0.08) ? 'warn' : 'ok',
+      note: profile.debts?.some(d => numberOrNull(d.apr) > 0.08) ? 'High-APR debt detected (>8%)' : null,
     },
     {
       label: 'Age / Horizon',
