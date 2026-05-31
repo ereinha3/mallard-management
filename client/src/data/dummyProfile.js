@@ -43,6 +43,30 @@ const debts = [
   },
 ]
 
+const debtPayoffPlan = {
+  method: 'avalanche',
+  payoff_scope: 'consumer_debt',
+  months_to_freedom: 8,
+  total_interest_paid: 381.98,
+  avalanche_vs_snowball_interest_saved: 0,
+  monthly_free_cash_after_payoff: 2385,
+  excluded_debt_kinds: ['mortgage'],
+  excluded_debt_balance: 340000,
+  monthly_schedule: [
+    { month: 1, total_balance_remaining: 15702, interest_paid: 87, principal_paid: 2298, targeted_debt_kind: 'student_loan' },
+    { month: 2, total_balance_remaining: 13392.89, interest_paid: 75.89, principal_paid: 2309.11, targeted_debt_kind: 'student_loan' },
+    { month: 3, total_balance_remaining: 11072.63, interest_paid: 64.73, principal_paid: 2320.27, targeted_debt_kind: 'student_loan' },
+    { month: 4, total_balance_remaining: 8741.14, interest_paid: 53.52, principal_paid: 2331.48, targeted_debt_kind: 'student_loan' },
+    { month: 5, total_balance_remaining: 6398.39, interest_paid: 42.25, principal_paid: 2342.75, targeted_debt_kind: 'student_loan' },
+    { month: 6, total_balance_remaining: 4044.32, interest_paid: 30.93, principal_paid: 2354.07, targeted_debt_kind: 'student_loan' },
+    { month: 7, total_balance_remaining: 1678.86, interest_paid: 19.55, principal_paid: 2365.45, targeted_debt_kind: 'student_loan' },
+    { month: 8, total_balance_remaining: 0, interest_paid: 8.11, principal_paid: 1678.86, targeted_debt_kind: 'student_loan' },
+  ],
+  per_debt: [
+    { kind: 'student_loan', starting_balance: 18000, payoff_month: 8, total_interest_paid: 381.98 },
+  ],
+}
+
 const assets = [
   { id: 'cash-checking', type: 'cash', name: 'Checking and cash reserve', value: 55000, institution: 'Mallard Demo Bank', liquidity: 'high' },
   { id: 'emergency-fund', type: 'savings', name: 'Emergency fund', value: 30000, institution: 'Mallard Demo Bank', liquidity: 'high' },
@@ -105,6 +129,9 @@ export const DUMMY_ONBOARD_RESULT = {
     address: '742 Evergreen Terrace, Springfield, VA 22150',
     home_value: 420000,
     non_liquid_savings: 45000,
+    balance_401k: 120000,
+    ira_balance: 38000,
+    hsa_balance: 9500,
     pretax_401k: 19500,
     employer_match_rate: 0.5,
     employer_match_cap_pct: 0.05,
@@ -113,7 +140,6 @@ export const DUMMY_ONBOARD_RESULT = {
     assets: {
       emergency_savings: 30000,
       cash_reserve: 55000,
-      retirement_401k: 120000,
       taxable_brokerage: 45000,
       primary_home: 420000,
     },
@@ -139,10 +165,12 @@ export const DUMMY_ONBOARD_RESULT = {
     universe_pref: 'broad_market',
     esg_exclusions: [],
     sector_theme_tilts: [],
+    balance_401k: 120000,
+    ira_balance: 38000,
+    hsa_balance: 9500,
     assets: {
       emergency_savings: 30000,
       cash_reserve: 55000,
-      retirement_401k: 120000,
       taxable_brokerage: 45000,
       primary_home: 420000,
     },
@@ -170,6 +198,7 @@ export const DUMMY_ONBOARD_RESULT = {
       monthly_minimums: 2485,
       debts,
     },
+    debt_payoff_plan: debtPayoffPlan,
     risk: {
       label: 'Growth with guardrails',
       capacity_score: 78,
@@ -221,6 +250,7 @@ export const DUMMY_ONBOARD_RESULT = {
     retirement_score: 82,
     score: 82,
   },
+  debt_payoff_plan: debtPayoffPlan,
   gate_result: {
     status: 'greenlight',
     reason: 'Emergency fund is above the three-month threshold and no debt exceeds the 8% high-APR gate.',

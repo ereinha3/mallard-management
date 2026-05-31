@@ -42,6 +42,24 @@ function formatCheckLabel(key) {
   return String(key ?? 'check').replace(/_/g, ' ')
 }
 
+function formatCurrency(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return 'Not available'
+  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+}
+
+function formatDuration(months) {
+  const total = Number(months)
+  if (!Number.isFinite(total)) return 'Not available'
+  const years = Math.floor(total / 12)
+  const rem = total % 12
+  return `${years} years ${rem} months`
+}
+
+function titleize(value) {
+  return String(value || 'Debt').replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
 function normalizeGateChecks(gateResult) {
   const rawChecks = gateResult?.gate_result?.checks ?? []
   if (Array.isArray(rawChecks)) {
@@ -159,6 +177,92 @@ function getHaltReasons(gateResult) {
     highAprThreshold,
     lowAprDebts: getLowAprDebts(profile),
   }
+}
+
+function DebtPayoffSchedule({ gateResult }) {
+  const plan = gateResult?.financial_analysis?.debt_payoff_plan ?? gateResult?.debt_payoff_plan
+  const debts = gateResult?.financial_analysis?.debt?.debts ?? gateResult?.validated_profile?.debts ?? gateResult?.profile?.debts ?? []
+  if (!plan || !Array.isArray(plan.per_debt) || plan.per_debt.length === 0) return null
+
+  const debtByKind = new Map(debts.map(debt => [debt.kind ?? debt.type ?? debt.label, debt]))
+
+  return (
+    <div
+      className="w-full rounded-2xl p-5 mb-8 text-left"
+      style={{
+        background: 'rgba(30,184,122,0.05)',
+        border: '1px solid rgba(30,184,122,0.22)',
+      }}
+    >
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--emerald)' }}>
+            Consumer Debt Payoff Schedule
+          </div>
+          <div className="font-display font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+            {formatDuration(plan.months_to_freedom)} to debt freedom
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Cash freed after payoff</div>
+          <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+            {formatCurrency(plan.monthly_free_cash_after_payoff)}/mo
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Interest paid</div>
+          <div className="font-mono text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {formatCurrency(plan.total_interest_paid)}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Method</div>
+          <div className="font-mono text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {titleize(plan.method)}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Saved vs snowball</div>
+          <div className="font-mono text-sm font-semibold" style={{ color: 'var(--emerald)' }}>
+            {plan.avalanche_vs_snowball_interest_saved != null ? formatCurrency(plan.avalanche_vs_snowball_interest_saved) : 'Not available'}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {plan.per_debt.map((item, index) => {
+          const debt = debtByKind.get(item.kind) ?? {}
+          const apr = Number(debt.apr)
+          const balance = item.starting_balance ?? debt.balance
+          return (
+            <div
+              key={`${item.kind}-${index}`}
+              className="grid items-center gap-3 rounded-lg px-3 py-2"
+              style={{ gridTemplateColumns: '1fr auto auto auto', background: 'var(--bg-elevated)' }}
+            >
+              <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{titleize(item.kind)}</div>
+              <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                {Number.isFinite(apr) ? `${(apr * 100).toFixed(1)}% APR` : 'APR n/a'}
+              </div>
+              <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{formatCurrency(balance)}</div>
+              <div className="text-xs font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+                Month {item.payoff_month ?? 'n/a'}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {plan.excluded_debt_kinds?.length > 0 && (
+        <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+          Excludes {plan.excluded_debt_kinds.map(titleize).join(', ')}
+          {plan.excluded_debt_balance != null ? ` (${formatCurrency(plan.excluded_debt_balance)})` : ''} from aggressive payoff planning.
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── HALT screen ────────────────────────────────────────────────────────────
@@ -417,6 +521,8 @@ function HaltScreen({ onFix, gateResult }) {
           )}
         </div>
 
+        <DebtPayoffSchedule gateResult={gateResult} />
+
         <button
           onClick={onFix}
           className="flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold text-sm transition-all"
@@ -586,6 +692,8 @@ function GreenScreen({ onContinue, gateResult }) {
             ))}
           </div>
         </div>
+
+        <DebtPayoffSchedule gateResult={gateResult} />
 
         <button
           onClick={onContinue}

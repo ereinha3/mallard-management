@@ -50,25 +50,35 @@ function getProfile(onboardResult) {
   return onboardResult?.validated_profile ?? onboardResult?.profile ?? onboardResult ?? {}
 }
 
-function getAssetRows(profile) {
-  const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
-  const hasHomeInAssets = Object.keys(assetsObj).some(key => key.toLowerCase().includes('home'))
-  const rows = [
-    { label: 'Liquid Cash', value: numberOrNull(profile.capital_on_hand), type: 'cash' },
-    { label: 'Emergency Fund', value: numberOrNull(profile.emergency_fund), type: 'emergency' },
-  ]
+function addAssetRow(rows, covered, row, aliases = []) {
+  const amount = numberOrNull(row.value)
+  if (amount == null || amount <= 0) return
 
-  if (!hasHomeInAssets) {
-    rows.push({ label: 'House', value: numberOrNull(profile.home_value), type: 'home' })
-  }
-  rows.push({ label: 'Non-Liquid Savings', value: numberOrNull(profile.non_liquid_savings), type: 'other' })
+  const keys = [row.key, row.label, ...aliases]
+    .filter(Boolean)
+    .map(key => String(key).toLowerCase())
+  if (keys.some(key => covered.has(key))) return
+
+  rows.push({ ...row, value: amount })
+  keys.forEach(key => covered.add(key))
+}
+
+function getAssetRows(profile) {
+  const rows = []
+  const covered = new Set()
+  const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
+
+  addAssetRow(rows, covered, { key: 'capital_on_hand', label: 'Liquid Cash', value: profile.capital_on_hand, type: 'cash' }, ['liquid_cash', 'cash'])
+  addAssetRow(rows, covered, { key: 'emergency_fund', label: 'Emergency Fund', value: profile.emergency_fund, type: 'emergency' })
+  addAssetRow(rows, covered, { key: 'balance_401k', label: '401(k)', value: profile.balance_401k, type: 'retirement' }, ['401k', 'retirement_401k'])
+  addAssetRow(rows, covered, { key: 'ira_balance', label: 'IRA', value: profile.ira_balance, type: 'retirement' }, ['ira'])
+  addAssetRow(rows, covered, { key: 'hsa_balance', label: 'HSA', value: profile.hsa_balance, type: 'other' }, ['hsa'])
 
   Object.entries(assetsObj).forEach(([key, value]) => {
-    const amount = numberOrNull(value)
-    if (amount == null || amount <= 0) return
-    rows.push({
+    addAssetRow(rows, covered, {
+      key,
       label: key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
-      value: amount,
+      value,
       type: key.includes('home') ? 'home'
         : key.includes('vehicle') || key.includes('auto') ? 'vehicle'
         : key.includes('brokerage') ? 'brokerage'
@@ -76,6 +86,19 @@ function getAssetRows(profile) {
         : 'other',
     })
   })
+
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'non_liquid_savings', label: 'Stocks & Brokerage', value: profile.non_liquid_savings, type: 'brokerage' },
+    ['taxable_brokerage', 'brokerage', 'stocks_brokerage'],
+  )
+  addAssetRow(
+    rows,
+    covered,
+    { key: 'home_value', label: 'Primary Home', value: profile.home_value, type: 'home' },
+    ['home', 'primary_home', 'primary_residence'],
+  )
 
   const unique = new Map()
   rows.forEach(row => {
@@ -207,20 +230,26 @@ export default function Dashboard({ onboardResult }) {
   const bucketPlan = onboardResult?.bucket_plan ?? null
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
+  const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
 
-  const netWorth = nullableNumber(snapshot.net_worth_estimate)
+  const assets = getAssetRows(profile)
+  const liabilities = getLiabilityRows(onboardResult, profile)
+  const rowAssetTotal = assets.reduce((sum, row) => sum + row.value, 0)
   const totalDebt = nullableNumber(snapshot.total_debt)
+    ?? liabilities.reduce((sum, row) => sum + row.balance, 0)
+  const totalAssets = rowAssetTotal > 0
+    ? rowAssetTotal
+    : (nullableNumber(snapshot.net_worth_estimate) != null && totalDebt != null
+      ? nullableNumber(snapshot.net_worth_estimate) + totalDebt
+      : null)
+  const netWorth = totalAssets != null && totalDebt != null
+    ? totalAssets - totalDebt
+    : nullableNumber(snapshot.net_worth_estimate)
   const cashFlow = nullableNumber(snapshot.monthly_surplus)
   const savingsRate = nullableNumber(snapshot.savings_rate_pct)
   const monthlyIncome = nullableNumber(snapshot.monthly_income)
   const monthlyExpenses = nullableNumber(snapshot.monthly_expenses)
   const score = nullableNumber(onboardResult?.risk_profile?.capacity_score ?? risk?.capacity_score)
-  const assets = getAssetRows(profile)
-  const backendTotalAssets = nullableNumber(snapshot.total_assets)
-  const assetRowsTotal = assets.length > 0 ? assets.reduce((sum, row) => sum + row.value, 0) : null
-  const inferredTotalAssets = netWorth != null && totalDebt != null ? netWorth + totalDebt : null
-  const totalAssets = backendTotalAssets ?? assetRowsTotal ?? inferredTotalAssets
-  const liabilities = getLiabilityRows(onboardResult, profile)
   const retirementHorizonYears = nullableNumber(profile.horizon_years)
 
   useEffect(() => {
@@ -417,7 +446,7 @@ export default function Dashboard({ onboardResult }) {
                 {projectionError}
               </div>
             ) : (
-              <ProjectionChart projection={projection} onboardResult={onboardResult} retirementHorizonYears={retirementHorizonYears} />
+              <ProjectionChart projection={projection} onboardResult={onboardResult} retirementYear={retirementHorizonYears} />
             )}
           </div>
 
@@ -507,6 +536,22 @@ export default function Dashboard({ onboardResult }) {
                 {formatMaybeCurrency(totalDebt, true)}
               </span>
             </div>
+            {payoffPlan && (
+              <div className="mt-3 pt-3 grid grid-cols-2 gap-3 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ color: 'var(--text-muted)' }}>Debt freedom</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {payoffPlan.months_to_freedom != null ? `${payoffPlan.months_to_freedom} mo` : 'Not available'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div style={{ color: 'var(--text-muted)' }}>Saved vs snowball</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+                    {payoffPlan.avalanche_vs_snowball_interest_saved != null ? formatCurrency(payoffPlan.avalanche_vs_snowball_interest_saved, true) : 'Not available'}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card-premium p-5 anim-fade-up d500">

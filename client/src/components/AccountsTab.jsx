@@ -144,6 +144,10 @@ function AccountCard({ account, isLiability }) {
                     : 'Not provided'}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Optimized payoff month</span>
+                <span className="font-mono text-primary">{account.optimized_payoff_month != null ? account.optimized_payoff_month : 'Not provided'}</span>
+              </div>
             </>
           ) : (
             account.details.map(detail => (
@@ -228,6 +232,8 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
   const profileValue = (key) => firstPresent(profile[key], fallbackProfile[key])
   const homeAddress = firstPresent(profile.address, fallbackProfile.address, onboardResult?.user?.address, 'Address not on file')
   const debtAnalysis = onboardResult?.financial_analysis?.debt ?? {}
+  const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
+  const payoffByKind = new Map((payoffPlan?.per_debt ?? []).map(item => [item.kind, item]))
   const debts = Array.isArray(debtAnalysis.debts) && debtAnalysis.debts.length > 0
     ? debtAnalysis.debts
     : Array.isArray(profile.debts) ? profile.debts : []
@@ -314,6 +320,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
         apr,
         monthly_interest_cost: numberOrNull(firstPresent(debt.monthly_interest_cost, debt.monthly_interest)),
         months_to_payoff: numberOrNull(firstPresent(debt.months_to_payoff, debt.payoff_months)),
+        optimized_payoff_month: numberOrNull(payoffByKind.get(kind)?.payoff_month),
         key: `${kind}-${index}`,
       }
     })

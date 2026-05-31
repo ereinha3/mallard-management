@@ -29,7 +29,7 @@ export default function RetirementScore({ score }) {
     const step = safeScore / 40
     const timer = setInterval(() => {
       start += step
-      if (start >= safeScore) { setDisplayed(safeScore); clearInterval(timer); return }
+      if (start >= safeScore) { setDisplayed(Math.round(safeScore)); clearInterval(timer); return }
       setDisplayed(Math.round(start))
     }, 18)
     return () => clearInterval(timer)

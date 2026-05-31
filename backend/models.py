@@ -98,6 +98,8 @@ class DebtItem(BaseModel):
     balance: float = Field(gt=0, description="Outstanding balance in dollars")
     apr: float = Field(ge=0, le=1.0, description="Annual rate as decimal — 0.22 = 22%")
     kind: Literal["credit_card", "student", "mortgage", "auto", "personal", "other"]
+    minimum_payment: Optional[float] = Field(default=None, ge=0)
+    min_payment: Optional[float] = Field(default=None, ge=0)
 
 
 class UserProfileInput(BaseModel):
@@ -752,6 +754,34 @@ class DebtAnalysis(BaseModel):
     avalanche_order: List[str]
 
 
+class DebtPayoffMonth(BaseModel):
+    month: Optional[int] = None
+    total_balance_remaining: Optional[float] = None
+    interest_paid: Optional[float] = None
+    principal_paid: Optional[float] = None
+    targeted_debt_kind: Optional[str] = None
+
+
+class DebtPayoffDetail(BaseModel):
+    kind: Optional[str] = None
+    starting_balance: Optional[float] = None
+    payoff_month: Optional[int] = None
+    total_interest_paid: Optional[float] = None
+
+
+class DebtPayoffPlan(BaseModel):
+    method: Optional[Literal["avalanche", "snowball"]] = None
+    payoff_scope: Optional[str] = None
+    months_to_freedom: Optional[int] = None
+    total_interest_paid: Optional[float] = None
+    monthly_schedule: List[DebtPayoffMonth] = Field(default_factory=list)
+    per_debt: List[DebtPayoffDetail] = Field(default_factory=list)
+    avalanche_vs_snowball_interest_saved: Optional[float] = None
+    monthly_free_cash_after_payoff: Optional[float] = None
+    excluded_debt_kinds: List[str] = Field(default_factory=list)
+    excluded_debt_balance: Optional[float] = None
+
+
 class EmergencyFundAnalysis(BaseModel):
     current_balance: float
     current_months: float
@@ -791,6 +821,7 @@ class RiskSummary(BaseModel):
 class FinancialAnalysis(BaseModel):
     snapshot: FinancialSnapshot
     debt: DebtAnalysis
+    debt_payoff_plan: Optional[DebtPayoffPlan] = None
     emergency_fund: EmergencyFundAnalysis
     risk: RiskSummary
     path_to_greenlight: PathToGreenlight
@@ -804,6 +835,7 @@ class OnboardResponse(BaseModel):
     risk_profile: Optional[RiskProfile] = None
     gate_result: Optional[GateResult] = None
     financial_analysis: Optional[FinancialAnalysis] = None
+    debt_payoff_plan: Optional[DebtPayoffPlan] = None
     optimizer_input: Optional[OptimizerInput] = None
     portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)

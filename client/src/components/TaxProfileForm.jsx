@@ -244,11 +244,14 @@ const initialForm = {
   state: '',
   filingStatus: '',
   annual401k: '',
+  balance401k: '',
   employerMatchRate: '',
   employerMatchCap: '',
   traditionalIra: '',
+  iraBalance: '',
   hsaEligible: false,
   hsaContribution: '',
+  hsaBalance: '',
   hsaCoverage: 'self',
 }
 
@@ -272,6 +275,7 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
       ...prev,
       hsaEligible: value,
       hsaContribution: value ? prev.hsaContribution : '',
+      hsaBalance: value ? prev.hsaBalance : '',
       hsaCoverage: value ? prev.hsaCoverage : 'self',
     }))
   }
@@ -314,6 +318,9 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
       home_value: homeValue ?? null,
       state: form.state.trim() || null,
       filing_status: form.filingStatus,
+      balance_401k: toNumber(form.balance401k),
+      ira_balance: toNumber(form.iraBalance),
+      hsa_balance: toNumber(form.hsaBalance),
       pre_tax_contributions_annual: {
         traditional_401k: toNumber(form.annual401k),
         employer_match_rate_pct: toNumber(form.employerMatchRate),
@@ -504,6 +511,13 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 error={errors.annual401k}
               />
               <Field
+                label="Current 401(k) balance"
+                value={form.balance401k}
+                onChange={set('balance401k')}
+                placeholder="120000"
+                inputMode="decimal"
+              />
+              <Field
                 label="Employer Match Rate %"
                 value={form.employerMatchRate}
                 onChange={set('employerMatchRate')}
@@ -527,6 +541,13 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                 inputMode="decimal"
                 error={errors.traditionalIra}
               />
+              <Field
+                label="Current IRA balance"
+                value={form.iraBalance}
+                onChange={set('iraBalance')}
+                placeholder="38000"
+                inputMode="decimal"
+              />
               <div style={{ gridColumn: '1 / -1' }}>
                 <Toggle
                   label="HSA Eligible"
@@ -543,6 +564,13 @@ export default function TaxProfileForm({ onComplete, zip, homeValue }) {
                     placeholder="4150"
                     inputMode="decimal"
                     error={errors.hsaContribution}
+                  />
+                  <Field
+                    label="Current HSA balance"
+                    value={form.hsaBalance}
+                    onChange={set('hsaBalance')}
+                    placeholder="9500"
+                    inputMode="decimal"
                   />
                   <SelectField
                     label="HSA Coverage"

@@ -21,9 +21,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = ROOT / "backend"
 ENGINE_DIR = ROOT / "engine"
-for path in (ENGINE_DIR, BACKEND_DIR):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+for path in (str(BACKEND_DIR), str(ENGINE_DIR)):
+    while path in sys.path:
+        sys.path.remove(path)
+sys.path.insert(0, str(ENGINE_DIR))
+sys.path.insert(0, str(BACKEND_DIR))
 
 _TEST_APP_DB = Path(tempfile.mkdtemp(prefix="mallard-test-app-")) / "mallard_app.db"
 os.environ["MALLARD_DB_URL"] = f"sqlite:///{_TEST_APP_DB}"
