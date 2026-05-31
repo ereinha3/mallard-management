@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import models as api_models
-from persistence import Profile, get_session
+from persistence import Profile, get_or_create_investment_account, get_session, get_user
 
 
 DEFAULT_PROJECTION_SEED = 17
@@ -242,6 +242,98 @@ def _api_module() -> Any:
     return __import__("api.v1", fromlist=["v1"])
 
 
+def get_account_summary(user_email: str) -> dict[str, Any]:
+    db = get_session()
+    try:
+        user = get_user(db, user_email)
+        if user is None:
+            return {"error": "No account was found for the requesting user."}
+        account = get_or_create_investment_account(db, user_email)
+        return {
+            "name": user.name,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "cash_available": account.cash_available,
+            "cash_pending": account.cash_pending,
+            "broker_provider": account.broker_provider,
+        }
+    finally:
+        db.close()
+
+
+def get_my_settings(user_email: str) -> dict[str, Any]:
+    db = get_session()
+    try:
+        profile = db.query(Profile).filter(Profile.user_email == user_email).first()
+        if profile is None:
+            return {"error": "Onboarding not complete for the requesting user."}
+        profile_input = profile.get_input()
+        result = profile.get_result() or {}
+    finally:
+        db.close()
+
+    settings: dict[str, Any] = {}
+    for key in ("horizon_years", "goal_target", "monthly_contribution", "universe_pref", "esg_exclusions"):
+        if key in profile_input:
+            settings[key] = profile_input[key]
+
+    if "sector_tilts" in profile_input:
+        settings["sector_tilts"] = profile_input["sector_tilts"]
+    elif "sector_theme_tilts" in profile_input:
+        settings["sector_tilts"] = profile_input["sector_theme_tilts"]
+
+    optimizer_input = result.get("optimizer_input") if isinstance(result, dict) else None
+    validated_profile = result.get("validated_profile") if isinstance(result, dict) else None
+    risk_profile = result.get("risk_profile") if isinstance(result, dict) else None
+    financial_analysis = result.get("financial_analysis") if isinstance(result, dict) else None
+    financial_risk = (
+        financial_analysis.get("risk")
+        if isinstance(financial_analysis, dict)
+        else None
+    )
+
+    if "monthly_contribution" not in settings:
+        for source in (optimizer_input, validated_profile):
+            if isinstance(source, dict) and "monthly_contribution" in source:
+                settings["monthly_contribution"] = source["monthly_contribution"]
+                break
+
+    if isinstance(risk_profile, dict):
+        if "risk_band" in risk_profile:
+            settings["risk_band"] = risk_profile["risk_band"]
+        elif "gamma_band" in risk_profile:
+            settings["risk_band"] = risk_profile["gamma_band"]
+
+    if isinstance(financial_risk, dict) and "target_volatility_pct" in financial_risk:
+        settings["target_volatility_pct"] = financial_risk["target_volatility_pct"]
+
+    return settings
+
+
+def get_my_profile_inputs(user_email: str) -> dict[str, Any]:
+    db = get_session()
+    try:
+        profile = db.query(Profile).filter(Profile.user_email == user_email).first()
+        if profile is None:
+            return {"error": "Onboarding not complete for the requesting user."}
+        profile_input = profile.get_input()
+    finally:
+        db.close()
+
+    keys = (
+        "household_income",
+        "monthly_expenses",
+        "capital_on_hand",
+        "emergency_fund",
+        "age",
+        "filing_status",
+        "dependents",
+        "income_stability",
+        "debts",
+    )
+    return {key: profile_input[key] for key in keys if key in profile_input}
+
+
 def get_my_gate_status(user_email: str) -> dict[str, Any]:
     onboard = _stored_onboard(user_email)
     gate = onboard.gate_result
@@ -381,6 +473,9 @@ def get_method_citations(method: str) -> dict[str, Any]:
 def dispatch_explain_tool(name: str, args: dict[str, Any] | None, user_email: str | None) -> dict[str, Any]:
     args = args or {}
     scoped_tools: dict[str, Callable[..., dict[str, Any]]] = {
+        "get_account_summary": get_account_summary,
+        "get_my_settings": get_my_settings,
+        "get_my_profile_inputs": get_my_profile_inputs,
         "get_my_gate_status": get_my_gate_status,
         "explain_portfolio": explain_portfolio,
         "explain_risk_fusion": explain_risk_fusion,

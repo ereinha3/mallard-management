@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { User, Sun, Moon, LogOut, RotateCcw } from 'lucide-react'
 import { useTheme } from '../theme/ThemeProvider'
 import { useTour } from './tour/TourProvider'
+
+const AUTH_STORAGE_KEY = 'mallard.auth'
 
 function formatValue(value) {
   if (value == null || value === '') return 'Not provided'
@@ -24,13 +27,92 @@ function ReadOnlyField({ label, value }) {
   )
 }
 
-export default function SettingsView({ user: signedInUser, onLogout, onNavigate }) {
+function EditableField({ label, value, onChange, type = 'text', autoComplete }) {
+  return (
+    <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+      <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        className="w-full bg-transparent text-sm font-mono"
+        style={{
+          color: 'var(--text-primary)',
+          outline: 'none',
+        }}
+      />
+    </label>
+  )
+}
+
+export default function SettingsView({ user: signedInUser, onLogout, onNavigate, onUserUpdated }) {
   const user = signedInUser ?? {}
+  const [accountForm, setAccountForm] = useState({
+    name: user.name ?? '',
+    phone: user.phone ?? '',
+    address: user.address ?? '',
+    zip_code: user.zip_code ?? user.zip ?? '',
+  })
   const { theme, setTheme } = useTheme()
   const { startTour } = useTour()
 
+  useEffect(() => {
+    setAccountForm({
+      name: user.name ?? '',
+      phone: user.phone ?? '',
+      address: user.address ?? '',
+      zip_code: user.zip_code ?? user.zip ?? '',
+    })
+  }, [user.name, user.phone, user.address, user.zip_code, user.zip])
+
   function handleReplayTour() {
     startTour({ onNavigate })
+  }
+
+  function updateAccountField(field) {
+    return (event) => {
+      setAccountForm(current => ({ ...current, [field]: event.target.value }))
+    }
+  }
+
+  function updatePhone(event) {
+    const digits = event.target.value.replace(/\D/g, '')
+    const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
+    let phone = nationalDigits
+    if (nationalDigits.length > 6) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3, 6)}-${nationalDigits.slice(6)}`
+    else if (nationalDigits.length > 3) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3)}`
+    else if (nationalDigits.length > 0) phone = `(${nationalDigits}`
+    if (digits.length === 11 && digits[0] === '1') phone = `1 ${phone}`
+    setAccountForm(current => ({ ...current, phone }))
+  }
+
+  function handleSaveAccount() {
+    let storedUser = {}
+    try {
+      const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
+      storedUser = stored ? JSON.parse(stored) : {}
+    } catch {
+      storedUser = {}
+    }
+
+    const updatedUser = {
+      ...user,
+      ...storedUser,
+      name: accountForm.name.trim(),
+      phone: accountForm.phone.trim(),
+      address: accountForm.address.trim(),
+      zip: accountForm.zip_code.trim(),
+      zip_code: accountForm.zip_code.trim(),
+    }
+
+    try {
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser))
+    } catch {
+      // localStorage unavailable (private mode / SSR) - keep UI update local.
+    }
+
+    onUserUpdated?.(updatedUser)
   }
 
   return (
@@ -50,11 +132,25 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate 
               Account
             </div>
           </div>
-          <ReadOnlyField label="Name" value={user.name} />
+          <EditableField label="Name" value={accountForm.name} onChange={updateAccountField('name')} autoComplete="name" />
           <ReadOnlyField label="Email" value={user.email} />
-          <ReadOnlyField label="Phone" value={user.phone} />
-          <ReadOnlyField label="Address" value={user.address} />
-          <ReadOnlyField label="ZIP Code" value={user.zip_code} />
+          <EditableField label="Phone" type="tel" value={accountForm.phone} onChange={updatePhone} autoComplete="tel" />
+          <EditableField label="Street Address" value={accountForm.address} onChange={updateAccountField('address')} autoComplete="street-address" />
+          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" />
+          <button
+            type="button"
+            onClick={handleSaveAccount}
+            className="mt-5 inline-flex items-center justify-center h-10 px-4 text-sm font-semibold transition-colors"
+            style={{
+              border: '1px solid var(--border-gold)',
+              borderRadius: 8,
+              background: 'var(--gold)',
+              color: '#070604',
+              cursor: 'pointer',
+            }}
+          >
+            Save Changes
+          </button>
         </section>
 
         <section className="card-premium p-5" data-tour="settings-appearance">

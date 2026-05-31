@@ -10,7 +10,7 @@ const VALUE_PROPS = [
 ]
 
 let _uid = 0
-function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete }) {
+function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false }) {
   const [id] = useState(() => `f-${++_uid}`)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -28,6 +28,7 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          required={required}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-err` : undefined}
           style={{
@@ -185,7 +186,7 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
@@ -211,6 +212,7 @@ function SignUpForm({ onAuth }) {
     else if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1'))) e.phone = 'Please enter a valid 10-digit US phone number'
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
+    if (!form.address.trim()) e.address = 'Street address is required'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -230,8 +232,9 @@ function SignUpForm({ onAuth }) {
         name: form.name,
         phone: form.phone.trim(),
         zip: form.zip.trim(),
+        address: form.address.trim(),
       })
-      onAuth({ ...user, isNewUser: true })
+      onAuth({ ...user, address: user.address ?? form.address.trim(), isNewUser: true })
     } catch (err) {
       setErrors({ form: err.message })
     } finally {
@@ -258,6 +261,10 @@ function SignUpForm({ onAuth }) {
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
           placeholder="94105" error={errors.zip} autoComplete="postal-code" />
       </div>
+
+      <Field label="Street Address" value={form.address} onChange={set('address')}
+        required
+        placeholder="123 Main St" error={errors.address} autoComplete="street-address" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}
