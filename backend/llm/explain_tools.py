@@ -365,8 +365,9 @@ def get_projection_percentiles(
         seed=seed,
         n_paths=n_paths,
     )
-    payload = api_models.Projection.model_validate(result.model_dump()).model_dump(mode="json")
-    payload["seed"] = seed
+    payload = api_models.Projection.model_validate(
+        {**result.model_dump(), "seed": seed}
+    ).model_dump(mode="json")
     return payload
 
 
