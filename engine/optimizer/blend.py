@@ -286,8 +286,24 @@ def _safe_sleeve_weights(universe: Any) -> dict[str, float]:
 
 
 def _periods_per_year(index: Any) -> float:
+    """Observations-per-year used to annualize the CAL-blend covariance.
+
+    Inferred from the return index's calendar span so it works for both daily
+    data (~252) and monthly data (~12).
+
+    NOTE: ``pd.to_datetime`` raises on a monthly ``PeriodIndex`` (what the
+    walk-forward backtest passes), which previously fell through to the 252.0
+    default — annualizing MONTHLY covariance as if it were DAILY and inflating
+    the risky-sleeve vol by sqrt(252/12) ~= 4.58x. That made ``solve_blend_alpha``
+    believe the risky sleeve was far above the target vol and systematically
+    under-risked the portfolio. Convert PeriodIndex to timestamps first so the
+    calendar-span calculation yields ~12 for monthly data.
+    """
+
     try:
-        dates = pd.to_datetime(index)
+        dates = index.to_timestamp() if isinstance(index, pd.PeriodIndex) else pd.to_datetime(index)
+        if len(dates) < 2:
+            return 252.0
         span_days = max((dates.max() - dates.min()).days, 1)
         return float((len(dates) - 1) * 365.25 / span_days)
     except Exception:
