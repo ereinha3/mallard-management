@@ -27,3 +27,13 @@ client-integration/
 **/.cursor*
 **/.playwright*
 **/*.db
+
+# added by stack init
+.env
+.mcp.json
+
+*.mcp-scope.yaml
+CLAUDE.md
+STATUS.md
+opencode.json
+.mcp.json
