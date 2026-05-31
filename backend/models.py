@@ -550,6 +550,7 @@ class SavePortfolioRequest(BaseModel):
 class PortfolioReoptimizeRequest(BaseModel):
     profile: UserProfileInput
     risk_dial: float = Field(ge=0, le=1)
+    weights: Optional[EditableWeights] = None
 
 
 class PortfolioReoptimizeResponse(BaseModel):

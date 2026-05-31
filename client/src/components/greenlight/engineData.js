@@ -1,10 +1,41 @@
-export const RISKY_SLEEVES = ['us_equity', 'intl_equity', 'reits', 'gold']
-export const SAFE_SLEEVES = ['bonds', 'tips']
-export const SLEEVE_ORDER = ['us_equity', 'intl_equity', 'bonds', 'tips', 'gold', 'reits']
+export const RISKY_SLEEVES = [
+  'us_equity',
+  'intl_equity',
+  'core_bonds',
+  'credit',
+  'inflation',
+  'duration_hedge',
+  'real_assets',
+  'reits',
+  'bonds',
+  'tips',
+  'gold',
+]
+export const SAFE_SLEEVES = ['cash_like']
+export const SLEEVE_ORDER = [
+  'us_equity',
+  'intl_equity',
+  'core_bonds',
+  'credit',
+  'inflation',
+  'duration_hedge',
+  'real_assets',
+  'reits',
+  'cash_like',
+  'bonds',
+  'tips',
+  'gold',
+]
 
 export const SLEEVE_META = {
   us_equity: { label: 'US Equity', color: '#ddb84a' },
   intl_equity: { label: 'Intl Equity', color: '#4a72e8' },
+  core_bonds: { label: 'Core Bonds', color: '#6b7280' },
+  credit: { label: 'Credit', color: '#7c8a9a' },
+  inflation: { label: 'Inflation Hedge', color: '#22c27e' },
+  duration_hedge: { label: 'Duration Hedge', color: '#38bdf8' },
+  real_assets: { label: 'Real Assets', color: '#f0c060' },
+  cash_like: { label: 'Cash-Like', color: '#94a3b8' },
   bonds: { label: 'Bonds', color: '#6b7280' },
   tips: { label: 'TIPS', color: '#22c27e' },
   gold: { label: 'Gold', color: '#f0c060' },
@@ -182,6 +213,28 @@ export function renormalizeWithinGroupChange(weights, changedSleeve, changedPct,
 export function renormalizeSleeveChange(weights, changedSleeve, changedPct) {
   const group = RISKY_SLEEVES.includes(changedSleeve) ? RISKY_SLEEVES : SAFE_SLEEVES
   return renormalizeWithinGroupChange(weights, changedSleeve, changedPct, group)
+}
+
+export function renormalizeTotalSleeveChange(weights, changedSleeve, changedPct) {
+  const current = normalizeSleeveWeights(weights)
+  const target = Math.max(0, Math.min(1, Number(changedPct) / 100))
+  const others = SLEEVE_ORDER.filter(sleeve => sleeve !== changedSleeve && Number(current[sleeve] ?? 0) > 0)
+  const otherTotal = others.reduce((sum, sleeve) => sum + Number(current[sleeve] ?? 0), 0)
+  const remaining = Math.max(0, 1 - target)
+  const fallbackOthers = SLEEVE_ORDER.filter(sleeve => sleeve !== changedSleeve)
+
+  return SLEEVE_ORDER.reduce((next, sleeve) => {
+    if (sleeve === changedSleeve) {
+      next[sleeve] = target
+    } else if (otherTotal > 0 && others.includes(sleeve)) {
+      next[sleeve] = current[sleeve] * (remaining / otherTotal)
+    } else if (otherTotal <= 0 && fallbackOthers.includes(sleeve)) {
+      next[sleeve] = remaining / fallbackOthers.length
+    } else {
+      next[sleeve] = 0
+    }
+    return next
+  }, {})
 }
 
 export function riskSummaryFromMetrics(metrics) {

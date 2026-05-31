@@ -937,6 +937,35 @@ def _optimizer_target_vol_for_dial(universe: Any, risk_dial: float) -> float:
     return low + ((high - low) * dial)
 
 
+def _group_scaled_sleeve_weights(
+    universe: Any,
+    edited_by_sleeve: Mapping[str, float],
+    fallback_by_sleeve: Mapping[str, float],
+    risk_dial: float,
+) -> dict[str, float]:
+    """Use the risk dial for risky/safe shares while preserving edited sleeve mix."""
+    risky = [str(sleeve) for sleeve in getattr(universe, "risky_sleeves", [])]
+    safe = [str(sleeve) for sleeve in getattr(universe, "safe_sleeves", [])]
+    groups = ((risky, max(0.0, min(1.0, float(risk_dial)))), (safe, 1.0 - max(0.0, min(1.0, float(risk_dial)))))
+    next_by_sleeve = {str(sleeve): 0.0 for sleeve in getattr(universe, "sleeves", {})}
+
+    for sleeves, target_share in groups:
+        current_total = sum(float(edited_by_sleeve.get(sleeve, 0.0)) for sleeve in sleeves)
+        source = edited_by_sleeve
+        source_total = current_total
+        if source_total <= _WEIGHT_TOLERANCE:
+            source = fallback_by_sleeve
+            source_total = sum(float(fallback_by_sleeve.get(sleeve, 0.0)) for sleeve in sleeves)
+        if source_total <= _WEIGHT_TOLERANCE and sleeves:
+            for sleeve in sleeves:
+                next_by_sleeve[sleeve] = target_share / len(sleeves)
+            continue
+        for sleeve in sleeves:
+            next_by_sleeve[sleeve] = target_share * (float(source.get(sleeve, 0.0)) / source_total)
+
+    return _normalize_weights(next_by_sleeve, "by_sleeve")
+
+
 def _greenlit_engine_context(profile_input: api_models.UserProfileInput) -> tuple[Any, Any]:
     try:
         engine_profile = _to_engine_profile(profile_input)
@@ -2051,6 +2080,18 @@ async def portfolio_reoptimize(
             universe,
             load_prices(),
         )
+        if request.weights is not None:
+            _, edited_by_sleeve, _, _ = _analyze_weight_inputs(universe, request.weights)
+            weights = _target_weights_from_sleeves(
+                universe,
+                _group_scaled_sleeve_weights(
+                    universe,
+                    edited_by_sleeve,
+                    getattr(weights, "by_sleeve", {}),
+                    dial,
+                ),
+                "strategic",
+            )
         portfolio_result = _portfolio_response(universe, weights)
     except HTTPException:
         raise

@@ -922,6 +922,37 @@ def test_portfolio_reoptimize_max_loss_is_seeded_scenario_var(test_app: FastAPI)
     assert max_loss != round(expected_vol * 2.0 * 100.0, 1)
 
 
+def test_portfolio_reoptimize_preserves_edited_risky_mix(test_app: FastAPI):
+    client = _client(test_app)
+    profile = _persona("persona_greenlight.json")
+    portfolio_response = client.post("/api/v1/portfolio", json={"profile": profile})
+    assert portfolio_response.status_code == 200
+    universe = portfolio_response.json()["universe"]
+    risky = universe["risky_sleeves"]
+    safe = universe["safe_sleeves"]
+    edited = {sleeve: 0.0 for sleeve in universe["sleeves"]}
+    edited[risky[0]] = 0.8
+    edited[risky[1]] = 0.2
+    edited[safe[0]] = 0.0
+
+    response = client.post(
+        "/api/v1/portfolio/reoptimize",
+        json={
+            "profile": profile,
+            "risk_dial": 0.6,
+            "weights": {"by_sleeve": edited},
+        },
+    )
+
+    assert response.status_code == 200
+    sleeves = response.json()["portfolio"]["weights"]["by_sleeve"]
+    risky_sum = sum(sleeves.get(sleeve, 0.0) for sleeve in risky)
+    assert risky_sum == pytest.approx(0.6)
+    assert sleeves[risky[0]] / risky_sum == pytest.approx(0.8)
+    assert sleeves[risky[1]] / risky_sum == pytest.approx(0.2)
+    assert sum(sleeves.get(sleeve, 0.0) for sleeve in safe) == pytest.approx(0.4)
+
+
 def test_portfolio_analyze_weights_recomputes_metrics_for_edited_sleeves(test_app: FastAPI):
     client = _client(test_app)
     profile = _persona("persona_greenlight.json")

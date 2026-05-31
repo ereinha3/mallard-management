@@ -212,11 +212,15 @@ export async function postTaxReport(payload) {
 /**
  * POST /api/v1/portfolio/reoptimize — rerun optimizer from a risk dial target.
  */
-export async function postReoptimize({ profile, risk_dial }) {
+export async function postReoptimize({ profile, risk_dial, weights = null }) {
   const res = await fetch(`${BASE}/api/v1/portfolio/reoptimize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile, risk_dial }),
+    body: JSON.stringify({
+      profile,
+      risk_dial,
+      ...(weights ? { weights: { by_sleeve: weights?.by_sleeve ?? weights } } : {}),
+    }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)

@@ -12,11 +12,10 @@ import {
   getPortfolio,
   getProfile,
   getSleeveWeights,
-  groupWeights,
   inferRiskDialFromWeights,
   normalizeSleeveWeights,
   portfolioSplit,
-  renormalizeSleeveChange,
+  renormalizeTotalSleeveChange,
   riskSummaryFromMetrics,
   sleeveColor,
   sleeveLabel,
@@ -183,10 +182,34 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
 
   const displayMetrics = serverMetrics
   const displaySummary = riskSummary
-  const allocation = useMemo(() => weightsToAllocation(weights, basePortfolio, capital), [basePortfolio, capital, weights])
+  const sleeveKeys = useMemo(() => {
+    const known = new Set([
+      ...Object.keys(basePortfolio?.universe?.sleeves ?? {}),
+      ...Object.keys(weights ?? {}).filter(sleeve => Number(weights?.[sleeve] ?? 0) > 0),
+    ])
+    if (!known.size) return SLEEVE_ORDER
+    const ordered = SLEEVE_ORDER.filter(sleeve => known.has(sleeve))
+    Object.keys(basePortfolio?.universe?.sleeves ?? {}).forEach((sleeve) => {
+      if (!ordered.includes(sleeve)) ordered.push(sleeve)
+    })
+    return ordered
+  }, [basePortfolio, weights])
+  const riskySleeves = useMemo(() => {
+    const fromUniverse = basePortfolio?.universe?.risky_sleeves ?? []
+    const source = fromUniverse.length ? fromUniverse : RISKY_SLEEVES
+    return source.filter(sleeve => sleeveKeys.includes(sleeve))
+  }, [basePortfolio, sleeveKeys])
+  const safeSleeves = useMemo(() => {
+    const fromUniverse = basePortfolio?.universe?.safe_sleeves ?? []
+    const source = fromUniverse.length ? fromUniverse : SAFE_SLEEVES
+    return source.filter(sleeve => sleeveKeys.includes(sleeve))
+  }, [basePortfolio, sleeveKeys])
+  const allocation = useMemo(
+    () => weightsToAllocation(weights, basePortfolio, capital).filter(row => sleeveKeys.includes(row.sleeve)),
+    [basePortfolio, capital, sleeveKeys, weights],
+  )
   const barData = allocation.map(row => ({ ...row, value: row.pct }))
   const split = useMemo(() => portfolioSplit(weights), [weights])
-  const mixes = useMemo(() => groupWeights(weights), [weights])
   const validationWarnings = Array.isArray(validation?.warnings) ? validation.warnings : []
   const weightTotalPct = weightSumPct(weights)
   const clientWeightWarning = weightTotalPct != null && Math.abs(weightTotalPct - 100) > 0.5
@@ -264,7 +287,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
   }
 
   function handleSleeveChange(sleeve, value) {
-    const nextWeights = renormalizeSleeveChange(weights, sleeve, value)
+    const nextWeights = renormalizeTotalSleeveChange(weights, sleeve, value)
     const nextRiskShare = portfolioSplit(nextWeights).risky
     setEditMode('weights')
     setWeights(nextWeights)
@@ -344,8 +367,8 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
   const growthPct = split.risky * 100
   const safePct = split.safe * 100
 
-  function renderSleeveGroup(title, sleeves, mix) {
-    const share = sleeves === RISKY_SLEEVES ? split.risky : split.safe
+  function renderSleeveGroup(title, sleeves) {
+    const share = sleeves.reduce((sum, sleeve) => sum + Number(weights[sleeve] ?? 0), 0)
     return (
       <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between gap-3 mb-3">
@@ -353,12 +376,11 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
             {title}
           </div>
           <div className="font-mono text-xs" style={{ color: 'var(--green-bright, var(--green))' }}>
-            Mix 100% · Portfolio {percentText(share * 100)}
+            Portfolio {percentText(share * 100)}
           </div>
         </div>
         <div className="space-y-3">
           {sleeves.map((sleeve) => {
-            const withinPct = Number(mix[sleeve] ?? 0) * 100
             const finalPct = Number(weights[sleeve] ?? 0) * 100
             return (
               <div key={sleeve}>
@@ -368,7 +390,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
                     {sleeveLabel(sleeve)}
                   </span>
                   <span className="font-mono text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    {percentText(withinPct)} mix · {percentText(finalPct)} final
+                    {percentText(finalPct)} final
                   </span>
                 </label>
                 <input
@@ -377,9 +399,9 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
                   min="0"
                   max="100"
                   step="0.5"
-                  value={withinPct}
+                  value={finalPct}
                   onChange={event => handleSleeveChange(sleeve, event.target.value)}
-                  aria-label={`${sleeveLabel(sleeve)} within ${title} mix`}
+                  aria-label={`${sleeveLabel(sleeve)} final portfolio allocation`}
                   style={{ width: '100%', accentColor: sleeveColor(sleeve) }}
                 />
               </div>
@@ -464,8 +486,8 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
           </div>
 
           <div data-tour="greenlight-sleeves" className="space-y-4">
-            {renderSleeveGroup('Growth Assets (Risky)', RISKY_SLEEVES, mixes.risky)}
-            {renderSleeveGroup('Safe Assets', SAFE_SLEEVES, mixes.safe)}
+            {renderSleeveGroup('Growth Assets (Risky)', riskySleeves)}
+            {renderSleeveGroup('Safe Assets', safeSleeves)}
           </div>
         </div>
 
@@ -516,7 +538,7 @@ export default function PortfolioEditor({ onboardResult, onApplied, userEmail })
               Each sleeve's share of total portfolio risk (volatility), not dollar weight. These sum to 100%.
             </div>
             <div className="grid gap-2">
-              {SLEEVE_ORDER.map((sleeve) => {
+              {sleeveKeys.map((sleeve) => {
                 const contribution = numberOrNull(displayMetrics?.risk_contributions?.[sleeve])
                 const contributionPct = contribution == null ? null : contribution * 100
                 return (
