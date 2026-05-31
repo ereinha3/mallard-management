@@ -59,6 +59,33 @@ function portfolioFromResponse(response) {
   return response?.portfolio ?? response ?? null
 }
 
+const DEFAULT_PORTFOLIO_METHOD = 'strategic'
+
+const PORTFOLIO_METHODS = [
+  { value: 'strategic', label: 'Strategic (Core/Satellite)' },
+  { value: 'black_litterman', label: 'Black-Litterman' },
+  { value: 'cvar', label: 'CVaR' },
+]
+
+function normalizePortfolioMethod(value) {
+  if (typeof value !== 'string') return null
+  const method = value.toLowerCase().replace(/-/g, '_')
+  if (method === 'erc') return DEFAULT_PORTFOLIO_METHOD
+  return PORTFOLIO_METHODS.some(option => option.value === method) ? method : null
+}
+
+function explicitPortfolioMethod(portfolio) {
+  return normalizePortfolioMethod(portfolio?.method ?? portfolio?.weights?.method)
+}
+
+function portfolioMethod(portfolio) {
+  return explicitPortfolioMethod(portfolio) ?? DEFAULT_PORTFOLIO_METHOD
+}
+
+function portfolioMethodLabel(method) {
+  return PORTFOLIO_METHODS.find(option => option.value === method)?.label ?? method
+}
+
 const CustomTooltipAlloc = ({ active, payload }) => {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
@@ -147,6 +174,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const [fetchedPortfolio, setFetchedPortfolio] = useState(null)
   const [loadingPortfolio, setLoadingPortfolio] = useState(false)
   const [portfolioError, setPortfolioError] = useState(null)
+  const [selectedMethod, setSelectedMethod] = useState(() => portfolioMethod(getPortfolio(onboardResult)))
 
   useEffect(() => {
     setLocalResult(onboardResult)
@@ -159,7 +187,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   const baseResult = localResult ?? onboardResult
   const profile = useMemo(() => getProfile(baseResult), [baseResult])
   const resultPortfolio = getPortfolio(baseResult)
-  const portfolio = resultPortfolio ?? fetchedPortfolio
+  const portfolio = fetchedPortfolio ?? resultPortfolio
   const activeResult = useMemo(() => (
     portfolio && portfolio !== resultPortfolio
       ? { ...(baseResult ?? {}), portfolio }
@@ -183,10 +211,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     portfolio ? weightsToAllocation(weights, portfolio, capital) : []
   ), [capital, portfolio, weights])
   const realPortfolioPresent = Boolean(resultPortfolio)
-  const fetchedPortfolioPresent = Boolean(!resultPortfolio && fetchedPortfolio)
-  const method = portfolio?.method ?? portfolio?.weights?.method
+  const fetchedPortfolioPresent = Boolean(fetchedPortfolio)
+  const method = (portfolio ? explicitPortfolioMethod(portfolio) : null) ?? selectedMethod
   const blendAlpha = portfolio?.blend_alpha ?? portfolio?.weights?.blend_alpha
-  const methodLabel = method ?? (blendAlpha != null ? 'blend' : realPortfolioPresent ? 'engine' : 'optimizer')
+  const methodLabel = method ? portfolioMethodLabel(method) : (blendAlpha != null ? 'blend' : realPortfolioPresent ? 'engine' : 'optimizer')
   const growthPct = allocation
     .filter(a => ['us_equity', 'intl_equity', 'reits'].includes(a.key))
     .reduce((sum, a) => sum + a.pct, 0)
@@ -203,18 +231,22 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   }, [blendAlpha, methodLabel, portfolio, weights])
 
   useEffect(() => {
-    let cancelled = false
-
     if (resultPortfolio) {
       setFetchedPortfolio(null)
       setPortfolioError(null)
       setLoadingPortfolio(false)
-      return () => { cancelled = true }
+      setSelectedMethod(portfolioMethod(resultPortfolio))
     }
+  }, [resultPortfolio])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (resultPortfolio || fetchedPortfolio || !profile) return () => { cancelled = true }
 
     setLoadingPortfolio(true)
     setPortfolioError(null)
-    postPortfolio(profile)
+    postPortfolio(profile, selectedMethod)
       .then((response) => {
         if (!cancelled) setFetchedPortfolio(portfolioFromResponse(response))
       })
@@ -226,7 +258,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
       })
 
     return () => { cancelled = true }
-  }, [profile, resultPortfolio])
+  }, [fetchedPortfolio, profile, resultPortfolio, selectedMethod])
 
   const tickerRows = useMemo(() => {
     const sleeveMap = tickerSleeveMap(portfolio?.universe)
@@ -292,6 +324,28 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
     onApplied?.(updatedResult)
   }
 
+  async function handleMethodChange(nextMethod) {
+    if (nextMethod === selectedMethod || loadingPortfolio || !profile) return
+
+    const previousMethod = selectedMethod
+    setSelectedMethod(nextMethod)
+    setLoadingPortfolio(true)
+    setPortfolioError(null)
+
+    try {
+      const response = await postPortfolio(profile, nextMethod)
+      const nextPortfolio = portfolioFromResponse(response)
+      if (!nextPortfolio) throw new Error('Portfolio response did not include weights.')
+      setFetchedPortfolio(nextPortfolio)
+      setSelectedMethod(explicitPortfolioMethod(nextPortfolio) ?? nextMethod)
+    } catch (error) {
+      setSelectedMethod(previousMethod)
+      setPortfolioError(error?.message ?? 'Portfolio could not be optimized.')
+    } finally {
+      setLoadingPortfolio(false)
+    }
+  }
+
   if (showRebalance) return <RebalancePanel onboardResult={activeResult} userEmail={userEmail} />
 
   return (
@@ -316,10 +370,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                 className="font-display font-semibold"
                 style={{ fontSize: 28, color: 'var(--text-primary)' }}
               >
-                {realPortfolioPresent
-                  ? 'Engine-built allocation from your profile'
-                  : fetchedPortfolioPresent
+                {fetchedPortfolioPresent
                   ? 'Live optimizer allocation from engine data'
+                  : realPortfolioPresent
+                  ? 'Engine-built allocation from your profile'
                   : 'Portfolio target ready for Greenlight'}
               </div>
             </div>
@@ -375,7 +429,13 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
             <div
               data-tour="greenlight-portfolio"
               className="card-premium p-5 anim-fade-up d100 portfolio-reveal-card"
-              style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))' }}
+              style={{
+                display: 'grid',
+                gap: 18,
+                gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))',
+                opacity: loadingPortfolio ? 0.72 : 1,
+                transition: 'opacity 160ms ease',
+              }}
             >
               <RiskMetric
                 label="Expected Volatility"
@@ -429,16 +489,54 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
 
             <div className="grid gap-5 anim-fade-up d150" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
               <div className="card-premium p-5 portfolio-reveal-card">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                  <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                    Target Sleeve Allocation
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                      Target Sleeve Allocation
+                    </div>
+                    {portfolioError && (
+                      <div className="text-xs mt-1" style={{ color: 'var(--gold-light)' }}>
+                        Optimization failed; showing the prior allocation.
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs" style={{ color: realPortfolioPresent ? 'var(--green)' : 'var(--gold-light)' }}>
-                    <CheckCircle size={13} />
-                    {realPortfolioPresent ? 'engine' : 'live fetch'}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="flex items-center gap-1.5 text-xs" style={{ color: loadingPortfolio ? 'var(--gold-light)' : 'var(--green)' }}>
+                      <CheckCircle size={13} />
+                      {loadingPortfolio ? 'optimizing' : fetchedPortfolioPresent ? 'live method' : 'engine'}
+                    </div>
+                    <div
+                      className="flex flex-wrap items-center gap-1 rounded-xl p-1"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-bright)' }}
+                    >
+                      {PORTFOLIO_METHODS.map(option => {
+                        const active = selectedMethod === option.value
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => handleMethodChange(option.value)}
+                            disabled={loadingPortfolio}
+                            aria-pressed={active}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                            style={{
+                              background: active ? 'var(--green-soft)' : 'transparent',
+                              color: active ? 'var(--green-bright, var(--green))' : 'var(--text-secondary)',
+                              border: active ? '1px solid var(--green, var(--emerald))' : '1px solid transparent',
+                              opacity: loadingPortfolio && !active ? 0.55 : 1,
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
-                <div className="portfolio-reveal-donut" style={{ position: 'relative', height: 210 }}>
+                <div
+                  className="portfolio-reveal-donut"
+                  style={{ position: 'relative', height: 210, opacity: loadingPortfolio ? 0.72 : 1, transition: 'opacity 160ms ease' }}
+                >
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -499,51 +597,53 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     {methodLabel}
                   </div>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr>
-                      {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Source'].map(h => (
-                        <th key={h} className="text-left pb-2 font-semibold uppercase"
-                          style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: '0.08em', borderBottom: '1px solid var(--border)' }}>
-                          {h}
-                        </th>
+                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Source'].map(h => (
+                          <th key={h} className="text-left pb-2 font-semibold uppercase"
+                            style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: '0.08em', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg-surface)', zIndex: 1 }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetRows.map((a, index) => (
+                        <RevealItem
+                          as="tr"
+                          key={`${a.ticker}-${a.sleeve}`}
+                          index={index}
+                          reducedMotion={reducedMotion}
+                          style={{ borderBottom: '1px solid var(--border)' }}
+                        >
+                          <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
+                          <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
+                          <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
+                          <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
+                            {a.amount != null ? formatMoney(a.amount) : 'N/A'}
+                          </td>
+                          <td className="py-2.5">
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
+                            >
+                              {realPortfolioPresent ? 'engine' : 'live fetch'}
+                            </span>
+                          </td>
+                        </RevealItem>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {targetRows.map((a, index) => (
-                      <RevealItem
-                        as="tr"
-                        key={`${a.ticker}-${a.sleeve}`}
-                        index={index}
-                        reducedMotion={reducedMotion}
-                        style={{ borderBottom: '1px solid var(--border)' }}
-                      >
-                        <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
-                        <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
-                        <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
-                        <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
-                          {a.amount != null ? formatMoney(a.amount) : 'N/A'}
-                        </td>
-                        <td className="py-2.5">
-                          <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium"
-                            style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
-                          >
-                            {realPortfolioPresent ? 'engine' : 'live fetch'}
-                          </span>
-                        </td>
-                      </RevealItem>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
-                      <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
+                        <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
                 <div
                   className="mt-4 rounded-xl p-3 text-xs"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}

@@ -14,6 +14,7 @@ if str(_BACKEND_DIR) not in sys.path:
 if str(_ENGINE_DIR) not in sys.path:
     sys.path.append(str(_ENGINE_DIR))
 
+from api.events import router as events_router
 from api.v1 import router as v1_router
 from persistence import init_db
 
@@ -42,6 +43,7 @@ app.add_middleware(
 )
 
 app.include_router(v1_router, prefix="/api/v1", tags=["gate"])
+app.include_router(events_router, prefix="/api/v1", tags=["events"])
 
 
 @app.on_event("startup")

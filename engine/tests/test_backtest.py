@@ -133,19 +133,18 @@ def test_run_backtest_report_returns_api_shape_and_benchmark_curves(tmp_path):
 
     assert cache_path.exists()
     assert json.loads(cache_path.read_text()) == report
-    assert set(report) == {"equity_curve", "metrics", "benchmarks"}
-    assert set(report["metrics"]) == {"sharpe", "sortino", "max_drawdown", "calmar", "turnover"}
+    expected_metrics = {"cagr", "sharpe", "deflated_sharpe", "sortino", "max_drawdown", "calmar", "turnover"}
+    assert set(report) == {"equity_curve", "drawdown_curve", "metrics", "benchmarks"}
+    assert set(report["metrics"]) == expected_metrics
     assert report["equity_curve"]
     assert {"date", "value"} <= set(report["equity_curve"][0])
+    assert report["drawdown_curve"]
+    assert {"date", "dd"} <= set(report["drawdown_curve"][0])
 
-    assert set(report["benchmarks"]) == {"one_over_n", "sixty_forty", "target_date", "spy"}
+    assert set(report["benchmarks"]) == {"one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy"}
     for benchmark in report["benchmarks"].values():
         assert benchmark["equity_curve"]
-        assert set(benchmark["metrics"]) == {
-            "sharpe",
-            "sortino",
-            "max_drawdown",
-            "calmar",
-            "turnover",
-        }
+        assert benchmark["drawdown_curve"]
+        assert set(benchmark["metrics"]) == expected_metrics
         assert {"date", "value"} <= set(benchmark["equity_curve"][0])
+        assert {"date", "dd"} <= set(benchmark["drawdown_curve"][0])

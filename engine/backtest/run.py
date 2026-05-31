@@ -23,8 +23,10 @@ STRATEGY_NAMES = ("greenlight_erc", "one_over_n", "sixty_forty", "target_date", 
 # scored against the strategy but are NOT part of the investable universe (the
 # ticker carries role='benchmark' in the seed, so the optimizer never sees it).
 PRICE_BENCHMARKS = {"spy": "SPY"}
-BACKTEST_REPORT_BENCHMARKS = ("one_over_n", "sixty_forty", "target_date", "spy")
-BACKTEST_REPORT_METRICS = ("sharpe", "sortino", "max_drawdown", "calmar", "turnover")
+BACKTEST_REPORT_BENCHMARKS = ("one_over_n", "sixty_forty", "target_date", "naive_mvo", "spy")
+BACKTEST_REPORT_METRICS = (
+    "cagr", "sharpe", "deflated_sharpe", "sortino", "max_drawdown", "calmar", "turnover"
+)
 WINDOW_MONTHS = 36
 PERIODS_PER_YEAR = 12
 REBALANCE_MONTHS = {"monthly": 1, "quarterly": 3}
@@ -504,6 +506,7 @@ def _strategy_report(strategy: BacktestStrategy) -> dict[str, Any]:
     payload = strategy.model_dump(mode="json")
     return {
         "equity_curve": payload["equity_curve"],
+        "drawdown_curve": payload["drawdown_curve"],
         "metrics": {
             key: payload["metrics"][key]
             for key in BACKTEST_REPORT_METRICS
@@ -544,6 +547,7 @@ def run_backtest_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
     primary = _strategy_report(result.strategies["greenlight_erc"])
     report = {
         "equity_curve": primary["equity_curve"],
+        "drawdown_curve": primary["drawdown_curve"],
         "metrics": primary["metrics"],
         "benchmarks": {
             name: _strategy_report(result.strategies[name])

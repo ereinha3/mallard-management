@@ -36,12 +36,32 @@ export default function App() {
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [topoPhase, setTopoPhase] = useState('enter')
 
-  // Legacy builds persisted a user object here, which could bypass AuthScreen on load.
+  // Restore the persisted auth session on reload.
   useEffect(() => {
+    let cancelled = false
+
     try {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY)
+      const storedUser = JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY))
+      if (storedUser && typeof storedUser === 'object' && storedUser.email) {
+        queueMicrotask(() => {
+          if (cancelled) return
+
+          setUser(storedUser)
+          setAuthenticatedThisSession(true)
+
+          if (storedUser.isDemo) {
+            setOnboardResult(DUMMY_ONBOARD_RESULT)
+            setTaxProfileDone(true)
+            setOnboardingDone(true)
+          }
+        })
+      }
     } catch {
-      // localStorage unavailable (private mode / SSR) — non-fatal.
+      // localStorage unavailable or invalid persisted JSON - non-fatal.
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -127,6 +147,15 @@ export default function App() {
     setTopoPhase('enter')
   }
 
+  function handleUserUpdated(updatedUser) {
+    setUser(updatedUser)
+    try {
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser))
+    } catch {
+      // localStorage unavailable (private mode / SSR) - in-memory session still updates.
+    }
+  }
+
   const activeContent = (
     <>
       {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
@@ -151,7 +180,15 @@ export default function App() {
       )}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
       {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
-      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} onNavigate={setActivePage} onUserUpdated={setUser} />}
+      {activePage === 'settings' && (
+        <SettingsView
+          onboardResult={onboardResult}
+          user={user}
+          onLogout={handleLogout}
+          onNavigate={setActivePage}
+          onUserUpdated={handleUserUpdated}
+        />
+      )}
 
       {!PAGES_WITH_CONTENT.includes(activePage) && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: 'transparent' }}>
@@ -316,8 +353,15 @@ export default function App() {
           setOnboardingDone(false)
           setAuthenticatedThisSession(true)
           setUser(u)
+          try {
+            window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(u))
+          } catch {
+            // localStorage unavailable (private mode / SSR) - in-memory session still updates.
+          }
         }}
         onDevSkip={() => {
+          // Developer shortcut: bypass login + onboarding, land in the app with demo data
+          const demoUser = { ...DUMMY_USER, isDemo: true }
           setTopoPhase('exit')
           setLoadingProfile(false)
           setResumeSession(null)
@@ -325,7 +369,12 @@ export default function App() {
           setTaxProfileDone(true)
           setOnboardingDone(true)
           setAuthenticatedThisSession(true)
-          setUser(DUMMY_USER)
+          setUser(demoUser)
+          try {
+            window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser))
+          } catch {
+            // localStorage unavailable (private mode / SSR) - in-memory session still updates.
+          }
         }}
       />
     )

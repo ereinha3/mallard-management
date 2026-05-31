@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { User, Sun, Moon, LogOut, RotateCcw } from 'lucide-react'
+import { updateAccount } from '../api/greenlightClient'
 import { useTheme } from '../theme/ThemeProvider'
 import { useTour } from './tour/TourProvider'
 
@@ -27,7 +28,7 @@ function ReadOnlyField({ label, value }) {
   )
 }
 
-function EditableField({ label, value, onChange, type = 'text', autoComplete }) {
+function EditableField({ label, value, onChange, type = 'text', autoComplete, maxLength }) {
   return (
     <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
       <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -36,6 +37,7 @@ function EditableField({ label, value, onChange, type = 'text', autoComplete }) 
         value={value}
         onChange={onChange}
         autoComplete={autoComplete}
+        maxLength={maxLength}
         className="w-full bg-transparent text-sm font-mono"
         style={{
           color: 'var(--text-primary)',
@@ -71,6 +73,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
   const userAddress = user.address ?? ''
   const userZip = user.zip_code ?? user.zip ?? ''
   const [accountForm, setAccountForm] = useState(() => accountFormFromUser(user))
+  const [savingAccount, setSavingAccount] = useState(false)
   const { theme, setTheme } = useTheme()
   const { startTour } = useTour()
 
@@ -114,26 +117,60 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
     setAccountForm(current => ({ ...current, phone }))
   }
 
-  function handleSaveAccount() {
+  async function handleSaveAccount() {
     const storedUser = readStoredUser()
+    const name = accountForm.name.trim()
+    const phone = accountForm.phone.trim()
+    const address = accountForm.address.trim()
+    const zip_code = accountForm.zip_code.trim()
 
-    const updatedUser = {
+    const persistUser = (nextUser) => {
+      try {
+        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser))
+      } catch {
+        // localStorage unavailable (private mode / SSR) - keep UI update local.
+      }
+
+      onUserUpdated?.(nextUser)
+    }
+
+    const fallbackUser = {
       ...user,
       ...storedUser,
-      name: accountForm.name.trim(),
-      phone: accountForm.phone.trim(),
-      address: accountForm.address.trim(),
-      zip: accountForm.zip_code.trim(),
-      zip_code: accountForm.zip_code.trim(),
+      name,
+      phone,
+      address,
+      zip: zip_code,
+      zip_code,
     }
 
+    if (!user.email) {
+      persistUser(fallbackUser)
+      return
+    }
+
+    if (user.isDemo) {
+      persistUser(fallbackUser)
+      return
+    }
+
+    setSavingAccount(true)
     try {
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser))
+      const updated = await updateAccount({ user_email: user.email, name, phone, address, zip_code })
+      const savedZip = updated.zip_code ?? zip_code
+      const mergedUser = {
+        ...user,
+        ...storedUser,
+        ...updated,
+        zip_code: savedZip,
+        zip: savedZip,
+      }
+      persistUser(mergedUser)
     } catch {
-      // localStorage unavailable (private mode / SSR) - keep UI update local.
+      persistUser(fallbackUser)
+    } finally {
+      setSavingAccount(false)
     }
-
-    onUserUpdated?.(updatedUser)
   }
 
   return (
@@ -157,20 +194,23 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
           <ReadOnlyField label="Email" value={user.email} />
           <EditableField label="Phone" type="tel" value={accountForm.phone} onChange={updatePhone} autoComplete="tel" />
           <EditableField label="Street Address" value={accountForm.address} onChange={updateAccountField('address')} autoComplete="street-address" />
-          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" />
+          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" maxLength={5} />
           <button
             type="button"
             onClick={handleSaveAccount}
+            disabled={savingAccount}
+            aria-busy={savingAccount}
             className="mt-5 inline-flex items-center justify-center h-10 px-4 text-sm font-semibold transition-colors"
             style={{
               border: '1px solid var(--border-gold)',
               borderRadius: 8,
               background: 'var(--gold)',
               color: '#070604',
-              cursor: 'pointer',
+              cursor: savingAccount ? 'not-allowed' : 'pointer',
+              opacity: savingAccount ? 0.72 : 1,
             }}
           >
-            Save Changes
+            {savingAccount ? 'Saving...' : 'Save Changes'}
           </button>
         </section>
 
