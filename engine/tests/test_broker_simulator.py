@@ -32,3 +32,19 @@ def test_simulator_fills_at_cached_price_and_reads_positions():
     assert positions.items[0].market_value == price * 2.0
     assert positions.cash == 1000.0 - price * 2.0
     assert positions.portfolio_value == positions.items[0].market_value + positions.cash
+
+
+def test_simulator_clamps_near_zero_cash_after_exact_spend():
+    price = _latest_price("VTI")
+    broker = SimulatorBroker(initial_cash=1000.0)
+    plan = OrderPlan(
+        method="lump_sum",
+        buys=[{"ticker": "VTI", "dollars": 1000.0, "shares": 1000.0 / price}],
+        schedule=[],
+    )
+
+    broker.place_order(plan)
+    positions = broker.read_positions()
+
+    assert positions.cash == 0.0
+    assert positions.portfolio_value == positions.items[0].market_value

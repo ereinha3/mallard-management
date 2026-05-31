@@ -24,8 +24,10 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from llm import explain_tools
 
 GEMINI_MODEL = "gemini-2.5-flash"
+_MAX_TOOL_TURNS = 5
 
 _ADVISOR_SYSTEM_PROMPT = """
 You are Greenlight's financial advisor chatbot. You help users understand their
@@ -56,6 +58,11 @@ WHAT YOU CAN DO
 • Explain financial concepts relevant to their situation
 • Discuss the analysis numbers that are already computed (reference them directly)
 
+You have read-only tools for live Greenlight engine data, deterministic projections,
+portfolio/risk internals, and research citations. Use tools for user-specific numbers
+and method backing. The tools return numbers; you narrate them. Do not compute new
+allocations, projections, risk scores, or advice yourself.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TONE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -75,20 +82,117 @@ def _build_context_block(context: Optional[Any]) -> str:
             data = context
         else:
             return ""
+        summary = {
+            "status": data.get("status"),
+            "gate_status": (data.get("gate_result") or {}).get("status"),
+            "failed_check": (data.get("gate_result") or {}).get("failed_check"),
+            "risk": (data.get("financial_analysis") or {}).get("risk"),
+            "portfolio_method": (
+                ((data.get("portfolio") or {}).get("weights") or {}).get("method")
+            ),
+        }
         return (
             "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "USER'S FINANCIAL ANALYSIS (from the Greenlight engine)\n"
-            "Reference these numbers directly when answering. Do not invent others.\n"
+            "THIN CONTEXT SUMMARY\n"
+            "Use tools for live user-specific detail; do not infer missing numbers.\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            + json.dumps(data, indent=2, default=str)
+            + json.dumps(summary, indent=2, default=str)
         )
     except Exception:
         return ""
 
 
+def _build_advisor_tools() -> Any:
+    if types is None:
+        return None
+
+    empty_params = types.Schema(type="OBJECT", properties={})
+    method_schema = types.Schema(
+        type="STRING",
+        enum=["erc", "black_litterman", "cvar"],
+        description="Portfolio construction method to explain.",
+    )
+    citation_method_schema = types.Schema(
+        type="STRING",
+        enum=list(explain_tools.CITATION_METHODS),
+        description="Greenlight method area whose research backing should be cited.",
+    )
+    return types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="get_my_gate_status",
+                description="Read the requesting user's responsibility-gate status, checks, and supporting math.",
+                parameters=empty_params,
+            ),
+            types.FunctionDeclaration(
+                name="explain_portfolio",
+                description="Read the requesting user's target portfolio weights, blend, risk metrics, contributions, and exclusions.",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={"method": method_schema},
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="explain_risk_fusion",
+                description="Read the requesting user's gamma signal fusion internals and resulting gamma band.",
+                parameters=empty_params,
+            ),
+            types.FunctionDeclaration(
+                name="get_projection_percentiles",
+                description="Run a deterministic, seeded projection explanation for the requesting user's current portfolio.",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={
+                        "horizon_years": types.Schema(type="INTEGER", description="Optional projection horizon in years."),
+                        "n_paths": types.Schema(type="INTEGER", description="Number of Monte Carlo paths. Use modest values for explanations."),
+                        "seed": types.Schema(type="INTEGER", description="Seed for stable explanations."),
+                        "generator": types.Schema(
+                            type="STRING",
+                            enum=["stationary_bootstrap", "gaussian"],
+                        ),
+                    },
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="get_method_citations",
+                description="Fetch research citations and a concise summary for a Greenlight method.",
+                parameters=types.Schema(
+                    type="OBJECT",
+                    properties={"method": citation_method_schema},
+                    required=["method"],
+                ),
+            ),
+        ]
+    )
+
+
+ADVISOR_TOOLS = _build_advisor_tools()
+
+
+def _to_python(val: Any) -> Any:
+    if val is None:
+        return val
+    if hasattr(val, "items"):
+        return {k: _to_python(v) for k, v in val.items()}
+    if (
+        hasattr(val, "__iter__")
+        and not isinstance(val, (str, bytes, int, float, bool))
+    ):
+        return [_to_python(v) for v in val]
+    return val
+
+
+def _function_response_content(name: str, response: dict[str, Any]) -> Any:
+    return types.Content(
+        role="tool",
+        parts=[types.Part.from_function_response(name=name, response=response)],
+    )
+
+
 def _stream_sync(
     messages: list[ChatMessage],
     context: Optional[Any],
+    user_email: Optional[str] = None,
 ) -> Generator[dict, None, None]:
     if genai is None or types is None:
         yield {"type": "error", "content": "google-genai is not installed."}
@@ -110,29 +214,62 @@ def _stream_sync(
 
     config = types.GenerateContentConfig(
         system_instruction=system,
+        tools=[ADVISOR_TOOLS] if ADVISOR_TOOLS is not None else None,
         temperature=0.5,
         max_output_tokens=1024,
     )
 
-    for chunk in client.models.generate_content_stream(
-        model=GEMINI_MODEL,
-        contents=contents,
-        config=config,
-    ):
-        if chunk.text:
-            yield {"type": "token", "content": chunk.text}
+    for _ in range(_MAX_TOOL_TURNS):
+        function_calls: list[tuple[str, dict[str, Any]]] = []
+        model_tool_content = None
+
+        for chunk in client.models.generate_content_stream(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                yield {"type": "token", "content": chunk.text}
+
+            if not getattr(chunk, "candidates", None):
+                continue
+            for candidate in chunk.candidates:
+                content = getattr(candidate, "content", None)
+                if not (content and getattr(content, "parts", None)):
+                    continue
+                for part in content.parts:
+                    fc = getattr(part, "function_call", None)
+                    if not (fc and getattr(fc, "name", None)):
+                        continue
+                    model_tool_content = content
+                    function_calls.append((fc.name, _to_python(getattr(fc, "args", None))))
+
+        if not function_calls:
+            return
+
+        if model_tool_content is not None:
+            contents.append(model_tool_content)
+        for name, args in function_calls:
+            try:
+                result = explain_tools.dispatch_explain_tool(name, args, user_email)
+            except Exception as exc:
+                result = {"error": str(exc)}
+            contents.append(_function_response_content(name, result))
+
+    yield {"type": "error", "content": "Advisor tool-call loop exceeded its maximum depth."}
 
 
 async def stream_advisor(
     messages: list[ChatMessage],
     context: Optional[Any] = None,
+    user_email: Optional[str] = None,
 ) -> AsyncGenerator[dict, None]:
     loop = asyncio.get_event_loop()
     q: asyncio.Queue = asyncio.Queue()
 
     def _produce() -> None:
         try:
-            for event in _stream_sync(messages, context):
+            for event in _stream_sync(messages, context, user_email):
                 loop.call_soon_threadsafe(q.put_nowait, event)
         except Exception as exc:
             loop.call_soon_threadsafe(

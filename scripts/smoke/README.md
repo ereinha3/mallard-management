@@ -10,6 +10,7 @@ unit/integration suites stay green and offline; these prove the real demo works.
 |---|---|---|
 | `realdata_pipeline_smoke.py` | Full test-user journey (register → onboard → portfolio → projection → rebalance → tax → backtest) on real 20-yr market data, incl. Module E fused γ and Module F backtest | `engine/data/greenlight.db` (real) |
 | `gemini_elicitation_smoke.py` | Live `gemini-2.5-flash` collects the Module-E Dohmen + loss-aversion signals and emits a complete `submit_profile` | `GOOGLE_API_KEY` in `backend/.env` |
+| `advisor_tools_smoke.py` | Live `gemini-2.5-flash` advisor invokes the read-only explainability tools (`explain_portfolio`, `get_method_citations`, …), scoped to the server-side user, and narrates the real engine numbers | `GOOGLE_API_KEY` in `backend/.env` **and** `engine/data/greenlight.db` |
 
 Each prints per-check `PASS`/`FAIL` and exits `0` on success, `1` on failure,
 and `0` with a `SKIP:` line when its prerequisite is absent.

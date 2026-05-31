@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import secrets
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,25 +35,32 @@ from config import (  # noqa: E402
 from persistence import (  # noqa: E402
     ChatMessage as ChatMessageRow,
     ChatSession,
+    FundingTransaction,
+    InvestmentAccount,
     Profile,
+    add_mock_deposit,
     append_message,
     create_user,
     get_messages,
     get_or_create_session,
+    get_or_create_investment_account,
     get_password_hash,
     get_profile_result,
     get_session,
     get_user,
     list_sessions,
+    update_investment_account_cash,
     upsert_profile,
     verify_password,
 )
+from broker_factory import get_broker  # noqa: E402
 from data.seed import seed_database  # noqa: E402
 from data.loaders import load_prices, returns_matrix  # noqa: E402
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
 from llm.elicitation import stream_elicitation  # noqa: E402
+from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
 from optimizer.blend import build_target_weights  # noqa: E402
@@ -66,6 +74,7 @@ from schemas.models import (  # noqa: E402
     TargetWeights as EngineTargetWeights,
     UserProfile as EngineUserProfile,
 )
+from sizing.sizer import size_orders  # noqa: E402
 from tax.report import tax_report  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
@@ -413,7 +422,7 @@ def _compute_financial_analysis(
         tolerance_score=risk_profile.tolerance_score,
         binding_axis=risk_profile.binding_axis,
         target_volatility_pct=round(vol_mid * 100.0, 1),
-        estimated_max_loss_1yr_pct=round(vol_mid * 2.0 * 100.0, 1),
+        estimated_max_loss_1yr_pct=_estimated_max_loss_1yr_pct_for_profile(profile, risk_profile),
         loss_aversion_flag=risk_profile.loss_aversion_flag,
         contradiction_note=risk_profile.contradiction_note,
     )
@@ -492,6 +501,36 @@ def _periods_per_year(index: Any) -> float:
         return float((len(dates) - 1) * 365.25 / span_days)
     except Exception:
         return 252.0
+
+
+def _estimated_max_loss_1yr_pct(
+    weights: Mapping[str, float],
+    returns: Any,
+) -> float:
+    loss = scenario_var_1yr_loss(
+        weights,
+        returns,
+        seed=DEFAULT_SCENARIO_VAR_SEED,
+    )
+    return round(loss * 100.0, 1)
+
+
+def _estimated_max_loss_1yr_pct_for_weights(universe: Any, weights: Any) -> float:
+    _ensure_engine_data()
+    return _estimated_max_loss_1yr_pct(
+        weights.by_sleeve,
+        returns_matrix(universe.sleeves),
+    )
+
+
+def _estimated_max_loss_1yr_pct_for_profile(validated: Any, risk_profile: Any) -> float:
+    universe = _build_universe(validated)
+    weights = build_target_weights(
+        _risk_profile_with_context(validated, risk_profile),
+        universe,
+        load_prices(),
+    )
+    return _estimated_max_loss_1yr_pct_for_weights(universe, weights)
 
 
 def _compute_risk_metrics(universe: Any, weights: Any) -> api_models.RiskMetrics:
@@ -937,6 +976,26 @@ def _json_dt(value: Any) -> str | None:
     return value.isoformat() if value else None
 
 
+def _investment_account_out(account: InvestmentAccount) -> api_models.InvestmentAccountOut:
+    return api_models.InvestmentAccountOut(
+        user_email=account.user_email,
+        cash_available=account.cash_available,
+        cash_pending=account.cash_pending,
+        broker_provider=account.broker_provider,
+    )
+
+
+def _funding_transaction_out(transaction: FundingTransaction) -> api_models.FundingTransactionOut:
+    return api_models.FundingTransactionOut(
+        id=transaction.id,
+        user_email=transaction.user_email,
+        provider="mock_ach",
+        amount=transaction.amount,
+        status="succeeded",
+        created_at=transaction.created_at,
+    )
+
+
 def _message_out(message: ChatMessageRow) -> dict[str, Any]:
     return {
         "role": message.role,
@@ -1044,6 +1103,75 @@ async def login(req: api_models.AuthRequest, db: Session = Depends(get_db)) -> a
     return api_models.AuthResponse(email=user.email, name=user.name, token="mock-token-" + user.email)
 
 
+@router.post("/funding/mock/deposit", response_model=api_models.FundingTransactionOut)
+async def mock_deposit(
+    request: api_models.FundingDepositRequest,
+    db: Session = Depends(get_db),
+) -> api_models.FundingTransactionOut:
+    """Mock ACH funding stub: no real money movement, no Stripe integration."""
+    transaction = add_mock_deposit(db, request.user_email, request.amount)
+    db.commit()
+    db.refresh(transaction)
+    return _funding_transaction_out(transaction)
+
+
+@router.get("/funding/account/{user_email}", response_model=api_models.InvestmentAccountOut)
+async def funding_account(
+    user_email: str,
+    db: Session = Depends(get_db),
+) -> api_models.InvestmentAccountOut:
+    account = get_or_create_investment_account(db, user_email)
+    db.commit()
+    db.refresh(account)
+    return _investment_account_out(account)
+
+
+@router.post("/execution/preview", response_model=api_models.OrderPlanOut)
+async def execution_preview(
+    request: api_models.ExecutionRequest,
+    db: Session = Depends(get_db),
+) -> api_models.OrderPlanOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+    plan = size_orders(weights, capital_on_hand=account.cash_available, monthly_surplus=0.0)
+    return api_models.OrderPlanOut.model_validate(plan.model_dump())
+
+
+@router.post("/execution/submit", response_model=api_models.ExecutionSubmitResponse)
+async def execution_submit(
+    request: api_models.ExecutionRequest,
+    db: Session = Depends(get_db),
+) -> api_models.ExecutionSubmitResponse:
+    account = get_or_create_investment_account(db, request.user_email)
+    weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+    plan = size_orders(weights, capital_on_hand=account.cash_available, monthly_surplus=0.0)
+    # TODO: extend the engine order contract before wiring sell-side rebalances.
+    try:
+        broker = get_broker(request.user_email, cash_available=account.cash_available)
+        fills = broker.place_order(plan)
+        positions = broker.read_positions()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    update_investment_account_cash(db, request.user_email, positions.cash)
+    db.commit()
+    return api_models.ExecutionSubmitResponse(
+        fills=[api_models.FillOut.model_validate(fill.model_dump()) for fill in fills],
+        positions=api_models.Positions.model_validate(positions.model_dump()),
+    )
+
+
+@router.get("/positions/{user_email}", response_model=api_models.Positions)
+async def positions(user_email: str, db: Session = Depends(get_db)) -> api_models.Positions:
+    account = get_or_create_investment_account(db, user_email)
+    try:
+        broker = get_broker(user_email, cash_available=account.cash_available)
+        broker_positions = broker.read_positions()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return api_models.Positions.model_validate(broker_positions.model_dump())
+
+
 @router.get("/profile/{email}", response_model=api_models.OnboardResponse)
 async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.OnboardResponse:
     result = get_profile_result(db, email)
@@ -1141,7 +1269,7 @@ async def portfolio_reoptimize(
         portfolio=portfolio_result,
         risk_summary=api_models.PortfolioRiskSummary(
             target_volatility_pct=round(realized_vol * 100.0, 1),
-            estimated_max_loss_1yr_pct=round(realized_vol * 2.0 * 100.0, 1),
+            estimated_max_loss_1yr_pct=_estimated_max_loss_1yr_pct_for_weights(universe, weights),
         ),
     )
 
@@ -1178,6 +1306,7 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
     """Project goal success from target weights and cached engine return data."""
     try:
         weights = EngineTargetWeights.model_validate(request.weights.model_dump())
+        seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         projection_result = project(
             weights=weights.by_ticker,
             returns=_ticker_monthly_returns(weights.by_ticker),
@@ -1186,12 +1315,12 @@ async def projection(request: api_models.ProjectionRequest) -> api_models.Projec
             monthly_contribution=request.monthly_contribution,
             goal=request.goal_target,
             generator=request.generator,
-            seed=request.seed,
+            seed=seed,
             n_paths=request.n_paths,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_models.Projection.model_validate(projection_result.model_dump())
+    return api_models.Projection.model_validate({**projection_result.model_dump(), "seed": seed})
 
 
 @router.post("/rebalance", response_model=api_models.RebalanceDecision, summary="Decide rebalance action")
@@ -1283,7 +1412,11 @@ async def advisor_chat(request: api_models.AdvisorChatRequest) -> StreamingRespo
         if session_id:
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
         assistant_chunks = []
-        async for event in stream_advisor(request.messages, request.context):
+        async for event in stream_advisor(
+            request.messages,
+            request.context,
+            user_email=request.user_email,
+        ):
             if event.get("type") == "token":
                 assistant_chunks.append(event.get("content", ""))
             yield f"data: {json.dumps(event)}\n\n"

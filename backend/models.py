@@ -201,6 +201,26 @@ class RiskProfile(BaseModel):
     loss_aversion_flag: bool = False
 
 
+class RiskSignalComponent(BaseModel):
+    name: Literal["gl13", "dohmen", "loss_aversion"]
+    gamma: float = Field(ge=1.5, le=8.0)
+    variance: float = Field(gt=0)
+
+
+class RiskFusionInternals(BaseModel):
+    signals: List[RiskSignalComponent]
+    fixed_gamma: float = Field(ge=1.5, le=8.0)
+    fused_gamma: float = Field(ge=1.5, le=8.0)
+    q: float = Field(ge=0)
+    i_squared: float = Field(ge=0)
+    tau_squared: float = Field(ge=0)
+    combined_var: float = Field(gt=0)
+    signal_confidence: float = Field(ge=0, le=1)
+    gamma_band: GammaBand
+    needs_clarification: bool
+    contradiction_note: Optional[str] = None
+
+
 # ── Gate math objects ─────────────────────────────────────────────────────────
 
 class EmergencyFundMath(BaseModel):
@@ -287,6 +307,56 @@ class TargetWeights(BaseModel):
     by_sleeve: Dict[Sleeve, float]
     blend_alpha: float = Field(ge=0, le=1)
     method: Literal["erc", "black_litterman", "cvar"]
+
+
+class FundingDepositRequest(BaseModel):
+    user_email: str
+    amount: float = Field(gt=0)
+
+
+class InvestmentAccountOut(BaseModel):
+    user_email: str
+    cash_available: float = Field(ge=0)
+    cash_pending: float = Field(ge=0)
+    broker_provider: str
+
+
+class FundingTransactionOut(BaseModel):
+    id: int
+    user_email: str
+    provider: Literal["mock_ach"]
+    amount: float = Field(gt=0)
+    status: Literal["succeeded"]
+    created_at: datetime
+
+
+class BuyOrderOut(BaseModel):
+    ticker: str
+    dollars: float = Field(ge=0)
+    shares: float = Field(ge=0)
+
+
+class DcaScheduleEntryOut(BaseModel):
+    month_offset: int = Field(ge=0)
+    contribution: float = Field(ge=0)
+
+
+class OrderPlanOut(BaseModel):
+    method: Literal["lump_sum", "dca"]
+    buys: List[BuyOrderOut]
+    schedule: List[DcaScheduleEntryOut]
+
+
+class ExecutionRequest(BaseModel):
+    user_email: str
+    weights: TargetWeights
+
+
+class FillOut(BaseModel):
+    ticker: str
+    shares: float = Field(ge=0)
+    price: float = Field(ge=0)
+    ts: datetime
 
 
 class RiskMetrics(BaseModel):
@@ -418,6 +488,7 @@ class Projection(BaseModel):
     bad_case_terminal: float
     median_terminal: float
     n_paths: int = Field(ge=1)
+    seed: int
 
 
 class Position(BaseModel):
@@ -431,6 +502,11 @@ class Positions(BaseModel):
     items: List[Position]
     portfolio_value: float = Field(ge=0)
     cash: float = Field(ge=0)
+
+
+class ExecutionSubmitResponse(BaseModel):
+    fills: List[FillOut]
+    positions: Positions
 
 
 class Drift(BaseModel):
