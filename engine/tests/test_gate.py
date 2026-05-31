@@ -34,6 +34,32 @@ def test_halt_on_high_apr_with_harm_math():
     assert round(r.math.net_advantage_annual, 1) == 1444.5
 
 
+def test_halt_on_high_apr_uses_zero_ltcg_bracket():
+    p = maya_greenlit()
+    p.bracket = 0.12
+    p.debts = [Debt(balance=9000, apr=0.22, kind="credit_card")]
+
+    r = evaluate_gate(p)
+
+    assert r.status == "halt"
+    assert r.failed_check == "high_interest_debt"
+    assert r.math.expected_after_tax_market_return == 0.07
+    assert r.math.net_advantage_annual == 1350.0
+
+
+def test_halt_on_high_apr_uses_top_ltcg_bracket():
+    p = maya_greenlit()
+    p.bracket = 0.37
+    p.debts = [Debt(balance=9000, apr=0.22, kind="credit_card")]
+
+    r = evaluate_gate(p)
+
+    assert r.status == "halt"
+    assert r.failed_check == "high_interest_debt"
+    assert round(r.math.expected_after_tax_market_return, 3) == 0.056
+    assert round(r.math.net_advantage_annual, 1) == 1476.0
+
+
 def test_boundary_apr_exactly_threshold_does_not_halt():
     p = maya_greenlit()
     p.debts = [Debt(balance=5000, apr=0.08, kind="personal")]

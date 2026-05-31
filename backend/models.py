@@ -105,6 +105,7 @@ class UserProfileInput(BaseModel):
         "married_separate",
         "head_of_household",
     ]
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
     # ── Risk tolerance signals (Grable-Lytton instrument) ────────────────────
     risk_instrument_responses: List[int] = Field(
@@ -631,6 +632,8 @@ class HarvestableLoss(BaseModel):
     ticker: str
     unrealized_loss: float = Field(ge=0)
     note: str
+    estimated_tax_value: Optional[float] = Field(default=None, ge=0)
+    tax_rate_used: Optional[float] = Field(default=None, ge=0)
 
 
 class WashSaleWarning(BaseModel):
@@ -654,7 +657,7 @@ class TaxReportRequest(BaseModel):
         "married_separate",
         "head_of_household",
     ]
-    bracket: Optional[float] = Field(default=None, ge=0)
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 # ── Financial analysis ────────────────────────────────────────────────────────

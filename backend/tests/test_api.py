@@ -396,6 +396,44 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
 
 
+def test_tax_report_rejects_bracket_above_one(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+            "bracket": 1.01,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_tax_report_omitted_bracket_is_back_compatible(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+        },
+    )
+    assert response.status_code == 200
+    loss = response.json()["harvestable"][0]
+    assert loss["estimated_tax_value"] is None
+    assert loss["tax_rate_used"] is None
+
+
 def test_projection_same_explicit_seed_replays_identically(test_app: FastAPI):
     client = _client(test_app)
     portfolio_response = client.post(
