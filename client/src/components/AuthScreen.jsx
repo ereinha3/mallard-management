@@ -190,14 +190,25 @@ function SignUpForm({ onAuth }) {
   const [loading, setLoading] = useState(false)
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const setPhone = (e) => {
+    const digits = e.target.value.replace(/\D/g, '')
+    const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
+    let phone = nationalDigits
+    if (nationalDigits.length > 6) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3, 6)}-${nationalDigits.slice(6)}`
+    else if (nationalDigits.length > 3) phone = `(${nationalDigits.slice(0, 3)}) ${nationalDigits.slice(3)}`
+    else if (nationalDigits.length > 0) phone = `(${nationalDigits}`
+    if (digits.length === 11 && digits[0] === '1') phone = `1 ${phone}`
+    setForm(f => ({ ...f, phone }))
+  }
 
   function validate() {
     const e = {}
+    const phoneDigits = form.phone.replace(/\D/g, '')
     if (!form.name.trim())    e.name    = 'Full name is required'
     if (!form.email.trim())   e.email   = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email'
     if (!form.phone.trim())   e.phone   = 'Phone number is required'
-    else if (form.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number'
+    else if (!(phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1'))) e.phone = 'Please enter a valid 10-digit US phone number'
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
     if (!form.password)       e.password = 'Password is required'
@@ -242,7 +253,7 @@ function SignUpForm({ onAuth }) {
         placeholder="you@example.com" error={errors.email} autoComplete="email" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Phone Number" type="tel" value={form.phone} onChange={set('phone')}
+        <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
           placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
           placeholder="94105" error={errors.zip} autoComplete="postal-code" />
