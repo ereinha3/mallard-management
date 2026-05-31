@@ -327,6 +327,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RISK_FREE_SERIES,
         help="FRED series id for the risk-free rate",
     )
+    parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.90,
+        help="Fail (exit 1) if fewer than this fraction of universe tickers have prices",
+    )
     return parser
 
 
@@ -340,6 +346,24 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Refresh summary: {summary}")
     report = data_quality_report(args.db_url, _tickers(seed_instrument_frame()))
     print(format_data_quality_report(report))
+
+    # Quality gate: refuse to bless a half-priced or corrupt DB for production use,
+    # so a missing structurally-important ticker (e.g. AGG/BND) can't silently break
+    # /rebalance downstream.
+    coverage = 1.0 - float(report["missing_pct"])
+    if coverage < args.min_coverage:
+        missing = ", ".join(report["missing_price_tickers"]) or "none"
+        print(
+            f"ERROR: price coverage {coverage:.1%} is below the required "
+            f"{args.min_coverage:.0%} (missing: {missing})"
+        )
+        raise SystemExit(1)
+    if report["nonpositive_adj_close"] > 0:
+        print(
+            f"ERROR: {report['nonpositive_adj_close']} non-positive adj_close values "
+            "indicate corrupt price data"
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
