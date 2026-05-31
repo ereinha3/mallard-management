@@ -176,7 +176,6 @@ def _to_api_validated_from_profile(
 
 def _to_api_risk(risk_profile: Any) -> api_models.RiskProfile:
     payload = risk_profile.model_dump()
-    payload["loss_aversion_flag"] = False
     return api_models.RiskProfile.model_validate(payload)
 
 
@@ -412,7 +411,7 @@ def _compute_financial_analysis(
         target_volatility_pct=round(vol_mid * 100.0, 1),
         estimated_max_loss_1yr_pct=round(vol_mid * 2.0 * 100.0, 1),
         loss_aversion_flag=risk_profile.loss_aversion_flag,
-        contradiction_note=None,
+        contradiction_note=risk_profile.contradiction_note,
     )
 
     steps: list[api_models.GreenLightStep] = []
@@ -575,6 +574,12 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
         )
 
     risk_profile = build_risk_profile(validated)
+    if isinstance(risk_profile, dict):
+        return api_models.OnboardResponse(
+            status="needs_clarification",
+            validated_profile=_to_api_validated(validated, profile_input),
+            clarification_requests=_engine_clarifications(risk_profile),
+        )
     gate_result = evaluate_gate(validated)
 
     api_validated = _to_api_validated(validated, profile_input)

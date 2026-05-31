@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from profiler.capacity import capacity_score, capacity_to_gamma
-from profiler.tolerance import score_to_gamma_band
+from profiler.fusion import fuse_risk_signals
+from profiler.tolerance import risk_signals_from_inputs
 from profiler.validate import validate_profile
 from schemas.constants import SR_REF
 from schemas.models import GammaBand, RiskProfile, UserProfile, ValidatedProfile
@@ -27,13 +28,22 @@ def _coerce_validated_profile(vp: ValidatedProfile | UserProfile | dict[str, Any
     return result
 
 
-def build_risk_profile(vp: ValidatedProfile | UserProfile | dict[str, Any]) -> RiskProfile:
+def build_risk_profile(vp: ValidatedProfile | UserProfile | dict[str, Any]) -> RiskProfile | dict[str, list[str]]:
     """Build a RiskProfile per docs/greenlight/05 §2.3."""
 
     profile = _coerce_validated_profile(vp)
 
     tolerance_score = float(sum(profile.risk_instrument_responses))
-    tolerance_gamma = score_to_gamma_band(tolerance_score)
+    signals = risk_signals_from_inputs(
+        gl13_score=tolerance_score,
+        dohmen_risk=profile.dohmen_risk,
+        loss_aversion_probe=profile.loss_aversion_probe,
+    )
+    fusion = fuse_risk_signals(signals)
+    if fusion.needs_clarification:
+        return {"clarification_requests": [fusion.contradiction_note or "risk signals disagree"]}
+
+    tolerance_gamma = fusion.gamma_band
     cap_score = capacity_score(profile)
     cap_gamma = capacity_to_gamma(cap_score)
 
@@ -56,4 +66,7 @@ def build_risk_profile(vp: ValidatedProfile | UserProfile | dict[str, Any]) -> R
             "mid": SR_REF / gamma_band.mid,
             "conservative": SR_REF / gamma_band.conservative,
         },
+        signal_confidence=fusion.signal_confidence,
+        contradiction_note=fusion.contradiction_note,
+        loss_aversion_flag=profile.loss_aversion_probe >= 200.0,
     )

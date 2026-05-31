@@ -183,20 +183,25 @@ WHAT TO GATHER — in roughly this order
    hold      = would hold and wait
    buy_more  = would invest more
 
-6. LOSS-AVERSION PROBE — loss_aversion_probe (optional)
+6. DOHMEN SINGLE-ITEM RISK — dohmen_risk
+   Ask: "On a scale from 0 to 10, where 0 means not at all willing to take risks
+   and 10 means very willing, how willing are you to take risks in general?"
+   Record the integer 0-10. This is an independent corroborating signal; do not
+   combine it with the Grable-Lytton answers.
+
+7. LOSS-AVERSION PROBE — loss_aversion_probe
    Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
    or a small investment that could go sideways. What's the smallest potential gain that would make it
    feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
    you need to potentially win before you'd seriously consider it?"
    Record the dollar amount. Neutral answer = $100. Loss-averse (λ ≈ 2) ≈ $200.
-   Skip if the conversation is already long or the user is impatient.
 
-7. GOAL TARGET — goal_target
+8. GOAL TARGET — goal_target
    Ask: "Roughly how much money would you need at retirement (or your goal date) to feel
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-8. INVESTMENT PREFERENCES
+9. INVESTMENT PREFERENCES
    • ETF-only, individual stocks, or a mix
    • Any sectors/industries to exclude for ethical reasons (e.g. fossil fuels, weapons, tobacco)
    • Any sectors they want to tilt toward
@@ -208,8 +213,8 @@ If the user's behavioral responses (GL3, GL5, loss scenario) contradict their
 self-rating (GL1, GL8), probe it once, neutrally:
 "You described yourself as [X], but also said you'd [Y behavior] in a market drop.
 That's worth exploring — in the moment, do you think you'd really follow through?"
-Score based on behavioral evidence, not the self-rating. Set loss_aversion_flag if
-the probe or scenario suggests meaningfully higher loss aversion than the self-rating.
+Score based on behavioral evidence, not the self-rating. Never compute gamma,
+loss-aversion flags, volatility, or allocation; the deterministic engine does that.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONFIDENCE SCORING
@@ -229,7 +234,7 @@ WHEN TO CALL submit_profile
 Call submit_profile when you have ALL of:
   household_income, monthly_expenses, capital_on_hand, emergency_fund,
   age, horizon_years, filing_status, all 13 GL item scores,
-  loss_scenario_response, income_stability.
+  loss_scenario_response, dohmen_risk, loss_aversion_probe, income_stability.
 
 Before calling, send a brief message: "I have everything I need — let me pass this to
 the analysis engine now."
@@ -298,9 +303,13 @@ def _build_submit_profile_tool() -> Any:
                             type="STRING",
                             enum=["sell_all", "sell_some", "hold", "buy_more"],
                         ),
+                        "dohmen_risk": types.Schema(
+                            type="INTEGER",
+                            description="Dohmen general willingness-to-take-risk response, integer 0-10",
+                        ),
                         "loss_aversion_probe": types.Schema(
                             type="NUMBER",
-                            description="Minimum $ win to accept 50/50 bet against $100 loss; null if not asked",
+                            description="Minimum $ win to accept 50/50 bet against $100 loss",
                         ),
                         # Capacity
                         "income_stability": types.Schema(
@@ -323,7 +332,8 @@ def _build_submit_profile_tool() -> Any:
                         "household_income", "monthly_expenses", "capital_on_hand",
                         "emergency_fund", "debts", "age", "horizon_years",
                         "filing_status", "risk_instrument_responses",
-                        "loss_scenario_response", "income_stability",
+                        "loss_scenario_response", "dohmen_risk",
+                        "loss_aversion_probe", "income_stability",
                     ],
                 ),
             )

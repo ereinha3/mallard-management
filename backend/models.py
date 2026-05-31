@@ -106,6 +106,12 @@ class UserProfileInput(BaseModel):
         max_length=13,
         description="13 GL items each scored 1–4 (higher = more risk tolerant)",
     )
+    dohmen_risk: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="Dohmen general willingness-to-take-risk item, integer 0-10",
+    )
     loss_scenario_response: Literal["sell_all", "sell_some", "hold", "buy_more"]
     loss_aversion_probe: Optional[float] = Field(
         default=None,
@@ -167,6 +173,21 @@ class TargetVolBand(BaseModel):
     conservative: float  # lowest vol
 
 
+class RiskSignals(BaseModel):
+    gl13_gamma: float = Field(ge=1.5, le=8.0)
+    gl13_var: float = Field(gt=0)
+    dohmen_gamma: float = Field(ge=1.5, le=8.0)
+    dohmen_var: float = Field(gt=0)
+    loss_aversion_gamma: Optional[float] = Field(default=None, ge=1.5, le=8.0)
+    loss_aversion_var: Optional[float] = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_loss_aversion_pair(self) -> "RiskSignals":
+        if (self.loss_aversion_gamma is None) != (self.loss_aversion_var is None):
+            raise ValueError("loss_aversion_gamma and loss_aversion_var must be provided together")
+        return self
+
+
 class RiskProfile(BaseModel):
     gamma_band: GammaBand
     tolerance_gamma: GammaBand
@@ -175,6 +196,8 @@ class RiskProfile(BaseModel):
     tolerance_score: float = Field(ge=0, le=100)
     binding_axis: Literal["capacity", "tolerance"]
     target_vol_band: TargetVolBand
+    signal_confidence: float = Field(default=1.0, ge=0, le=1)
+    contradiction_note: Optional[str] = None
     loss_aversion_flag: bool = False
 
 

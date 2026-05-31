@@ -26,6 +26,7 @@ UserProfileInput = {
   "dependents": "number",
   "filing_status": "single|married_joint|married_separate|head_of_household",
   "risk_instrument_responses": ["number"],
+  "dohmen_risk": "number|null",
   "loss_scenario_response": "sell_all|sell_some|hold|buy_more",
   "loss_aversion_probe": "number|null",
   "income_stability": "bond_like|mixed|stock_like",
@@ -311,6 +312,7 @@ UserProfile {
   dependents:          int   [0..20]
   filing_status:       enum(single|married_joint|married_separate|head_of_household)
   risk_instrument_responses: [ int ]    # Grable-Lytton item scores, len 13
+  dohmen_risk:               int|null   # Dohmen single-item willingness, 0..10
   loss_scenario_response:    enum(buy_more|hold|sell_some|sell_all)
   loss_aversion_probe:       number     # smallest $win to accept 50/50 lose-$100; >=0
   income_stability:    enum(bond_like|mixed|stock_like)
@@ -349,9 +351,22 @@ RiskProfile {
   target_vol_band:   { aggressive: percent, mid: percent, conservative: percent }
                                          # target_vol.aggressive = SR_ref / gamma_band.aggressive  (HIGHEST vol)
                                          # both bands keyed by posture, so aggressive<->aggressive — no index crossing
+  signal_confidence: number [0..1]       # confidence after GL-13/Dohmen/loss-aversion fusion
+  contradiction_note?: string            # present when fusion had material cross-signal tension
+  loss_aversion_flag: boolean            # true when the real loss-aversion signal is elevated
 }
 ```
 **Why posture-keyed, not `low/high`:** gamma is inverted relative to risk (low gamma = aggressive = high vol). Naming the band `low/high` invites `target_vol.low = SR_ref/gamma.low`, which silently inverts the dial. Keying both bands by posture removes the trap.
+
+**UI contract for fused risk output:** `gamma_band` is the final capacity-capped
+band the UI should display. `tolerance_gamma` is now the fused tolerance band from
+the independent GL-13, Dohmen, and optional loss-aversion γ signals; `capacity_gamma`
+is still applied element-wise with `max(tolerance_gamma, capacity_gamma)`.
+`binding_axis` identifies whether the mid γ is set by tolerance or capacity.
+`signal_confidence` lets RiskView show how coherent the underlying instruments
+were. If fusion determines the signals disagree enough to require follow-up, the
+risk-profile endpoint returns `needs_clarification` instead of a `RiskProfile`; any
+`contradiction_note` that appears on a returned profile is advisory context only.
 
 ### 2.4 `GateResult`
 ```

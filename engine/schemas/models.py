@@ -48,6 +48,7 @@ class UserProfile(ContractModel):
     dependents: int = Field(ge=0, le=20)
     filing_status: FilingStatus
     risk_instrument_responses: list[int] = Field(min_length=13, max_length=13)
+    dohmen_risk: int | None = Field(default=None, ge=0, le=10)
     loss_scenario_response: LossScenarioResponse
     loss_aversion_probe: Money
     income_stability: IncomeStability
@@ -76,6 +77,7 @@ class ValidatedProfile(ContractModel):
     dependents: int = Field(ge=0, le=20)
     filing_status: FilingStatus
     risk_instrument_responses: list[int] = Field(min_length=13, max_length=13)
+    dohmen_risk: int | None = Field(default=None, ge=0, le=10)
     loss_scenario_response: LossScenarioResponse
     loss_aversion_probe: Money
     income_stability: IncomeStability
@@ -103,6 +105,21 @@ class TargetVolBand(ContractModel):
     conservative: Percent
 
 
+class RiskSignals(ContractModel):
+    gl13_gamma: float = Field(ge=1.5, le=8.0)
+    gl13_var: float = Field(gt=0)
+    dohmen_gamma: float = Field(ge=1.5, le=8.0)
+    dohmen_var: float = Field(gt=0)
+    loss_aversion_gamma: float | None = Field(default=None, ge=1.5, le=8.0)
+    loss_aversion_var: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_loss_aversion_pair(self) -> Self:
+        if (self.loss_aversion_gamma is None) != (self.loss_aversion_var is None):
+            raise ValueError("loss_aversion_gamma and loss_aversion_var must be provided together")
+        return self
+
+
 class RiskProfile(ContractModel):
     gamma_band: GammaBand
     tolerance_gamma: GammaBand
@@ -111,6 +128,9 @@ class RiskProfile(ContractModel):
     tolerance_score: float = Field(ge=0, le=100)
     binding_axis: Literal["tolerance", "capacity"]
     target_vol_band: TargetVolBand
+    signal_confidence: ConfidenceValue = 1.0
+    contradiction_note: str | None = None
+    loss_aversion_flag: bool = False
 
 
 class GateMath(ContractModel):
