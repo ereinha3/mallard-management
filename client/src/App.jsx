@@ -21,19 +21,8 @@ import { getProfile, getActiveOnboarding } from './api/greenlightClient'
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
 const AUTH_STORAGE_KEY = 'mallard.auth'
 
-// Rehydrate the logged-in user from localStorage so a refresh mid-enrollment
-// doesn't drop the session and bounce the user back to the login screen.
-function readStoredUser() {
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
 export default function App() {
-  const [user, setUser] = useState(readStoredUser)
+  const [user, setUser] = useState(null)
   const [onboardingDone, setOnboardingDone] = useState(false)
   const [onboardResult, setOnboardResult] = useState(null)
   const [resumeSession, setResumeSession] = useState(null)
@@ -41,18 +30,16 @@ export default function App() {
   const [askMallardOpen, setAskMallardOpen] = useState(false)
   const [askMallardMounted, setAskMallardMounted] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
-  // If a session was rehydrated from storage, skip the landing animation.
-  const [topoPhase, setTopoPhase] = useState(() => (readStoredUser() ? 'idle' : 'enter'))
+  const [topoPhase, setTopoPhase] = useState('enter')
 
-  // Keep localStorage in sync with the logged-in user (persist on login, clear on logout).
+  // Legacy builds persisted a user object here, which could bypass AuthScreen on load.
   useEffect(() => {
     try {
-      if (user) window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user))
-      else window.localStorage.removeItem(AUTH_STORAGE_KEY)
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
     } catch {
       // localStorage unavailable (private mode / SSR) — non-fatal.
     }
-  }, [user])
+  }, [])
 
   useEffect(() => {
     if (askMallardOpen) {
