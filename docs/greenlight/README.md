@@ -24,7 +24,7 @@ Most robo-advisors assume you should invest and only ask *how much*. Greenlight 
 These thread through all three documents:
 
 1. **Responsibility-first.** The gate runs before any optimization. It can halt the entire pipeline. This is the differentiator and it is pure, dependency-free logic — built first, built solid.
-2. **LLM elicits and explains; a deterministic engine decides.** The conversational agent never computes a number or makes an allocation. It populates a validated, typed profile; an auditable engine produces every figure. (This is the published correct pattern for regulated domains and our defense against hallucination/sycophancy.)
+2. **LLM elicits and explains; a deterministic engine decides.** The conversational agent never computes a number or makes an allocation. It populates a validated, typed profile; an auditable engine produces every figure. Advisor explainability is implemented with Gemini function-calling tools over read-only engine/account data, not an MCP server.
 3. **Capacity caps tolerance.** We never recommend more risk than the user can *afford*, even if they're willing to take it. Two independent axes, combined with `min()`.
 4. **Robust-by-construction optimization.** Risk-parity / equal-risk-contribution core (needs no fragile return forecasts; no faked ML alpha), not naive mean-variance. Backtested out-of-sample against honest benchmarks (1/N, 60/40, target-date) with overfitting-aware metrics.
 5. **The halt is deferred conversion, not refusal.** Telling a user "not yet" is a trust-first acquisition funnel; the gate-flip is the conversion event. A business-model strength, not a non-product.

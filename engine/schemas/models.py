@@ -57,6 +57,7 @@ class UserProfile(ContractModel):
     goal_target: Money
     dependents: int = Field(ge=0, le=20)
     filing_status: FilingStatus
+    bracket: float | None = Field(default=None, ge=0, le=1)
     risk_instrument_responses: list[int] = Field(min_length=13, max_length=13)
     dohmen_risk: int | None = Field(default=None, ge=0, le=10)
     loss_scenario_response: LossScenarioResponse
@@ -86,6 +87,7 @@ class ValidatedProfile(ContractModel):
     goal_target: Money
     dependents: int = Field(ge=0, le=20)
     filing_status: FilingStatus
+    bracket: float | None = Field(default=None, ge=0, le=1)
     risk_instrument_responses: list[int] = Field(min_length=13, max_length=13)
     dohmen_risk: int | None = Field(default=None, ge=0, le=10)
     loss_scenario_response: LossScenarioResponse
@@ -289,6 +291,8 @@ class HarvestableLoss(ContractModel):
     ticker: str
     unrealized_loss: Money
     note: str
+    estimated_tax_value: Money | None = None
+    tax_rate_used: Percent | None = None
 
 
 class WashSaleWarning(ContractModel):

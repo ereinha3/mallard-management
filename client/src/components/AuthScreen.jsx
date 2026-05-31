@@ -1,16 +1,16 @@
 import { useState } from 'react'
-import { Feather, Eye, EyeOff, ArrowRight, AlertCircle, FastForward } from 'lucide-react'
+import { Feather, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { login, register } from '../api/greenlightClient'
 
 const VALUE_PROPS = [
-  { num: '01', text: 'Tells you NOT to invest when that is the right call - debt and your emergency fund come first.' },
-  { num: '02', text: 'Shows the math behind every decision. No hype, no hallucinated numbers.' },
-  { num: '03', text: 'Wealth-manager-grade portfolios, sized to what you can actually afford.' },
-  { num: '04', text: 'No 1% fees. No $250k minimum. No nudges to buy what you should not.' },
+  { num: '01', text: 'Tells you not to invest when that is the right answer.' },
+  { num: '02', text: 'Shows the math, not just the verdict.' },
+  { num: '03', text: 'Builds a portfolio sized to what you can actually afford.' },
+  { num: '04', text: 'Rebalances on drift, not a calendar. No needless fees.' },
 ]
 
 let _uid = 0
-function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false }) {
+function Field({ label, type = 'text', value, onChange, error, placeholder, rightEl, autoComplete, required = false, maxLength }) {
   const [id] = useState(() => `f-${++_uid}`)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -29,6 +29,7 @@ function Field({ label, type = 'text', value, onChange, error, placeholder, righ
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}
+          maxLength={maxLength}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-err` : undefined}
           style={{
@@ -186,11 +187,17 @@ function SignInForm({ onAuth }) {
 // ── Sign Up ──────────────────────────────────────────────────────────────────
 
 function SignUpForm({ onAuth }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', zip: '', address: '', home_value: '', password: '', confirm: '' })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const parseMoney = (value) => {
+    const cleaned = String(value ?? '').replace(/[$,\s]/g, '')
+    if (!cleaned) return null
+    const parsed = Number(cleaned)
+    return Number.isFinite(parsed) ? parsed : null
+  }
   const setPhone = (e) => {
     const digits = e.target.value.replace(/\D/g, '')
     const nationalDigits = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits
@@ -213,6 +220,8 @@ function SignUpForm({ onAuth }) {
     if (!form.zip.trim())     e.zip     = 'ZIP code is required'
     else if (!/^\d{5}(-\d{4})?$/.test(form.zip.trim())) e.zip = 'Enter a valid ZIP code'
     if (!form.address.trim()) e.address = 'Street address is required'
+    else if (!/^\d+\s+[a-zA-Z]/.test(form.address.trim())) e.address = 'Enter a valid street address (e.g. 123 Main St)'
+    if (form.home_value.trim() && parseMoney(form.home_value) == null) e.home_value = 'Enter a valid home value'
     if (!form.password)       e.password = 'Password is required'
     else if (form.password.length < 8) e.password = 'Minimum 8 characters'
     if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
@@ -226,6 +235,7 @@ function SignUpForm({ onAuth }) {
     setErrors({})
     setLoading(true)
     try {
+      const homeValue = parseMoney(form.home_value)
       const user = await register({
         email: form.email,
         password: form.password,
@@ -233,8 +243,14 @@ function SignUpForm({ onAuth }) {
         phone: form.phone.trim(),
         zip: form.zip.trim(),
         address: form.address.trim(),
+        home_value: homeValue,
       })
-      onAuth({ ...user, address: user.address ?? form.address.trim(), isNewUser: true })
+      onAuth({
+        ...user,
+        address: user.address ?? form.address.trim(),
+        home_value: user.home_value ?? homeValue,
+        isNewUser: true,
+      })
     } catch (err) {
       setErrors({ form: err.message })
     } finally {
@@ -257,14 +273,16 @@ function SignUpForm({ onAuth }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Phone Number" type="tel" value={form.phone} onChange={setPhone}
-          placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" />
+          placeholder="(555) 123-4567" error={errors.phone} autoComplete="tel" maxLength={14} />
         <Field label="ZIP Code" value={form.zip} onChange={set('zip')}
-          placeholder="94105" error={errors.zip} autoComplete="postal-code" />
+          placeholder="94105" error={errors.zip} autoComplete="postal-code" maxLength={10} />
       </div>
 
-      <Field label="Street Address" value={form.address} onChange={set('address')}
-        required
+      <Field label="Address" value={form.address} onChange={set('address')}
         placeholder="123 Main St" error={errors.address} autoComplete="street-address" />
+
+      <Field label="Home Value (if you own)" value={form.home_value} onChange={set('home_value')}
+        placeholder="400,000" error={errors.home_value} autoComplete="off" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <PwField label="Password" value={form.password} onChange={set('password')}
@@ -280,35 +298,11 @@ function SignUpForm({ onAuth }) {
 
 // ── Main AuthScreen ──────────────────────────────────────────────────────────
 
-export default function AuthScreen({ onAuth, onDevSkip }) {
+export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('signin')
 
   return (
     <div className="mallard-auth-screen" style={{ height: '100vh', minHeight: '100vh', width: '100vw', background: 'transparent', overflow: 'hidden' }}>
-
-      {/* Dev-only: skip login + onboarding, load demo data */}
-      {onDevSkip && (
-        <button
-          type="button"
-          onClick={onDevSkip}
-          title="Developer shortcut: skip login and onboarding, load demo data"
-          style={{
-            position: 'absolute', top: 20, right: 24, zIndex: 10,
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-            background: 'var(--green-soft, rgba(26,107,66,0.12))',
-            border: '1px solid var(--green, var(--emerald))',
-            color: 'var(--green-bright, var(--emerald))',
-            fontSize: 11.5, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace',
-            letterSpacing: '0.04em', transition: 'all 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--green, var(--emerald))'; e.currentTarget.style.color = '#fff' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'var(--green-soft, rgba(26,107,66,0.12))'; e.currentTarget.style.color = 'var(--green-bright, var(--emerald))' }}
-        >
-          <FastForward size={13} />
-          DEV: SKIP LOGIN
-        </button>
-      )}
 
       <div className="mallard-auth-split">
         <section className="mallard-landing-panel" aria-label="Mallard Management">
@@ -339,7 +333,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
 
             <div className="landing-reveal d3 mallard-value-list">
               {VALUE_PROPS.map((item) => (
-                <div className="mallard-value-row" key={item.num}>
+                <div className="mallard-value-row" key={item.text}>
                   <div className="mallard-value-num">{item.num}</div>
                   <div>{item.text}</div>
                 </div>
@@ -359,7 +353,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
                 <p className="mallard-form-subcopy">
                   {mode === 'signin'
                     ? 'Sign in to access your financial dashboard.'
-                    : 'Get started. It takes less than a minute.'}
+                    : 'Create your profile and run the backend analysis.'}
                 </p>
               </div>
 
@@ -572,7 +566,7 @@ export default function AuthScreen({ onAuth, onDevSkip }) {
           font-size: clamp(64px, 7vw, 92px);
           font-weight: 600;
           line-height: 1.02;
-          letter-spacing: -0.045em;
+          letter-spacing: 0.03em;
           color: var(--text-primary);
         }
 

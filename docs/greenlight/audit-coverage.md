@@ -31,11 +31,11 @@
 
 ## 1. Executive summary
 
-**Nearly every proposed *capability* exists in some form.** The engine (gate, risk fusion, ERC/CAL optimization, Monte Carlo, backtest) and the backend API are substantially complete and largely faithful to the specs. Exposure is concentrated in three places:
+**Nearly every proposed *capability* exists in some form.** The engine (gate, risk fusion, ERC/CAL optimization, Monte Carlo, backtest), backend API, client SDK wiring, and portfolio-maintenance loop are substantially complete. Remaining exposure is concentrated in a smaller set of implementation gaps:
 
-1. **Frontend ↔ backend wiring.** Three client SDK wrappers (`postProjection`, `postRebalance`, `postTaxReport`) are not exported, so the Monte Carlo fan chart, rebalance panel, and tax panel are built but **cannot call the live engine**. This is the single highest-impact gap — real engine output is invisible in the UI. → `G-01`.
-2. **Backtest API hides the credibility metrics.** The engine computes Deflated Sharpe, CAGR, drawdown curve, and `naive_mvo`, but the API report drops them — undermining the "honest backtest" headline (02 §8). → `G-02`.
-3. **Spec drift the judges may check.** `riskfolio-lib`/`cvxpy`/`sklearn` were committed in the specs but never used (all custom NumPy); "MCP integration" is realized as Gemini function-tools, not a literal MCP server; several `/api/*` contract routes exist only under renamed `/api/v1/*` equivalents.
+1. **Backtest API hides the credibility metrics.** The engine computes Deflated Sharpe, CAGR, drawdown curve, and `naive_mvo`, but the API report drops them — undermining the "honest backtest" headline (02 §8). → `G-02`.
+2. **Risk / elicitation fidelity gaps.** The GL validity firewall, raw `RiskSignals` audit contract, automatic re-ask loop, and some score/variance formulas still differ from the specs. → `G-05`–`G-11`.
+3. **Remaining spec drift the judges may check.** `riskfolio-lib`/`cvxpy`/`sklearn` were committed in older specs but never used (all custom NumPy). The former MCP, risk-free, and standalone-route doc drifts have been reconciled to the implemented reality: Gemini function-tools, FRED `DGS3MO`, and consolidated `/api/v1/*` routes.
 
 **True zero-coverage items** (not built in any capacity here): momentum/volatility tilt, min-var/max-div ERC ensemble, loss-aversion downstream allocation shading, `/api/sim/fast-forward`, Politis-White automatic block-length. Stripe/ACH-payments and external loan-linking are absent **but spec-deferred** (roadmap), so they are not counted as gaps.
 
@@ -47,8 +47,97 @@
 | 2. Optimization | 5 | 3 | 3 | 2 |
 | 3. Monte Carlo + Backtest | 13 | 5 | — | — |
 | 4. Data / Universe / Tax / Rebalance / Execution | 8 | 6 | 2 | (2 deferred) |
-| 5. Backend API + LLM/MCP + Persistence | ~22 live | 5 | 13 standalone routes | (most superseded) |
-| 6. Frontend wiring | 3 live | 8 | 3 wrappers | — |
+| 5. Backend API + LLM function-tools + Persistence | ~30 live | 5 | — | standalone routes superseded |
+| 6. Frontend wiring | 6+ live | 5 | — | — |
+
+---
+
+## 1a. Historical re-audit delta — 2026-05-31 (superseded by §1b)
+
+This section preserves an earlier audit snapshot after `2ade255 Hybrid elicitation`, `9460314 Editable settings`, and `ethan2`. It is no longer the active status source; see §1b for the current post-merge state.
+
+**Closed / improved**
+- ✅ **Elicitation MVP constraint (01 §3.1) — CLOSED.** Intake is now a server-driven hybrid question order via `backend/llm/instrument.py` (`SCRIPT`: `income_stability`, GL1–GL13, loss-scenario, Dohmen, loss-aversion, goal, prefs). Order is driven by `step_from_messages` selecting `SCRIPT[step]` (`instrument.py:184,203`) + an injected turn-control block (`elicitation.py:386`); GL item order pinned + tested (`test_instrument.py:60`). *(Caveat: stateless turn-count control, not content-aware completion.)*
+- 🟡 **G-07 improved → still PARTIAL.** Exact GL1–GL13 order now pinned in code (`instrument.py:23`, presented "VERBATIM" `instrument.py:224`), but the **13–47 scoring-range mismatch remains** (schema allows 1–4 ×13 = max 52 at `backend/models.py:110,141`).
+
+**Still open**
+- ✅ **G-01 — CLOSED in the later mainline state.** `greenlightClient.js` now exports `postProjection`, `postRebalance`, `postTaxReport`, and `postPortfolio` sends `{ profile, method }`.
+- ❌ **G-05** (validity firewall still not enforced before `profile_ready` — `elicitation.py:440` emits straight from `function_call_args`; range/length checks only later at `/onboard`), **G-06** (raw `RiskSignals` contract still not modeled), **G-09** (engine builds the re-ask note at `fusion.py:87` but the chat stream never re-asks — `v1.py:1604`) — **unchanged**.
+- ❌ **G-02, G-04, G-23, G-24, G-25** — remain open/partial unless updated in §1b.
+- ✅ **G-03 — CLOSED.** Bracket-aware tax + gate math implemented: `engine/tax/rates.py` (ordinary→LTCG map, loss-offset caps), `bracket` threaded through `tax_report`/`evaluate_gate`/`_debt_math` and the API (`/tax/report`, `/onboard`, gate). In the current backend, `/onboard` also sources the bracket from Gilbert's computed marginal federal rate when available.
+
+**Mitigated (not closed as written)**
+- 🟡 **G-38.** `SettingsView` still ignores `onboardResult` (`SettingsView.jsx:49` destructures only `user`/handlers), but a **new editable `ProfileView`** consumes `validated_profile ?? profile` and saves via `postUpdateProfile` (`ProfileView.jsx:45,451`) — the product need (edit the validated profile) is now met on a different screen. Settings became editable for account fields.
+- ✅ **G-36 — CLOSED in the later mainline state.** `PortfolioView` now performs live portfolio fetches and the hardcoded `GLIDEPATH` fallback is gone.
+
+**New undocumented additions (decide: document in specs or remove)**
+- `backend/llm/instrument.py` — hybrid-elicitation `SCRIPT` controller (`ScriptItem`/`SCRIPT` at `instrument.py:7`).
+- **Advisor account tools** — `get_account_summary`, `get_my_settings`, `get_my_profile_inputs` (`advisor.py`, `explain_tools.py`). Expands function-tool explainability; **`G-31/D-2` is now doc-reconciled** as Gemini function-calling explainability, not MCP.
+- New endpoint `GET /api/v1/users/{email}/active-onboarding` + client `getActiveOnboarding`.
+- New editable `ProfileView` (tag/dropdown controls) saving via `postUpdateProfile`; address capture in signup.
+- LLM model pinned to `gemini-3.5-flash` (`elicitation.py:31`, `advisor.py:31`) — config, not in specs.
+
+> **Net:** this historical section should not be used for current gap status. Current status is below.
+
+---
+
+## 1b. Post-merge re-audit — HEAD `0ba5ca0` (supersedes earlier statuses)
+
+After the `ethan` merge (DB universe seed, bucket allocation, `tilt.py`, BL/CVaR, JNLC) + the `G-01` SDK wiring + `G-03`. Re-verified read-only by Codex against current HEAD. **Owner** = the in-flight workstream that will close it (ModuleA–G engine remediation, or CHAT = the elicitation-convergence agent); **UNOWNED** = needs separate work.
+
+**✅ Now CLOSED:** `G-01` (SDK wrappers + `{profile,method}` body), `G-03` (bracket-aware tax+gate), `G-36` (live portfolio fetch; hardcoded GLIDEPATH gone). Plus the 01 §3.1 guided-intake constraint (§1a).
+
+**Current post-merge deltas:** `G-03` now uses Gilbert's computed marginal federal rate from the gross-to-net tax pipeline when `/onboard` can compute a tax breakdown, falling back to the deterministic default/manual bracket path when unavailable. The backend `taxplanning` package (`TaxCalculator`, `BucketOptimizer`, and typed tax models) has merged, so the tax surface now exceeds the original TLH-only scope with gross-to-net tax breakdowns and pre-tax bucket optimization. The portfolio-maintenance loop has landed at `POST /api/v1/maintenance/rebalance`: `trigger=quarterly` runs drift-band maintenance and `trigger=reprofile` performs full-transition reprofile maintenance, with both paths able to execute through the simulator and elevate the new portfolio to active. This advances `G-28` and `G-33` but does not fully close either one.
+
+**Doc reconciliation closed:** `D-2/G-31` (MCP wording replaced with Gemini function-tool explainability), `D-3/G-26` (risk-free source documented as FRED `DGS3MO`), and `D-4/G-12` (05 §6 route list replaced with the live consolidated `/api/v1/*` surface). These are documentation closures only; they do not imply new code.
+
+**Owned by in-flight agents (tracked, not actionable by us):**
+
+| Gap | Status | Owner | Note |
+|---|---|---|---|
+| G-02 | PARTIAL | ModuleB | backtest improved (ragged/SPY); **API still drops CAGR/DSR/drawdown/`naive_mvo`** |
+| G-04 | PARTIAL | ModuleA | pref/theme filters exist; bundled universe ETF-only so `stock` pref can't yield stock-only |
+| G-05 | OPEN | CHAT | `profile_ready` still emits raw fn-args before server GL firewall |
+| G-06 | OPEN | CHAT | raw auditable `RiskSignals` contract still unmodeled |
+| G-07 | PARTIAL | CHAT | GL order pinned; scoring still 13×(1–4)=52 max vs spec 13–47 |
+| G-09 | OPEN | CHAT | engine requests clarification; chat doesn't re-administer conflicting items |
+| G-17/D-1 | PARTIAL | ModuleC1 | custom NumPy vs riskfolio/sklearn/cvxpy commitment |
+| G-18 | OPEN | ModuleC2 | glide still ignores `horizon` |
+| G-19 | PARTIAL | ModuleC2 | optimizer consumes only `target_vol_band.mid` |
+| G-20/D-5 | PARTIAL | ModuleG | BL/CVaR backend live; full-sleeve replacement, no frontend toggle |
+| G-21 | PARTIAL | ModuleD | `tilt.py` wired; signal still rewards positive raw-vol z-score |
+| G-25 | PARTIAL | ModuleB | DSR uses static trial count; no experiment log |
+
+**❌ REMAINS UNOWNED (actionable backlog):**
+
+| Gap | Status | Note |
+|---|---|---|
+| G-08 | OPEN | signal variances hardcoded; missing loss-probe defaults to 100.0 (`v1.py:137`) |
+| G-10 | OPEN | capacity formula deviates from 02 §3.1 |
+| G-11/D-6 | OPEN | `tolerance_score` is raw GL sum, not normalized 0–100 |
+| G-12/D-4 | CLOSED | docs now describe consolidated `/api/v1/*`; older standalone `/api/*` routes are superseded |
+| G-13 | PARTIAL | `path_to_greenlight` exists; no conversion-event state machine |
+| G-14 | PARTIAL | no cached/offline LLM fallback (demo-safety) |
+| G-15 | PARTIAL | `/config` exposes only gate+market, not GL/γ/SR_REF/capacity weights |
+| G-16 | OPEN | loss-aversion not applied as a downstream optimizer shade |
+| G-22 | OPEN | no min-var/max-div ERC ensemble |
+| G-23 | OPEN | bootstrap fixed `BLOCK_L=12`; no Politis-White auto length |
+| G-24 | OPEN | API randomizes first no-seed projection |
+| G-26/D-3 | CLOSED | data BOM now documents FRED `DGS3MO` as the implemented risk-free source |
+| G-27 | OPEN | no generic event/audit-history table |
+| G-28 | PARTIAL | maintenance rebalance executes quarterly/reprofile flows; direct execution endpoints still force `monthly_surplus=0.0` (DCA bypassed) |
+| G-29 | PARTIAL | Alpaca broker best-effort fills; no lifecycle reconciliation |
+| G-30 | CLOSED | JNLC journal service and `POST /api/v1/brokerage/journal` route are present |
+| G-31/D-2 | CLOSED | docs now describe Gemini function-calling explainability; no MCP server is claimed |
+| G-32 | OPEN | auth returns `mock-token-*`; routes unprotected |
+| G-33 | PARTIAL | quarterly maintenance trigger exists at `/api/v1/maintenance/rebalance`; no generic `/sim/fast-forward` or scheduler |
+| G-35 | PARTIAL | backend returns checks; UI keeps hardcoded fallback gate cards |
+| G-37 | OPEN | `AlertsView` reads `gate.path_to_greenlight`; backend path under `financial_analysis` |
+| G-38 | PARTIAL | `SettingsView` ignores `onboardResult` (mitigated by editable `ProfileView`) |
+
+### Our pick from the remainder — **Portfolio maintenance: quarterly rebalance + elevate-to-active** ✅ LANDED (commit `88bfbf8`)
+
+Highest pitch value: makes the README's "**then maintains it automatically**" claim real and demoable, and delivers the *execution/automation* half (advances `G-28`/`G-33` and the 01 §6 event-driven reallocation). Shipped: `POST /api/v1/maintenance/rebalance` with `trigger=quarterly` (guarded live data refresh, 20s timeout→cached fallback → drift-band `decide_rebalance` → execute if past 5pp band) and `trigger=reprofile` (merge profile patch → re-optimize → full transition via `engine/rebalance/rebalancer.rebalance_to_target` → execute), both elevating the new portfolio to active through the simulator (Alpaca behind `BROKER_PROVIDER`). Remaining for full `G-28`: DCA/monthly-surplus sizing in the direct execution path. Remaining for full `G-33`: a live scheduler and/or generic `/sim/fast-forward`; frontend "Run quarterly rebalance" trigger is a teammate-lane follow-on.
 
 ---
 
@@ -95,13 +184,13 @@ Auditor: P1. Specs: 01 §3.1–3.4/§5, 02 §2–§4, 05 §2.1–2.4/§7, 07 (al
 | `SR_REF / γ` target-vol band | 02 §2.1; 05 §7.2 | INTEGRATED | `engine/schemas/constants.py:13`, `engine/profiler/profile.py:64` | Implemented. |
 | Gate orchestration (runs first) | 01 §3.4,§5; 05 §2.4 | INTEGRATED | `engine/gate/responsibility.py:30`, `backend/api/v1.py:920` | Accepts `ValidatedProfile`; gate doesn't depend on risk. |
 | Emergency-fund halt | 01 §5; 05 §7.1 | INTEGRATED | `engine/gate/responsibility.py:33,35`, `engine/tests/test_gate.py:6` | Halts <3 months; returns target. |
-| High-interest-debt halt + gate math | 01 §5; 02 §4; 05 §2.4/§7.1 | PARTIAL | `engine/gate/responsibility.py:18,44`, `backend/api/v1.py:290` | Net-advantage math present but **uses fixed `LTCG_RATE=0.15`, not user bracket**. → `G-03` |
+| High-interest-debt halt + gate math | 01 §5; 02 §4; 05 §2.4/§7.1 | INTEGRATED | `engine/gate/responsibility.py`, `backend/api/v1.py:_marginal_federal_rate` | Bracket-aware net-advantage math is threaded through gate/tax paths. `/onboard` uses Gilbert's computed marginal federal rate when a tax breakdown is available, otherwise falls back to the provided/default bracket. `G-03` CLOSED. |
 | Low-interest-debt note | 01 §5; 02 §4 | INTEGRATED | `engine/gate/responsibility.py:55`, `engine/tests/test_gate.py:44` | Sub-`LOW_APR` noted, no halt. |
 | `GateResult` engine contract | 05 §2.4 | INTEGRATED | `engine/schemas/models.py:136,145` | Flat `GateMath` matches §2.4. |
 | API `GateResult` UI contract | 05 UI | INTEGRATED | `backend/models.py:232,241,264`, `backend/api/v1.py:240` | Nested `emergency_fund.target_balance`, checks, preview checks. |
 | Deferred-conversion framing / path-to-greenlight | 01 §1.5,§5 | PARTIAL | `backend/models.py:689`, `backend/api/v1.py:438,1437` | `path_to_greenlight` steps + `/gate/recheck`; **no explicit conversion-event state / coaching workflow**. → `G-13` |
 | `/onboard` full pipeline | 05 UI | INTEGRATED | `backend/api/v1.py:889,1407,1421` | Validate→risk→gate→portfolio-if-greenlit. |
-| Standalone profile/risk/gate endpoints | 05 §6.1 | MISSING | route list ~`backend/api/v1.py:1407` | No `/profile/extract|validate`, `/risk/profile`, `/gate/evaluate`; folded into `/onboard`. → `G-12` (DRIFT — capability present) |
+| Standalone profile/risk/gate endpoints | old 05 §6.1 | DRIFT / DOC-RECONCILED | `backend/main.py`; `backend/api/v1.py` route decorators | No standalone `/api/profile/*`, `/api/risk/profile`, or `/api/gate/evaluate`; the live contract is consolidated under `/api/v1/onboard`, `/api/v1/chat`, and `/api/v1/gate/recheck`. 05 §6 now documents the live surface. `G-12/D-4` CLOSED as doc drift. |
 | Disclosed/configurable constants | 01 §5; 02 §2.1; 05 §10 | PARTIAL | `engine/schemas/constants.py:3`, `backend/api/v1.py:1715` | `/config` exposes gate + market only; **GL mean/SD/alpha, γ range, SR_REF, CAPACITY_WEIGHTS not exposed**. → `G-15` |
 | Loss-aversion downstream allocation shading | 07 §4 Step C | MISSING | searched `engine/optimizer/blend.py:149`, `rg loss_aversion` | Folded into fusion + shown as flag; **optimizer applies no separate conservative shade**. → `G-16` |
 
@@ -174,30 +263,30 @@ Auditor: P4. Specs: 01 §3.5/3.9–3.12/§6–§8/§13, 03, 05 §2.5/2.8–2.10/
 | Component | Spec ref | Status | Evidence | Delta / Notes |
 |---|---|---|---|---|
 | yfinance price/volume ingest | data-bom D1; 01 §11 | INTEGRATED | `engine/data/ingest/yfinance_source.py:19,145,167`, `ingest/refresh.py:359` | `adj_close`+`volume`, retry/batch. |
-| FRED risk-free / macro ingest | data-bom D4 (spec said `^IRX`) | PARTIAL / DRIFT | `ingest/fred_source.py:15,29`, `refresh.py:22,361`, `db.py:63` | FRED `DGS3MO` stored as `macro_series`; **differs from documented yfinance `^IRX`**; broader macro not ingested. → `G-26` |
+| FRED risk-free / macro ingest | data-bom D4 | INTEGRATED / DOC-RECONCILED | `ingest/fred_source.py:15,29`, `refresh.py:25,295`, `db.py:63` | FRED `DGS3MO` stored as `macro_series`; data BOM now documents this source. Broader macro ingest remains out of scope. `G-26/D-3` CLOSED as doc drift. |
 | SQLite / SQLAlchemy data store | 01 §3.14; 03 | INTEGRATED | `engine/data/db.py:14,21,43,52,63`, `repository.py:40` | Instruments/prices/meta/macro. Backend app DB separate (`backend/persistence.py:18`). **No engine-side event-history table** (see `G-27`). |
 | ETF universe table | 05 §2.5/§5; data-bom D2 | INTEGRATED | `engine/data/universe.csv:1`, `classification.csv:1`, `db.py:21`, `repository.py:98` | Starter + richer classification; ESG columns in schema. |
 | Universe preference gating | 01 §3.5; 05 §2.1/§2.5 | PARTIAL | `engine/universe/builder.py:14,31`, `backend/api/v1.py:571` | ESG consumed, but **`universe_pref` (ETF/stock/mix) + `sector_theme_tilts` passed then ignored** by `build_universe`. → `G-04` |
 | ESG exclusions / substitution | 01 §3.5; 05 §5 | INTEGRATED | `engine/data/loaders.py:38,55,58,75`, `universe/builder.py:24` | VTI→ESGV, VEA→ESGD. |
-| Position sizing / `OrderPlan` | 01 §3.9; 05 §2.8 | PARTIAL | `engine/sizing/sizer.py:9,15,21,23`, `backend/api/v1.py:1255` | Fractional buys + 12-mo DCA when `monthly_surplus>0`; **execution endpoints pass `monthly_surplus=0.0` → lump-sum only**. → `G-28` |
-| Tax-loss harvesting | 01 §3.12; 03 T4; 05 §2.10 | PARTIAL | `engine/tax/report.py:48,54,59`, `backend/api/v1.py:1568` | Flags below-basis; **ignores `bracket`; no after-tax debt-vs-gains math**. → `G-03` |
+| Position sizing / `OrderPlan` | 01 §3.9; 05 §2.8 | PARTIAL | `engine/sizing/sizer.py:9,15,21,23`, `backend/api/v1.py:1460,1471,2000` | Fractional buys + 12-mo DCA when `monthly_surplus>0`; direct execution endpoints still pass `monthly_surplus=0.0`, but the maintenance route now executes quarterly/reprofile rebalance flows. → `G-28` advanced, not closed. |
+| Tax-loss harvesting | 01 §3.12; 03 T4; 05 §2.10 | INTEGRATED | `engine/tax/report.py:49,76`, `backend/api/v1.py:1836` | Flags below-basis, uses bracket for estimated tax value, and keeps TLH read-only. `G-03` CLOSED. |
 | Correlated replacement for TLH | data-bom D2; 03 T4 | PARTIAL | `engine/tax/report.py:20,28,35,42` | Prefers same bucket/sleeve, different index; falls back to hardcoded replacements. |
 | Wash-sale 30-day warning | 01 §3.12; 05 §2.10 | INTEGRATED | `engine/tax/report.py:70,73,90`, `models.py:274` | 30-day warning + advisory note. |
-| Dynamic rebalancing (drift/steer/trades) | 01 §3.11/§6; 03 T2; 05 §2.9 | INTEGRATED | `engine/rebalance/rebalancer.py:41,61,65,76,95` | Core decision present; **quarterly/event trigger is orchestration-level, not encoded**. |
+| Dynamic rebalancing (drift/steer/trades) | 01 §3.11/§6; 03 T2; 05 §2.9 | INTEGRATED | `engine/rebalance/rebalancer.py:41,61,65,76,95`, `backend/api/v1.py:2000` | Core decision present. `POST /api/v1/maintenance/rebalance` now provides quarterly drift-band maintenance and reprofile full-transition maintenance. |
 | Simulated execution engine | 01 §3.10/§8; 05 §2.8 | INTEGRATED | `engine/broker/base.py:8`, `simulator.py:12,27,49,90` | Orders, rebalance trades, positions/cash. |
 | Real execution via Alpaca Broker API | 01 §8/§13 | PARTIAL | `engine/broker/alpaca_broker.py:66,95,117,134`, `backend/broker_factory.py:30` | Multi-account adapter behind `BROKER_PROVIDER=alpaca_broker`; **best-effort market fills, no order-lifecycle reconciliation**. → `G-29` |
 | Alpaca paper execution | 01 §3.10/§8 | INTEGRATED | `engine/broker/alpaca.py:16,43,66,92`, `broker_factory.py:25` | Optional paper adapter. |
 | Brokerage account lifecycle | (beyond MVP) | PARTIAL | `backend/brokerage.py:107,124`, `backend/api/v1.py:1182`, `persistence.py:85` | Sandbox account creation + stored `alpaca_account_id`. |
 | Account funding: ACH relationship/deposit | 01 §7 (roadmap) | PARTIAL | `backend/brokerage.py:135,145`, `backend/api/v1.py:1202,1229` | ACH relationship + inbound deposit wired; exceeds MVP, no full funding lifecycle. |
-| Account funding: JNLC journal | (user-enumerated) | MISSING | searched `engine/`,`backend/` for `JNLC`/`journal` | **No journal API here** *(exists in the `-active` repo, not `-v2`)*. → `G-30` |
+| Account funding: JNLC journal | (user-enumerated) | INTEGRATED | `backend/brokerage.py:160`, `backend/api/v1.py:1461`, `backend/tests/test_brokerage.py:134` | JNLC cash journal route exists and updates local cash. `G-30` CLOSED. |
 | Loan/debt linking | 01 §7 (manual only in MVP) | DEFERRED | `backend/models.py:82`, `engine/schemas/models.py:32`, `engine/gate/responsibility.py:44,56` | Manual debts modeled + used by gate; no external linking — **per spec**. |
 | ACH payments / Stripe | 01 §7 roadmap | DEFERRED | searched; `backend/api/v1.py:1164` says mock-only | **No Stripe / ACH debt-payment** — per spec roadmap. |
 
-**Undocumented additions:** FRED default risk-free (`fred_source.py:15`); runtime `/data/refresh` endpoint (`engine/api/data_routes.py:40`) vs cached-runtime posture; Alpaca Broker onboarding/funding; mock ACH funding ledger (`backend/persistence.py:95,318`); separate backend app DB (`persistence.py:18,85`).
+**Undocumented additions:** FRED default risk-free (`fred_source.py:15`); runtime `/data/refresh` endpoint (`engine/api/data_routes.py:40`) vs cached-runtime posture; Alpaca Broker onboarding/funding; mock ACH funding ledger (`backend/persistence.py:95,318`); separate backend app DB (`persistence.py:18,85`); backend `taxplanning` package for Gilbert gross-to-net tax breakdowns and pre-tax bucket optimization, which exceeds the original TLH-only tax scope.
 
 ---
 
-## 7. Domain 5 — Backend API + LLM / MCP + Persistence
+## 7. Domain 5 — Backend API + LLM Function Tools + Persistence
 
 Auditor: P5. Specs: 01 (all §3), 05 (UI-Contract + §6 endpoint list). All `/api/v1` routes mounted at `backend/main.py:44`.
 
@@ -205,36 +294,44 @@ Auditor: P5. Specs: 01 (all §3), 05 (UI-Contract + §6 endpoint list). All `/ap
 
 | Route | Spec | Status | Evidence | Notes |
 |---|---|---|---|---|
-| `POST /api/v1/onboard` | 05 UI 71–120 | INTEGRATED | `backend/api/v1.py:1407,889`, `models.py:717` | Validate→risk→gate→portfolio. Extra `session_id` query. |
-| `POST /api/v1/gate/recheck` | 01 §6 | INTEGRATED | `backend/api/v1.py:1437` | Not in 05 list but valid. |
-| `POST /api/v1/portfolio` | 05 UI 122–134 | INTEGRATED | `backend/api/v1.py:1443`, `models.py:407` | `erc`/`black_litterman`/`cvar`; requires gate pass. |
-| `POST /api/v1/backtest` | 05 UI 136–174 | PARTIAL | `backend/api/v1.py:1449`, `models.py:418` | Shape matches UI contract; **drops metrics** → `G-02`. |
-| `POST /api/v1/projection` | 05 UI 176–199 | PARTIAL | `backend/api/v1.py:1533`, `models.py:522,533` | Extra `seed` field; first no-seed call nondeterministic → `G-24`. |
-| `POST /api/v1/rebalance` | 05 UI 201–213 | INTEGRATED | `backend/api/v1.py:1555`, `models.py:585` | Engine `decide_rebalance`. |
-| `POST /api/v1/tax/report` | 05 UI 215–230 | PARTIAL | `backend/api/v1.py:1568,1574`, `models.py:622` | Accepts `bracket`, **uses only `filing_status`** → `G-03`. |
-| `GET /api/v1/profile/{email}` | 05 UI 232–234 | INTEGRATED | `backend/api/v1.py:1335`, `persistence.py:205` | `no_profile` if absent. |
-| `GET /api/v1/users/{email}/record` | 05 UI 236–255 | INTEGRATED | `backend/api/v1.py:1659`, `models.py:67` | Account+profile+chats. |
-| `GET /api/v1/users/{email}/chats` | 05 UI 257 | INTEGRATED | `backend/api/v1.py:1681,1689` | `kind` is plain `str`, not enum. |
-| `GET /api/v1/config` | 05 UI 259–274 | INTEGRATED | `backend/api/v1.py:1715`, `backend/config.py:13` | Gate + market only (see `G-15`). |
-| `POST /api/v1/chat` (SSE) | 05 276–298 | INTEGRATED | `backend/api/v1.py:1580`, `llm/elicitation.py:419` | `session`/`token`/`profile_ready`/`error`/`[DONE]`. |
-| `POST /api/v1/advisor/chat` (SSE) | 05 300–318 | INTEGRATED | `backend/api/v1.py:1617`, `llm/advisor.py:262` | Explainability function tools. |
+| `POST /api/v1/onboard` | 05 UI | INTEGRATED | `backend/api/v1.py:1664`, `models.py` | Validate→risk→gate→portfolio; computes Gilbert tax breakdown when possible and stores `tax_breakdown`/`bucket_plan`. Extra `session_id` query. |
+| `POST /api/v1/gate/recheck` | 01 §6 | INTEGRATED | `backend/api/v1.py:1739` | Re-runs gate/full pipeline on updated `UserProfileInput`. |
+| `POST /api/v1/portfolio` | 05 UI | INTEGRATED | `backend/api/v1.py:1745`, `models.py` | `erc`/`black_litterman`/`cvar`; requires gate pass. |
+| `POST /api/v1/portfolio/reoptimize` | UI addition | INTEGRATED | `backend/api/v1.py:1766` | Risk-dial reoptimization. |
+| `POST /api/v1/portfolio/analyze-weights` | UI addition | INTEGRATED | `backend/api/v1.py:1804` | Validates/analyzes user-edited weights. |
+| `POST /api/v1/portfolio/save` | UI addition | INTEGRATED | `backend/api/v1.py:1584` | Persists saved portfolio/risk summary into onboard result. |
+| `POST /api/v1/backtest` | 05 UI | PARTIAL | `backend/api/v1.py:1751`, `models.py` | Shape matches UI contract; **drops metrics** → `G-02`. |
+| `POST /api/v1/projection` | 05 UI | PARTIAL | `backend/api/v1.py:1831`, `models.py` | Extra `seed` field; first no-seed call nondeterministic → `G-24`. |
+| `POST /api/v1/rebalance` | 05 UI | INTEGRATED | `backend/api/v1.py:1853`, `models.py` | Engine `decide_rebalance`. |
+| `POST /api/v1/maintenance/rebalance` | 01 §6 | INTEGRATED | `backend/api/v1.py:2042` | Quarterly drift-band and reprofile full-transition maintenance; advances `G-28`/`G-33`. |
+| `POST /api/v1/tax/report` | 05 UI | INTEGRATED | `backend/api/v1.py:1866`, `engine/tax/report.py:49` | Uses `bracket` for TLH tax value. `G-03` CLOSED. |
+| `GET /api/v1/profile/{email}` | 05 UI | INTEGRATED | `backend/api/v1.py:1575`, `persistence.py` | `no_profile` if absent. |
+| `POST /api/v1/profile/update` | UI addition | INTEGRATED | `backend/api/v1.py:1613` | Merges profile patch and reruns pipeline. |
+| `GET /api/v1/users/{email}/record` | 05 UI | INTEGRATED | `backend/api/v1.py:1957`, `models.py` | Account+profile+chats. |
+| `GET /api/v1/users/{email}/chats` | 05 UI | INTEGRATED | `backend/api/v1.py:1979` | `kind` is plain `str`, not enum. |
+| `GET /api/v1/users/{email}/active-onboarding` | UI addition | INTEGRATED | `backend/api/v1.py:1993` | Resume active elicitation. |
+| `GET /api/v1/chats/{session_id}` | UI addition | INTEGRATED | `backend/api/v1.py:2005` | Full chat transcript. |
+| `GET /api/v1/config` | 05 UI | INTEGRATED | `backend/api/v1.py:2013`, `backend/config.py` | Gate + market only (see `G-15`). |
+| `POST /api/v1/chat` (SSE) | 05 UI | INTEGRATED | `backend/api/v1.py:1878`, `llm/elicitation.py` | `session`/`token`/`profile_ready`/`error`/`[DONE]`. |
+| `POST /api/v1/advisor/chat` (SSE) | 05 UI | INTEGRATED | `backend/api/v1.py:1915`, `llm/advisor.py` | Gemini function-tool explainability. |
+| Auth/funding/brokerage/execution/positions | 05 §6 | INTEGRATED | `backend/api/v1.py:1346-1564` | `auth/*`, `funding/*`, `brokerage/*` including `journal`, `execution/*`, and `positions/{user_email}` are registered under `/api/v1`. |
 
-### 7.2 LLM / MCP / Persistence
+### 7.2 LLM Function Tools / Persistence
 
 | Component | Spec | Status | Evidence | Delta |
 |---|---|---|---|---|
 | Elicitation LLM (Gemini) | 01 §3.1 | PARTIAL | `llm/elicitation.py:30,34,263,394` | Live free-form LLM, **not the "guided form w/ narrated veneer" MVP constraint; no cached offline fallback**. → `G-14` |
-| Advisor LLM (Gemini) | 01 §3.13 | INTEGRATED | `llm/advisor.py:29,32,215` | Constrained to explanation; tools for numbers. |
-| MCP explainability tools | user-req; 01 §3.13 | PARTIAL / DRIFT | `llm/advisor.py:120`, `llm/explain_tools.py:270,288,342` | `explain_portfolio`/`explain_risk_fusion`/projection exist **as Gemini function tools; no MCP server/protocol**. → `G-31` |
+| Advisor LLM (Gemini) | 01 §3.13 | INTEGRATED | `llm/advisor.py:29,32,215` | Constrained to explanation; uses function tools for numbers. |
+| Advisor explainability tools | 01 §3.13 | INTEGRATED / DOC-RECONCILED | `llm/advisor.py:_build_advisor_tools`, `llm/explain_tools.py` | Gemini function declarations expose `explain_portfolio`, `explain_risk_fusion`, `get_projection_percentiles`, `get_account_summary`, `get_my_settings`, `get_my_profile_inputs`, `get_my_gate_status`, and `get_method_citations`. No MCP server/protocol is implemented or claimed. `G-31/D-2` CLOSED as doc drift. |
 | Persistence: users + PBKDF2 | user-req | INTEGRATED | `persistence.py:27,152,163` | `pbkdf2_hmac`, 200k iters. |
 | Persistence: profiles | 01 §3.14 | INTEGRATED | `persistence.py:36,189`, `backend/api/v1.py:1423` | Input + serialized result. |
 | Persistence: chat sessions/messages | 05 243–252 | INTEGRATED | `persistence.py:55,74`, `backend/api/v1.py:1084` | User/assistant + extracted profile. |
 | Auth token | user-req | PARTIAL | `backend/api/v1.py:1137,1150`, `models.py:15` | `mock-token-<email>`; **no persistence/expiry/verification/protected routes**. → `G-32` |
 | State-store event history | 01 §3.14 | PARTIAL | `persistence.py:36,55,85,95` | Profile/chat/accounts/funding stored; **no generic event-history/audit table** for gate/allocation/rebalance/profile-change events. → `G-27` |
 
-### 7.3 Missing standalone contract routes (05 §6.1–6.3) — capability superseded by `/api/v1/*`
+### 7.3 Superseded standalone contract routes (old 05 §6.1–6.3)
 
-All of the following §6 routes are **not registered**; each has a live equivalent (so the *capability* is present — these are DRIFT, not capability gaps). → `G-12`.
+The old standalone `/api/*` routes are **not registered**; 05 §6 now documents the live consolidated `/api/v1/*` surface. These are no longer capability gaps. → `G-12/D-4` CLOSED as doc drift.
 
 | 05 §6 route | Live equivalent |
 |---|---|
@@ -250,9 +347,9 @@ All of the following §6 routes are **not registered**; each has a live equivale
 | `GET /api/backtest` | `POST /api/v1/backtest` |
 | `POST /api/narrate` | advisor SSE (no standalone narrate) |
 | `POST /api/run` | `POST /api/v1/onboard` |
-| `POST /api/sim/fast-forward` | **none** — genuinely MISSING → `G-33` |
+| `POST /api/sim/fast-forward` | no generic sim-clock route; `POST /api/v1/maintenance/rebalance` covers quarterly maintenance trigger. `G-33` PARTIAL |
 
-**Undocumented additions:** `GET /health` (`main.py:52`); `auth/register|login` (`v1.py:1137,1150`); `funding/mock/deposit` + `funding/account/{email}` (`v1.py:1159,1171`); `brokerage/account|ach-relationship|deposit` (`v1.py:1182,1202,1229`); `execution/preview|submit|rebalance/submit` (`v1.py:1250,1261,1285`); `positions/{user_email}` (`v1.py:1324`); `portfolio/save` (`v1.py:1344`); `profile/update` (`v1.py:1373`); `portfolio/reoptimize` + `portfolio/analyze-weights` (`v1.py:1464,1506`, documented in `portfolio-creation-review.md`, not 05).
+**Formerly undocumented additions now in 05 §6:** `GET /health`; `auth/register|login`; `funding/mock/deposit` + `funding/account/{email}`; `brokerage/account|ach-relationship|deposit|journal`; `execution/preview|submit|rebalance/submit`; `positions/{user_email}`; `portfolio/save`; `profile/update`; `portfolio/reoptimize`; `portfolio/analyze-weights`; `maintenance/rebalance`.
 
 ---
 
@@ -264,17 +361,17 @@ Auditor: P6. Specs: 01 (UI journey), roles/A–D, roles/module-0-contract. **Tea
 |---|---|---|---|---|
 | Onboarding chat | role A; 01 UI_Chat | PARTIAL | `client/src/components/OnboardingChat.jsx:248,225` | Main chat live + persisted. Greenlight-tab `IntakeChat.jsx:161` calls `postOnboard(profileData, userEmail)` **without `sessionId`**; dev-skip injects dummy data (`OnboardingChat.jsx:378`). → `G-34` |
 | Gate screen (halt + flip) | role A; 01 §5 | PARTIAL | `GateScreen.jsx:45,135`, `GreenlightFlow.jsx:30` | Live `gate_result.status` drives flow; **fallback inferred/hardcoded check cards when `gate_result.checks` absent** (`GateScreen.jsx:242,463`). → `G-35` |
-| Portfolio view (donut + metrics) | role B; 01 §3.6 | PARTIAL | `PortfolioView.jsx:185,243,411` | Live when `onboardResult.portfolio` exists; **hardcoded `GLIDEPATH` (`PortfolioView.jsx:28`) + estimated-metric fallback (`engineData.js:245`)**; `postPortfolio` posts raw profile not `{profile}` (`greenlightClient.js:137`). → `G-01`,`G-36` |
-| Monte Carlo fan chart | role B; 01 §3.8 | PARTIAL (blocked) | `ProjectionChart.jsx:127,192`, `Dashboard.jsx:225` | UI renders `p_success`/bands if data arrives, **but `postProjection` is not exported by `greenlightClient.js` → live MC cannot run**. → `G-01` |
-| Rebalance panel (drift/steer/trades) | role C; 01 §3.11 | PARTIAL (blocked) | `RebalancePanel.jsx:3,355,460`, `seedPositions.js:1` | UI structured for live output, **`postRebalance` missing from SDK**; holdings seeded by design. → `G-01` |
-| Tax panel (harvest + wash-sale) | role C; 01 §3.12 | PARTIAL (blocked) | `RebalancePanel.jsx:225,356` | No illustrative constants, **but `postTaxReport` missing → live tax cannot run**. → `G-01` |
+| Portfolio view (donut + metrics) | role B; 01 §3.6 | INTEGRATED | `PortfolioView.jsx`, `greenlightClient.js:137` | Live portfolio fetch path present; `postPortfolio` sends `{ profile, method }`; hardcoded `GLIDEPATH` fallback removed. `G-01`/`G-36` CLOSED. |
+| Monte Carlo fan chart | role B; 01 §3.8 | INTEGRATED | `ProjectionChart.jsx`, `Dashboard.jsx`, `greenlightClient.js:153` | `postProjection` exported and consumers call the live endpoint. `G-01` CLOSED. |
+| Rebalance panel (drift/steer/trades) | role C; 01 §3.11 | INTEGRATED | `RebalancePanel.jsx`, `greenlightClient.js:169` | `postRebalance` exported and consumers call the live endpoint. `G-01` CLOSED. |
+| Tax panel (harvest + wash-sale) | role C; 01 §3.12 | INTEGRATED | `RebalancePanel.jsx`, `greenlightClient.js:185` | `postTaxReport` exported and consumers call the live endpoint. `G-01` CLOSED. |
 | Accounts page | role D | INTEGRATED-LIVE | `AccountsTab.jsx:147,117` | Reads `validated_profile`/`financial_analysis.debt`; Plaid stub labeled (matches spec). |
 | Alerts page | role D | PARTIAL | `AlertsView.jsx:13,11` | Reads `gate_result.checks[]`, **but path-to-greenlight reads `gate.path_to_greenlight?.steps`; spec says `financial_analysis.path_to_greenlight.steps`**. → `G-37` |
 | Settings page | role D | PARTIAL | `SettingsView.jsx:27`, `App.jsx:135` | Consumes only signed-in `user`; **ignores `onboardResult`** → renders no validated-profile fields. → `G-38` |
 | Risk view | role D; 01 §3.3 | INTEGRATED-LIVE | `RiskView.jsx:25` | γ, γ band, target vol, capacity/tolerance, binding axis. |
 | Surfacing selected ETFs | role B; 01 §3.5/3.6 | PARTIAL | `PortfolioView.jsx:257,521`, `PortfolioEditor.jsx:86` | Live from `by_ticker`; editor has hardcoded fallback tickers if no base portfolio. |
 
-**Client SDK wrappers** (`client/src/api/greenlightClient.js:62`): present — `streamChat`, `postOnboard`, `postPortfolio` (+ auth/profile/advisor/update/save). **Missing — `postProjection`, `postRebalance`, `postTaxReport`** (`G-01`). Dummy paths remain via `DUMMY_ONBOARD_RESULT` in `App.jsx` / `OnboardingChat.jsx`.
+**Client SDK wrappers** (`client/src/api/greenlightClient.js`): present — `streamChat`, `postOnboard`, `postPortfolio`, `postProjection`, `postRebalance`, `postTaxReport`, plus auth/profile/advisor/update/save and execution helpers. `G-01` CLOSED. Dummy/dev-skip paths may still exist separately.
 
 ---
 
@@ -285,9 +382,9 @@ These are not capability gaps — the function works — but a judge or new engi
 | ID | Drift | Spec said | Code does | Recommendation |
 |---|---|---|---|---|
 | D-1 | Optimization libraries | `riskfolio-lib` + `cvxpy` + `sklearn.LedoitWolf` (06:238) | Custom NumPy for ERC/LW/BL/CVaR | **Update the docs** — the NumPy path is dependency-light and tested; reframe spec as "custom implementations of these methods." (`G-17`) |
-| D-2 | Explainability transport | "MCP integration" | Gemini function-tools (`explain_tools.py`) | Either build a thin MCP server exposing the same tools, or **rename the claim to "tool-use / function-calling explainability."** (`G-31`) |
-| D-3 | Risk-free source | yfinance `^IRX` (data-bom) | FRED `DGS3MO` | Update data-bom; FRED is the better source. (`G-26`) |
-| D-4 | API route shape | `/api/*` §6 routes | `/api/v1/*` consolidated | Update 05 §6 to match the live `/api/v1` UI-contract. (`G-12`) |
+| D-2 | Explainability transport | earlier MCP wording | Gemini function-tools (`explain_tools.py`) | **Reconciled in docs:** the implemented surface is "Gemini function-calling explainability"; no MCP server is claimed. (`G-31` CLOSED) |
+| D-3 | Risk-free source | yfinance `^IRX` (data-bom) | FRED `DGS3MO` | **Reconciled in docs:** data-bom now names FRED `DGS3MO` and notes `^IRX` as the original plan. (`G-26` CLOSED) |
+| D-4 | API route shape | `/api/*` §6 routes | `/api/v1/*` consolidated | **Reconciled in docs:** 05 §6 now lists the live `/api/v1` routes and the old routes as superseded. (`G-12` CLOSED) |
 | D-5 | BL/CVaR delivery | pre-baked toggle fixtures (MVP) | live custom endpoints | Acceptable upgrade; note it. (`G-20`) |
 | D-6 | `tolerance_score` | normalized 0–100 | raw GL sum | Normalize or fix schema text. (`G-11`) |
 
@@ -297,26 +394,36 @@ These are not capability gaps — the function works — but a judge or new engi
 
 Severity: **P0** blocks the proposed demo / a headline claim · **P1** material spec fidelity · **P2** polish / nice-to-have. Each gap: where it is, the required behavior, the files to touch, and acceptance criteria. Re-confirm line numbers before editing.
 
-### P0 — blocks the demo or a headline claim
+### Closed / doc-reconciled items kept for history
 
-**G-01 · Frontend cannot reach the live Projection / Rebalance / Tax endpoints**
-- **Domain:** 6 (frontend) + module-0 contract.
-- **Now:** `greenlightClient.js` exports `postPortfolio` but **not** `postProjection`, `postRebalance`, `postTaxReport`; `postPortfolio` posts a raw `profile` body instead of `{ profile }`.
-- **Required:** add the three wrappers mirroring the existing `postPortfolio`/fetch pattern (host-relative `BASE`), posting to `POST /api/v1/projection`, `/rebalance`, `/tax/report` with the documented request bodies (05 UI §). Fix `postPortfolio` to send `{ profile }`.
-- **Files:** `client/src/api/greenlightClient.js`; consumers already exist (`ProjectionChart.jsx`, `RebalancePanel.jsx`, `Dashboard.jsx`).
-- **Acceptance:** with backend running, the MC fan chart, rebalance panel, and tax panel render values that match a direct `curl` to each endpoint; `npm --prefix client run build` green.
+**G-01 · Frontend cannot reach the live Projection / Rebalance / Tax endpoints — CLOSED**
+`greenlightClient.js` now exports `postProjection`, `postRebalance`, and `postTaxReport`; `postPortfolio` posts `{ profile, method }`. Consumers call the live endpoints.
+
+**G-03 · Tax `bracket` ignored; gate debt-math uses fixed LTCG — CLOSED**
+Bracket-aware tax/gate math is implemented. `/onboard` now uses Gilbert's computed marginal federal rate from the gross-to-net tax pipeline when available, otherwise falls back to the provided/default bracket path; `/tax/report` uses `bracket` for estimated TLH tax value.
+
+**G-12/D-4 · Standalone route list drift — CLOSED (docs)**
+05 §6 now documents the live consolidated `/api/v1/*` API and lists the old standalone `/api/*` routes as superseded.
+
+**G-26/D-3 · Risk-free source drift — CLOSED (docs)**
+data-bom now documents FRED `DGS3MO`; yfinance `^IRX` is noted as the original plan.
+
+**G-30 · JNLC route absent — CLOSED**
+`POST /api/v1/brokerage/journal` is registered and tested.
+
+**G-31/D-2 · "MCP" is function-tools — CLOSED (docs)**
+Specs now describe Gemini function-calling explainability over `backend/llm/explain_tools.py`; no MCP server is claimed.
+
+**G-36 · PortfolioView hardcoded glidepath / no live fetch — CLOSED**
+Live portfolio fetch path exists and the hardcoded `GLIDEPATH` fallback is gone.
+
+### P0 — blocks the demo or a headline claim
 
 **G-02 · Backtest API drops the honest-claim metrics**
 - **Domain:** 3/5. **Now:** engine computes `cagr`, `deflated_sharpe`, `drawdown_curve`, and the `naive_mvo` strategy (`engine/backtest/run.py:189,191,193,315`), but the API report (`backend/api/v1.py:1449`; response model `backend/models.py:418/436`) omits them; request `profile/weights/start/end` are accepted then ignored.
 - **Required:** surface `cagr`, `deflated_sharpe`, `drawdown_curve` per strategy and include `naive_mvo` in `benchmarks`; honor (or explicitly document as ignored) the request params.
 - **Files:** `backend/models.py` (BacktestStrategy/Metrics response), `backend/api/v1.py` backtest route + the `run_backtest_report` shaping in `engine/backtest/run.py:289`.
 - **Acceptance:** `POST /api/v1/backtest` returns Deflated Sharpe + CAGR + drawdown curve for `greenlight_erc` and all four benchmarks; a UI credibility panel can render the equity + drawdown curves and the DSR.
-
-**G-03 · Tax `bracket` ignored; gate debt-math uses fixed LTCG**
-- **Domain:** 1/4. **Now:** `/tax/report` accepts `bracket` but calls `tax_report(..., filing_status)` only (`backend/api/v1.py:1574`); gate net-advantage uses `LTCG_RATE=0.15` (`engine/gate/responsibility.py:18,44`).
-- **Required:** thread `bracket` into `engine/tax/report.py` after-tax math and into the gate's expected-after-tax-market-return / debt comparison.
-- **Files:** `engine/tax/report.py`, `engine/gate/responsibility.py`, `backend/api/v1.py:1568`. TDD in `engine/tests/test_gate.py` + a tax test.
-- **Acceptance:** changing `bracket`/`filing_status` changes harvest value and the gate's `net_advantage_annual`; engine tests green.
 
 ### P1 — material spec fidelity
 
@@ -342,17 +449,12 @@ Severity: **P0** blocks the proposed demo / a headline claim · **P1** material 
 
 **G-20 · BL/CVaR shape** — they replace full sleeve weights and run live; spec wanted risky-sleeve-only construction with CAL unchanged, pre-baked for the demo. Decide: keep live (update docs) or constrain to the risky sleeve.
 
-**G-26 / D-3 · Risk-free source drift** — FRED `DGS3MO` vs documented `^IRX`; update data-bom.
-
 **G-27 · No event-history/audit table** — 01 §3.14 wants every gate/allocation/rebalance/profile-change event logged. `backend/persistence.py` stores profiles/chats/accounts/funding only. Add an `events` table if the audit-trail claim is to hold.
 
-**G-31 / D-2 · "MCP" is function-tools** — build a thin MCP server over `backend/llm/explain_tools.py`, or rename the claim.
-
-**G-34..G-38 · Frontend polish** — IntakeChat missing `sessionId` (`G-34`); GateScreen hardcoded fallback cards when `checks` absent (`G-35`); PortfolioView hardcoded `GLIDEPATH`/metric fallback (`G-36`); AlertsView reads wrong path-to-greenlight object (`G-37`); SettingsView ignores `onboardResult` (`G-38`).
+**G-34..G-38 · Frontend polish** — IntakeChat missing `sessionId` (`G-34`); GateScreen hardcoded fallback cards when `checks` absent (`G-35`); AlertsView reads wrong path-to-greenlight object (`G-37`); SettingsView ignores `onboardResult` (`G-38`). `G-36` is closed.
 
 ### P2 — polish / enhancements (several are net-new vs MVP)
 
-- **G-12 / D-4** — reconcile 05 §6 route list with live `/api/v1/*`.
 - **G-13** — explicit deferred-conversion state machine beyond `path_to_greenlight`.
 - **G-14** — cached LLM offline fallback for demo-safety (01 principle 6).
 - **G-15** — expose GL/γ/SR_REF/CAPACITY_WEIGHTS via `/config` (05 §10).
@@ -363,11 +465,10 @@ Severity: **P0** blocks the proposed demo / a headline claim · **P1** material 
 - **G-23** — Politis-White automatic block-length (currently fixed `BLOCK_L=12`).
 - **G-24** — API projection nondeterministic on first no-seed call (generates a fresh seed).
 - **G-25** — reconcile cached `engine/data/backtest.json` (ERC worse Sortino/Calmar/turnover than benchmarks) with honest-claims framing; persist a real DSR trial log.
-- **G-28** — backend execution forces `monthly_surplus=0.0` (DCA bypassed → lump-sum only).
+- **G-28** — PARTIAL: portfolio-maintenance rebalance/reprofile execution exists, but direct execution still forces `monthly_surplus=0.0` (DCA bypassed → lump-sum only).
 - **G-29** — Alpaca Broker API lacks order-lifecycle/status reconciliation.
-- **G-30** — JNLC instant-funding journal not present here (exists in `-active`).
 - **G-32** — auth is `mock-token-<email>`; no persistence/expiry/verification/protected routes.
-- **G-33** — `/api/sim/fast-forward` simulated clock missing (05 §6.3).
+- **G-33** — PARTIAL: `POST /api/v1/maintenance/rebalance` provides a quarterly maintenance trigger; generic `/api/sim/fast-forward` and a live scheduler are still absent.
 
 ---
 

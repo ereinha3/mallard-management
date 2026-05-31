@@ -8,7 +8,7 @@ function statusLabel(status) {
 
 export default function AlertsView({ onboardResult }) {
   const gate = onboardResult?.gate_result ?? {}
-  const steps = gate.path_to_greenlight?.steps ?? []
+  const steps = onboardResult?.financial_analysis?.path_to_greenlight?.steps ?? []
   const status = gate.status
   const alertChecks = Array.isArray(gate.checks)
     ? gate.checks.filter(check => check?.status === 'fail' || check?.status === 'warn')

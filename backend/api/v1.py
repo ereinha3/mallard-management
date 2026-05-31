@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -63,7 +64,7 @@ from data.loaders import load_prices, returns_matrix, ticker_metadata  # noqa: E
 from backtest.run import run_backtest_report  # noqa: E402
 from gate.responsibility import evaluate_gate  # noqa: E402
 from llm.advisor import stream_advisor  # noqa: E402
-from llm.elicitation import stream_elicitation  # noqa: E402
+from llm.elicitation import stream_interview  # noqa: E402
 from montecarlo.downside import DEFAULT_SCENARIO_VAR_SEED, scenario_var_1yr_loss  # noqa: E402
 from montecarlo.projection import project  # noqa: E402
 from optimizer.black_litterman import black_litterman_weights  # noqa: E402
@@ -72,14 +73,21 @@ from optimizer.cvar import cvar_weights  # noqa: E402
 from optimizer.erc import cov_ledoit_wolf, erc_weights, risk_contributions  # noqa: E402
 from profiler.profile import build_risk_profile  # noqa: E402
 from profiler.validate import validate_profile  # noqa: E402
-from rebalance.rebalancer import decide_rebalance  # noqa: E402
+from rebalance.rebalancer import decide_rebalance, rebalance_to_target  # noqa: E402
 from schemas.models import (  # noqa: E402
     Positions as EnginePositions,
     TargetWeights as EngineTargetWeights,
     UserProfile as EngineUserProfile,
 )
+from schemas import constants as engine_constants  # noqa: E402
 from sizing.sizer import size_orders  # noqa: E402
+from tax.rates import (  # noqa: E402
+    expected_after_tax_market_return,
+    ltcg_rate_for_bracket,
+)
 from tax.report import tax_report  # noqa: E402
+from taxplanning.bucket_optimizer import BucketOptimizer  # noqa: E402
+from taxplanning.calculator import TaxCalculator  # noqa: E402
 from universe.builder import build_universe  # noqa: E402
 
 router = APIRouter()
@@ -128,7 +136,20 @@ def _normalize_goal(goal: str) -> str:
 
 
 def _to_engine_profile(profile_input: api_models.UserProfileInput) -> EngineUserProfile:
-    payload = profile_input.model_dump()
+    tax_fields = {
+        "state",
+        "zip_code",
+        "pretax_401k",
+        "pretax_ira",
+        "pretax_hsa",
+        "employer_match_rate",
+        "employer_match_cap_pct",
+        "has_hsa_eligible_plan",
+        "hsa_coverage",
+        "home_value",
+        "non_liquid_savings",
+    }
+    payload = profile_input.model_dump(exclude=tax_fields)
     payload["goals"] = [_normalize_goal(goal) for goal in payload.get("goals") or ["general_wealth"]]
     payload["loss_aversion_probe"] = payload["loss_aversion_probe"] or 100.0
     payload["confidence"] = {
@@ -172,6 +193,17 @@ def _to_api_validated(
     payload = validated.model_dump(exclude={"derived"})
     payload["confidence"] = source.confidence
     payload["uncertainty_flags"] = source.uncertainty_flags
+    payload["state"] = source.state
+    payload["zip_code"] = source.zip_code
+    payload["pretax_401k"] = source.pretax_401k
+    payload["pretax_ira"] = source.pretax_ira
+    payload["pretax_hsa"] = source.pretax_hsa
+    payload["employer_match_rate"] = source.employer_match_rate
+    payload["employer_match_cap_pct"] = source.employer_match_cap_pct
+    payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
+    payload["hsa_coverage"] = source.hsa_coverage
+    payload["home_value"] = source.home_value
+    payload["non_liquid_savings"] = source.non_liquid_savings
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -189,6 +221,17 @@ def _to_api_validated_from_profile(
     payload = profile.model_dump()
     payload["confidence"] = source.confidence
     payload["uncertainty_flags"] = source.uncertainty_flags
+    payload["state"] = source.state
+    payload["zip_code"] = source.zip_code
+    payload["pretax_401k"] = source.pretax_401k
+    payload["pretax_ira"] = source.pretax_ira
+    payload["pretax_hsa"] = source.pretax_hsa
+    payload["employer_match_rate"] = source.employer_match_rate
+    payload["employer_match_cap_pct"] = source.employer_match_cap_pct
+    payload["has_hsa_eligible_plan"] = source.has_hsa_eligible_plan
+    payload["hsa_coverage"] = source.hsa_coverage
+    payload["home_value"] = source.home_value
+    payload["non_liquid_savings"] = source.non_liquid_savings
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -200,13 +243,19 @@ def _to_api_risk(risk_profile: Any) -> api_models.RiskProfile:
     return api_models.RiskProfile.model_validate(payload)
 
 
-def _debt_verdict(debt: Any) -> str:
+def _debt_verdict(
+    debt: Any,
+    bracket: float | None = None,
+    filing_status: str | None = None,
+) -> str:
+    after_tax_return = expected_after_tax_market_return(bracket, filing_status)
+    ltcg_rate = ltcg_rate_for_bracket(bracket, filing_status)
     return (
         f"Paying off your {debt.apr * 100:.0f}% APR debt is a guaranteed, "
         f"tax-free {debt.apr * 100:.0f}% return. Equities return "
         f"~{EXPECTED_MARKET_RETURN * 100:.0f}% nominally, or "
-        f"~{EXPECTED_AFTER_TAX_MARKET_RETURN * 100:.1f}% after a "
-        f"{LTCG_RATE * 100:.0f}% capital-gains rate, and that return is uncertain."
+        f"~{after_tax_return * 100:.1f}% after a "
+        f"{ltcg_rate * 100:.0f}% capital-gains rate, and that return is uncertain."
     )
 
 
@@ -237,8 +286,13 @@ def _preview_next_checks(validated: Any, failed_check: str) -> list[str]:
     return []
 
 
-def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
+def _to_api_gate(
+    gate_result: Any,
+    validated: Any,
+    bracket: float | None = None,
+) -> api_models.GateResult:
     math_payload: api_models.GateMath | None = None
+    effective_bracket = bracket if bracket is not None else getattr(validated, "bracket", None)
     target_balance = validated.monthly_expenses * EF_MONTHS
     shortfall = max(0.0, target_balance - validated.emergency_fund)
     months_covered = validated.emergency_fund / validated.monthly_expenses
@@ -295,7 +349,11 @@ def _to_api_gate(gate_result: Any, validated: Any) -> api_models.GateResult:
                 expected_after_tax_market_return=gate_result.math.expected_after_tax_market_return,
                 interest_accruing_annual=gate_result.math.interest_accruing_annual,
                 net_advantage_annual=gate_result.math.net_advantage_annual,
-                verdict=_debt_verdict(debt),
+                verdict=_debt_verdict(
+                    debt,
+                    effective_bracket,
+                    getattr(validated, "filing_status", None),
+                ),
             ),
         )
 
@@ -371,7 +429,14 @@ def _compute_financial_analysis(
         debt_to_income_ratio=round(total_debt / profile.household_income, 3)
         if profile.household_income > 0
         else 0.0,
-        net_worth_estimate=round(profile.capital_on_hand - total_debt, 2),
+        net_worth_estimate=round(
+            profile.capital_on_hand
+            + profile.emergency_fund
+            + (profile.non_liquid_savings or 0.0)
+            + (profile.home_value or 0.0)
+            - total_debt,
+            2,
+        ),
         emergency_fund_months=profile.emergency_fund_months,
         emergency_fund_target_months=float(EF_MONTHS),
         emergency_fund_pct_complete=round(ef_pct, 1),
@@ -773,13 +838,13 @@ def _greenlit_engine_context(profile_input: api_models.UserProfileInput) -> tupl
             },
         )
 
-    gate_result = evaluate_gate(validated)
+    gate_result = evaluate_gate(validated, validated.bracket)
     if gate_result.status != "greenlight":
         raise HTTPException(
             status_code=400,
             detail={
                 "message": "Profile must pass the responsibility gate before portfolio construction.",
-                "gate_result": _to_api_gate(gate_result, validated).model_dump(),
+                "gate_result": _to_api_gate(gate_result, validated, validated.bracket).model_dump(),
             },
         )
 
@@ -979,13 +1044,13 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
 
     validated = validate_profile(engine_profile)
     if isinstance(validated, dict):
-        gate_result = evaluate_gate(engine_profile)
+        gate_result = evaluate_gate(engine_profile, engine_profile.bracket)
         if gate_result.status == "halt":
             api_validated = _to_api_validated_from_profile(engine_profile, profile_input)
             return api_models.OnboardResponse(
                 status="halt",
                 validated_profile=api_validated,
-                gate_result=_to_api_gate(gate_result, engine_profile),
+                gate_result=_to_api_gate(gate_result, engine_profile, engine_profile.bracket),
             )
         return api_models.OnboardResponse(
             status="needs_clarification",
@@ -999,11 +1064,11 @@ def _run_pipeline(profile_input: api_models.UserProfileInput) -> api_models.Onbo
             validated_profile=_to_api_validated(validated, profile_input),
             clarification_requests=_engine_clarifications(risk_profile),
         )
-    gate_result = evaluate_gate(validated)
+    gate_result = evaluate_gate(validated, validated.bracket)
 
     api_validated = _to_api_validated(validated, profile_input)
     api_risk = _to_api_risk(risk_profile)
-    api_gate = _to_api_gate(gate_result, validated)
+    api_gate = _to_api_gate(gate_result, validated, validated.bracket)
     financial_analysis = _compute_financial_analysis(api_validated, api_risk, api_gate)
 
     optimizer_input = None
@@ -1393,6 +1458,35 @@ async def brokerage_deposit(
     )
 
 
+@router.post("/brokerage/journal", response_model=api_models.BrokerageJournalOut)
+async def brokerage_journal(
+    request: api_models.BrokerageJournalRequest,
+    db: Session = Depends(get_db),
+) -> api_models.BrokerageJournalOut:
+    account = get_or_create_investment_account(db, request.user_email)
+    if not account.alpaca_account_id:
+        raise HTTPException(status_code=400, detail="No alpaca_account_id stored for user.")
+
+    try:
+        service = BrokerageService(client=get_broker_client())
+        journal = service.journal_funds(account.alpaca_account_id, request.amount)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated_account = update_investment_account_cash(
+        db,
+        request.user_email,
+        account.cash_available + request.amount,
+    )
+    db.commit()
+    db.refresh(updated_account)
+    return api_models.BrokerageJournalOut(
+        id=getattr(journal, "id", None),
+        status=getattr(journal, "status", None),
+        cash_available=updated_account.cash_available,
+    )
+
+
 @router.post("/execution/preview", response_model=api_models.OrderPlanOut)
 async def execution_preview(
     request: api_models.ExecutionRequest,
@@ -1550,6 +1644,23 @@ async def profile_update(
     return response
 
 
+def _marginal_federal_rate(tax_breakdown: Any) -> float | None:
+    """Marginal (last-dollar) federal ordinary rate implied by Gilbert's computed
+    tax breakdown. This is the bracket-aware input the gate / TLH math (G-03)
+    consume — derived from the real federal brackets + taxable income rather than
+    a manual guess. Returns None if the breakdown is malformed."""
+    try:
+        federal = tax_breakdown.tax_rate_bundle.federal
+        taxable = max(0.0, float(tax_breakdown.agi) - float(federal.standard_deduction))
+        marginal: float | None = None
+        for bracket in sorted(federal.brackets, key=lambda b: float(b.min_income)):
+            if taxable > float(bracket.min_income):
+                marginal = float(bracket.rate)
+        return marginal
+    except Exception:
+        return None
+
+
 @router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
 async def onboard(
     profile_input: api_models.UserProfileInput,
@@ -1564,7 +1675,52 @@ async def onboard(
     When ``session_id`` is supplied, the elicitation session that produced this
     profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
+    # Compute Gilbert's gross-to-net tax breakdown FIRST (best-effort, LLM-backed,
+    # so guarded + timed out), then feed its marginal federal bracket into the
+    # gate / TLH math instead of the manual `bracket` field. If it is absent or
+    # fails, the gate falls back to the deterministic default (G-03).
+    tax_breakdown = None
+    if profile_input.zip_code:
+        try:
+            calculator = TaxCalculator()
+            tax_breakdown = await asyncio.wait_for(
+                calculator.calculate(
+                    gross_income=profile_input.household_income,
+                    filing_status=profile_input.filing_status,
+                    zip_code=profile_input.zip_code,
+                    pretax_401k=profile_input.pretax_401k or 0.0,
+                    pretax_ira=profile_input.pretax_ira or 0.0,
+                    pretax_hsa=profile_input.pretax_hsa or 0.0,
+                ),
+                timeout=15.0,
+            )
+        except Exception:
+            tax_breakdown = None
+
+    if tax_breakdown is not None and profile_input.bracket is None:
+        marginal = _marginal_federal_rate(tax_breakdown)
+        if marginal is not None:
+            profile_input = profile_input.model_copy(update={"bracket": marginal})
+
     response = _run_pipeline(profile_input)
+    response.tax_breakdown = tax_breakdown
+
+    if response.validated_profile is not None:
+        try:
+            optimizer = BucketOptimizer()
+            response.bucket_plan = optimizer.optimize(
+                gross_income=response.validated_profile.household_income,
+                filing_status=response.validated_profile.filing_status,
+                age=response.validated_profile.age,
+                monthly_surplus=response.validated_profile.monthly_surplus,
+                employer_match_rate=response.validated_profile.employer_match_rate,
+                employer_match_cap_pct=response.validated_profile.employer_match_cap_pct,
+                has_hsa=response.validated_profile.has_hsa_eligible_plan,
+                hsa_coverage=response.validated_profile.hsa_coverage,
+                tax_brackets=tax_breakdown.tax_rate_bundle if tax_breakdown else None,
+            )
+        except Exception:
+            pass
 
     if user_email and get_user(db, user_email):
         upsert_profile(
@@ -1719,7 +1875,7 @@ async def tax_report_endpoint(request: api_models.TaxReportRequest) -> api_model
     try:
         _ensure_engine_data()
         positions = EnginePositions.model_validate(request.positions.model_dump())
-        report = tax_report(positions, request.cost_basis, request.filing_status)
+        report = tax_report(positions, request.cost_basis, request.filing_status, request.bracket)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return api_models.TaxReport.model_validate(report.model_dump())
@@ -1749,7 +1905,7 @@ async def chat(request: api_models.ChatRequest) -> StreamingResponse:
         if session_id:
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
         assistant_chunks = []
-        async for event in stream_elicitation(request.messages):
+        async for event in stream_interview(request.messages, session_id=session_id):
             if event.get("type") == "token":
                 assistant_chunks.append(event.get("content", ""))
             elif event.get("type") == "profile_ready" and session_id:
@@ -1863,6 +2019,11 @@ async def chat_transcript(session_id: str, db: Session = Depends(get_db)) -> dic
 @router.get("/config", summary="Gate thresholds and market assumptions")
 async def get_config() -> dict:
     """Canonical constants exposed so the frontend can display the parameter panel."""
+    gl_constants = {
+        name.lower(): value
+        for name, value in vars(engine_constants).items()
+        if name.startswith("GL_")
+    }
     return {
         "gate": {
             "emergency_fund_months_required": EF_MONTHS,
@@ -1874,4 +2035,131 @@ async def get_config() -> dict:
             "ltcg_rate": LTCG_RATE,
             "expected_after_tax_market_return": EXPECTED_AFTER_TAX_MARKET_RETURN,
         },
+        "risk_model": {
+            **gl_constants,
+            "gamma_min": engine_constants.GAMMA_MIN,
+            "gamma_max": engine_constants.GAMMA_MAX,
+            "sr_ref": engine_constants.SR_REF,
+            "capacity_weights": engine_constants.CAPACITY_WEIGHTS,
+        },
     }
+
+
+@router.post(
+    "/maintenance/rebalance",
+    response_model=api_models.MaintenanceRebalanceResponse,
+    summary="Run portfolio maintenance and optionally execute trades",
+)
+async def maintenance_rebalance(
+    request: api_models.MaintenanceRebalanceRequest,
+    db: Session = Depends(get_db),
+) -> api_models.MaintenanceRebalanceResponse:
+    profile = _stored_profile_or_404(db, request.user_email)
+    merged_input = profile.get_input()
+
+    if request.trigger == "reprofile" and request.profile_patch:
+        merged_input = _deep_merge(merged_input, request.profile_patch)
+        try:
+            profile_input = api_models.UserProfileInput.model_validate(merged_input)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Updated profile is invalid.",
+                    "clarification_requests": [
+                        clarification.model_dump()
+                        for clarification in _validation_clarifications(exc)
+                    ],
+                },
+            ) from exc
+    else:
+        profile_input = api_models.UserProfileInput.model_validate(merged_input)
+
+    data_source = "skipped"
+    if request.trigger == "quarterly" and request.fresh_data:
+        import concurrent.futures
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            from data.ingest import refresh as refresh_module
+
+            future = executor.submit(
+                refresh_module.refresh,
+                db_url=os.environ.get("GREENLIGHT_DB_URL"),
+            )
+            future.result(timeout=20.0)
+            data_source = "live"
+        except Exception:
+            data_source = "cached"
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    response = _run_pipeline(profile_input)
+    if response.status != "greenlight" or response.portfolio is None:
+        return api_models.MaintenanceRebalanceResponse(
+            trigger=request.trigger,
+            data_source=data_source,
+            status=response.status,
+            action="none",
+            gate_result=response.gate_result,
+            clarification_requests=response.clarification_requests,
+            portfolio=response.portfolio,
+        )
+
+    new_weights = EngineTargetWeights.model_validate(response.portfolio.weights.model_dump())
+    account = get_or_create_investment_account(db, request.user_email)
+    try:
+        broker = get_broker(request.user_email, cash_available=account.cash_available)
+        current_positions = broker.read_positions()
+        decision = None
+        drifts = None
+
+        if request.trigger == "quarterly":
+            decision = decide_rebalance(current_positions, _price_backed_weights(new_weights))
+            trades = decision.trades if decision.action == "trade" else []
+            action = decision.action
+            drifts = {
+                sleeve: api_models.Drift.model_validate(drift.model_dump())
+                for sleeve, drift in decision.drifts.items()
+            }
+        else:
+            from data.loaders import latest_prices
+
+            target_weights = _price_backed_weights(new_weights)
+            tickers = sorted(
+                {position.ticker for position in current_positions.items}
+                | set(target_weights.by_ticker)
+            )
+            prices = latest_prices(tickers)
+            trades = rebalance_to_target(current_positions, target_weights, prices)
+            action = "trade" if trades else "none"
+
+        fills = []
+        positions = current_positions
+        if request.execute and trades:
+            fills = broker.place_trades(trades)
+            positions = broker.read_positions()
+            update_investment_account_cash(db, request.user_email, positions.cash)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = response.model_dump(mode="json")
+    upsert_profile(
+        db,
+        request.user_email,
+        json.dumps(profile_input.model_dump(mode="json")),
+        json.dumps(result),
+    )
+    db.commit()
+
+    return api_models.MaintenanceRebalanceResponse(
+        trigger=request.trigger,
+        data_source=data_source,
+        status=response.status,
+        action=action,
+        drifts=drifts,
+        trades=[api_models.RebalanceTrade.model_validate(trade.model_dump()) for trade in trades],
+        fills=[api_models.FillOut.model_validate(fill.model_dump()) for fill in fills],
+        positions=api_models.Positions.model_validate(positions.model_dump()),
+        portfolio=response.portfolio,
+    )

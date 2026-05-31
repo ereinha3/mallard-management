@@ -295,6 +295,8 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     assert etfs["ESGV"]["bucket"] == "us_total_market"
     assert etfs["ESGV"]["replacement_for"] == "VTI"
     assert etfs["ESGV"]["exclusion_reason"] == "fossil_fuels"
+    assert body["bucket_plan"]["buckets"][0]["name"] == "401k employer match"
+    assert body["bucket_plan"]["remaining_annual_surplus_for_taxable"] >= 0
 
 
 def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
@@ -306,6 +308,14 @@ def test_config_uses_engine_constants_and_chat_routes_exist(test_app: FastAPI):
     assert body["gate"]["emergency_fund_months_required"] == constants.EF_MONTHS
     assert body["gate"]["high_apr_threshold"] == constants.HIGH_APR
     assert body["market_assumptions"]["expected_market_return"] == constants.EXPECTED_MARKET_RETURN
+    risk_model = body["risk_model"]
+    for name in dir(constants):
+        if name.startswith("GL_"):
+            assert risk_model[name.lower()] == getattr(constants, name)
+    assert risk_model["gamma_min"] == constants.GAMMA_MIN
+    assert risk_model["gamma_max"] == constants.GAMMA_MAX
+    assert risk_model["sr_ref"] == constants.SR_REF
+    assert risk_model["capacity_weights"] == constants.CAPACITY_WEIGHTS
     paths = {route.path for route in test_app.routes}
     assert "/api/v1/chat" in paths
     assert "/api/v1/advisor/chat" in paths
@@ -394,6 +404,61 @@ def test_finance_endpoints_return_well_formed_shapes(test_app: FastAPI):
     tax = tax_response.json()
     assert tax["harvestable"][0]["ticker"] == "BND"
     assert tax["wash_sale_warnings"][0]["suggested_replacement"] != "BND"
+
+
+def test_marginal_federal_rate_picks_last_dollar_bracket():
+    from types import SimpleNamespace
+
+    brackets = [
+        SimpleNamespace(min_income=0.0, rate=0.10),
+        SimpleNamespace(min_income=11000.0, rate=0.12),
+        SimpleNamespace(min_income=44725.0, rate=0.22),
+        SimpleNamespace(min_income=95375.0, rate=0.24),
+    ]
+    federal = SimpleNamespace(standard_deduction=14600.0, brackets=brackets)
+    breakdown = SimpleNamespace(agi=80000.0, tax_rate_bundle=SimpleNamespace(federal=federal))
+    # taxable = 80000 - 14600 = 65400 -> falls in the 22% bracket
+    assert api_v1._marginal_federal_rate(breakdown) == 0.22
+    # malformed breakdown -> None (gate falls back to deterministic default)
+    assert api_v1._marginal_federal_rate(SimpleNamespace()) is None
+
+
+def test_tax_report_rejects_bracket_above_one(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+            "bracket": 1.01,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_tax_report_omitted_bracket_is_back_compatible(test_app: FastAPI):
+    client = _client(test_app)
+    response = client.post(
+        "/api/v1/tax/report",
+        json={
+            "positions": {
+                "items": [{"ticker": "BND", "shares": 10, "avg_cost": 100, "market_value": 950}],
+                "portfolio_value": 950,
+                "cash": 0,
+            },
+            "cost_basis": {"BND": 1000},
+            "filing_status": "single",
+        },
+    )
+    assert response.status_code == 200
+    loss = response.json()["harvestable"][0]
+    assert loss["estimated_tax_value"] is None
+    assert loss["tax_rate_used"] is None
 
 
 def test_projection_same_explicit_seed_replays_identically(test_app: FastAPI):
@@ -603,6 +668,72 @@ def test_portfolio_analyze_weights_accepts_partial_sleeve_maps(test_app: FastAPI
     assert abs(body["validation"]["sum_safe_within_bucket"] - 1.0) < 1e-6
     assert body["weights"]["by_sleeve"]["core_bonds"] == 0.0
     assert body["weights"]["by_sleeve"]["reits"] == 0.0
+
+
+def test_maintenance_rebalance_quarterly_and_reprofile_refresh_active_portfolio(test_app: FastAPI):
+    client = _client(test_app)
+    email = "maintenance-rebalance@example.com"
+    _register(client, email)
+
+    onboard_response = client.post(
+        f"/api/v1/onboard?user_email={email}",
+        json=_persona("persona_greenlight.json"),
+    )
+    assert onboard_response.status_code == 200
+    original_weights = onboard_response.json()["portfolio"]["weights"]["by_ticker"]
+
+    deposit_response = client.post(
+        "/api/v1/funding/mock/deposit",
+        json={"user_email": email, "amount": 2000.0},
+    )
+    assert deposit_response.status_code == 200
+
+    quarterly_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={"user_email": email, "trigger": "quarterly", "fresh_data": False},
+    )
+    assert quarterly_response.status_code == 200
+    quarterly = quarterly_response.json()
+    assert quarterly["trigger"] == "quarterly"
+    assert quarterly["data_source"] == "skipped"
+    assert quarterly["status"] == "greenlight"
+    assert quarterly["action"] in {"none", "steer", "trade"}
+    assert quarterly["portfolio"]["weights"]["by_ticker"]
+    if quarterly["action"] == "trade":
+        assert quarterly["trades"]
+        assert quarterly["fills"]
+    assert quarterly["positions"]["portfolio_value"] == pytest.approx(2000.0)
+
+    stored_after_quarterly = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_quarterly.status_code == 200
+    assert (
+        stored_after_quarterly.json()["portfolio"]["weights"]["by_ticker"]
+        == quarterly["portfolio"]["weights"]["by_ticker"]
+    )
+
+    reprofile_response = client.post(
+        "/api/v1/maintenance/rebalance",
+        json={
+            "user_email": email,
+            "trigger": "reprofile",
+            "fresh_data": False,
+            "profile_patch": {"esg_exclusions": []},
+        },
+    )
+    assert reprofile_response.status_code == 200
+    reprofile = reprofile_response.json()
+    assert reprofile["trigger"] == "reprofile"
+    assert reprofile["data_source"] == "skipped"
+    assert reprofile["status"] == "greenlight"
+    assert reprofile["action"] in {"none", "trade"}
+    assert reprofile["portfolio"]["weights"]["by_ticker"] != original_weights
+    assert reprofile["positions"]["items"]
+
+    stored_after_reprofile = client.get(f"/api/v1/profile/{email}")
+    assert stored_after_reprofile.status_code == 200
+    stored = stored_after_reprofile.json()
+    assert stored["validated_profile"]["esg_exclusions"] == []
+    assert stored["portfolio"]["weights"]["by_ticker"] == reprofile["portfolio"]["weights"]["by_ticker"]
 
 
 def test_active_onboarding_returns_found_false_when_no_session(test_app: FastAPI):

@@ -24,6 +24,7 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from llm import interview_state
 from llm.instrument import next_directive, step_from_messages
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
@@ -33,10 +34,17 @@ GEMINI_MODEL = "gemini-3.5-flash"
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """
-You are Greenlight's intake specialist. Your job is to conduct a warm, efficient
-conversation that gathers a user's complete financial profile so Greenlight's
-analysis engine can determine whether they are ready to invest — and, if so, how
-to build an appropriate portfolio.
+You are the intake specialist for Mallard Management — a responsible automated-
+investing advisor. Mallard runs a responsibility gate (high-interest debt and
+emergency-fund checks) BEFORE investing, then a deterministic engine builds a
+diversified, low-cost portfolio composed ENTIRELY of ETFs (broad index funds
+across equities, bonds, REITs, gold, and TIPS) — never individual stocks. Your
+job is to conduct a warm, efficient conversation that gathers a user's complete
+financial profile so that engine can determine whether they are ready to invest
+— and, if so, how to build an appropriate portfolio.
+
+IMPORTANT: Mallard is ETF-only. NEVER ask whether the user prefers ETFs vs.
+individual stocks, and never imply individual stocks are an option.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR ROLE
@@ -62,9 +70,11 @@ WHAT TO GATHER — in roughly this order
 The user has ALREADY completed a structured intake FORM. The FIRST message in
 this conversation contains all of the data below — treat it as final and
 authoritative, use it ONLY as context, and NEVER ask the user for any of it (or
-anything trivially derivable from it). Do NOT open with questions about their
-job, income, or finances — that part is done. Ask exactly ONE question per
-message — never bundle. Vary your phrasing so it feels human, not like a form.
+anything trivially derivable from it). Tax profile fields (ZIP, state, filing
+status, 401k/IRA/HSA contributions, employer match) are also pre-filled and
+must not be asked. Do NOT open with questions about their job, income, or
+finances — that part is done. Ask exactly ONE question per message — never
+bundle. Vary your phrasing so it feels human, not like a form.
 
 ALREADY CAPTURED BY THE FORM — never ask about any of these:
    • Annual household income, monthly essential expenses, liquid capital, emergency fund
@@ -82,11 +92,11 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    • Any outstanding debts — for each: balance, APR, and type
      (credit_card | student | mortgage | auto | personal | other). The form did not capture debts.
    • A rough goal target dollar amount
-   • Investment preferences: ETF-only / individual stocks / mix; sectors to exclude
-     for ethical reasons; sectors to tilt toward
+   • Ethical exclusions (sectors to avoid) and any sectors to tilt toward.
+     Mallard is ETF-only — do NOT ask about individual stocks or an ETF/stock choice.
    • The risk-tolerance instrument below — this is the heart of the conversation
 
-4. RISK TOLERANCE — 13-item Grable-Lytton instrument
+5. RISK TOLERANCE — 13-item Grable-Lytton instrument
    Ask these conversationally. Weave multiple items into a single prompt when natural.
    Score each 1–4 where 4 = most risk tolerant. Map the user's response to the score.
 
@@ -182,7 +192,7 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
           D: Take a long-shot chance at $3,000, knowing the odds are heavily against you.
      A → 1, B → 2, C → 3, D → 4
 
-5. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
+6. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
    Ask explicitly: "If your actual investment portfolio dropped 20% in a single year —
    a scenario that has happened historically — what would you realistically do?"
    sell_all  = would sell everything
@@ -190,26 +200,26 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    hold      = would hold and wait
    buy_more  = would invest more
 
-6. DOHMEN SINGLE-ITEM RISK — dohmen_risk
+7. DOHMEN SINGLE-ITEM RISK — dohmen_risk
    Ask: "On a scale from 0 to 10, where 0 means not at all willing to take risks
    and 10 means very willing, how willing are you to take risks in general?"
    Record the integer 0-10. This is an independent corroborating signal; do not
    combine it with the Grable-Lytton answers.
 
-7. LOSS-AVERSION PROBE — loss_aversion_probe
+8. LOSS-AVERSION PROBE — loss_aversion_probe
    Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
    or a small investment that could go sideways. What's the smallest potential gain that would make it
    feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
    you need to potentially win before you'd seriously consider it?"
    Record the dollar amount. Neutral answer = $100. Loss-averse (λ ≈ 2) ≈ $200.
 
-8. GOAL TARGET — goal_target
+9. GOAL TARGET — goal_target
    Ask: "Roughly how much money would you need at retirement (or your goal date) to feel
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-9. INVESTMENT PREFERENCES
-   • ETF-only, individual stocks, or a mix
+10. INVESTMENT PREFERENCES (Mallard is ETF-only — do NOT ask about individual stocks)
+   • universe_pref is always "etf"; never offer the user a stock or mix choice
    • Any industries or areas they want to avoid. Ask this as one focused,
      conversational question, for example: "Are there any industries or areas
      you'd rather avoid in your portfolio, such as oil & gas / fossil fuels,
@@ -310,6 +320,44 @@ def _build_submit_profile_tool() -> Any:
                             type="STRING",
                             enum=["single", "married_joint", "married_separate", "head_of_household"],
                         ),
+                        # Tax details
+                        "zip_code": types.Schema(
+                            type="STRING",
+                            description="Optional 5-digit ZIP code for tax lookup",
+                        ),
+                        "state": types.Schema(
+                            type="STRING",
+                            description="Optional two-letter state abbreviation",
+                        ),
+                        "pretax_401k": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual 401k contribution; default 0",
+                        ),
+                        "pretax_ira": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual traditional IRA contribution; default 0",
+                        ),
+                        "pretax_hsa": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual HSA contribution; default 0",
+                        ),
+                        "employer_match_rate": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match rate as decimal, e.g. 0.5 for 50%",
+                        ),
+                        "employer_match_cap_pct": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match cap as decimal share of salary, e.g. 0.05 for 5%",
+                        ),
+                        "has_hsa_eligible_plan": types.Schema(
+                            type="BOOLEAN",
+                            description="Whether the user has an HSA-eligible plan",
+                        ),
+                        "hsa_coverage": types.Schema(
+                            type="STRING",
+                            description="Optional HSA coverage type",
+                            enum=["self_only", "family"],
+                        ),
                         # Risk tolerance
                         "risk_instrument_responses": types.Schema(
                             type="ARRAY",
@@ -334,7 +382,7 @@ def _build_submit_profile_tool() -> Any:
                             enum=["bond_like", "mixed", "stock_like"],
                         ),
                         # Preferences
-                        "universe_pref": types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
+                        "universe_pref": types.Schema(type="STRING", enum=["etf"]),
                         "esg_exclusions": types.Schema(
                             type="ARRAY",
                             items=types.Schema(
@@ -482,6 +530,161 @@ async def stream_elicitation(
     def _produce() -> None:
         try:
             for event in _stream_sync(messages):
+                loop.call_soon_threadsafe(q.put_nowait, event)
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                q.put_nowait, {"type": "error", "content": str(exc)}
+            )
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, None)  # sentinel
+
+    threading.Thread(target=_produce, daemon=True).start()
+
+    while True:
+        event = await q.get()
+        if event is None:
+            break
+        yield event
+
+
+def _message_role_content(message: Any) -> tuple[str, str]:
+    if isinstance(message, dict):
+        role = message.get("role", "user")
+        content = message.get("content", "")
+    else:
+        role = getattr(message, "role", "user")
+        content = getattr(message, "content", "")
+    return str(role or "user"), str(content or "")
+
+
+def _has_prior_assistant_message(messages: list[ChatMessage]) -> bool:
+    return any(
+        _message_role_content(message)[0] == "assistant" for message in messages[:-1]
+    )
+
+
+def _stream_interview_sync(
+    messages: list[ChatMessage],
+    session_id: str | None,
+) -> Generator[dict, None, None]:
+    try:
+        from persistence import (  # noqa: PLC0415
+            get_session,
+            get_session_elicitation_state,
+            set_session_elicitation_state,
+        )
+        from llm import scoring  # noqa: PLC0415
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+        return
+
+    db = get_session()
+    try:
+        state = (
+            get_session_elicitation_state(db, session_id)
+            or interview_state.initial_state()
+        )
+        if messages:
+            last_role, last_content = _message_role_content(messages[-1])
+            item = interview_state.current(state)
+            if (
+                item is not None
+                and last_role == "user"
+                and _has_prior_assistant_message(messages)
+            ):
+                try:
+                    score = scoring.score_answer(item, last_content, messages)
+                except Exception as exc:
+                    yield {"type": "error", "content": str(exc)}
+                    return
+                state = interview_state.record_and_advance(state, score)
+
+        set_session_elicitation_state(db, session_id, state)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        yield {"type": "error", "content": str(exc)}
+        return
+    finally:
+        db.close()
+
+    if interview_state.is_complete(state):
+        try:
+            profile = scoring.assemble_profile(
+                messages,
+                interview_state.collected_scores(state),
+            )
+        except Exception as exc:
+            yield {"type": "error", "content": str(exc)}
+            return
+
+        try:
+            from api.v1 import _run_pipeline  # noqa: PLC0415
+            import models as api_models  # noqa: PLC0415
+
+            profile_input = api_models.UserProfileInput(**profile)
+            result = _run_pipeline(profile_input)
+            if (
+                result.status == "needs_clarification"
+                and interview_state.re_ask_count(state) < 1
+            ):
+                state = interview_state.reset_risk_items(state)
+                db = get_session()
+                try:
+                    set_session_elicitation_state(db, session_id, state)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+                finally:
+                    db.close()
+
+                yield {
+                    "type": "token",
+                    "content": (
+                        "A couple of those answers pointed in different directions "
+                        "— let me revisit a few questions.\n\n"
+                    ),
+                }
+                for chunk in scoring.render_question(
+                    interview_state.current(state),
+                    messages,
+                ):
+                    yield {"type": "token", "content": chunk}
+                return
+        except Exception:
+            yield {"type": "profile_ready", "profile": profile}
+            return
+
+        yield {"type": "profile_ready", "profile": profile}
+        return
+
+    item = interview_state.current(state)
+    if item is None:
+        yield {"type": "error", "content": "Interview state is invalid."}
+        return
+
+    try:
+        for chunk in scoring.render_question(item, messages):
+            yield {"type": "token", "content": chunk}
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+
+
+async def stream_interview(
+    messages: list[ChatMessage],
+    session_id: str | None = None,
+) -> AsyncGenerator[dict, None]:
+    """
+    Async generator for the score-gated onboarding interview.
+    Uses the same thread/queue bridge as the legacy Gemini elicitation stream.
+    """
+    loop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _produce() -> None:
+        try:
+            for event in _stream_interview_sync(messages, session_id):
                 loop.call_soon_threadsafe(q.put_nowait, event)
         except Exception as exc:
             loop.call_soon_threadsafe(

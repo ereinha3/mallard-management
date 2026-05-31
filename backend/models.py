@@ -2,6 +2,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
 from datetime import date, datetime
+from taxplanning.models import BucketPlan, TaxBreakdown
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -91,6 +92,12 @@ class UserProfileInput(BaseModel):
     monthly_expenses: float = Field(gt=0, description="Total monthly essential expenses")
     capital_on_hand: float = Field(ge=0, description="Liquid capital available to invest")
     emergency_fund: float = Field(ge=0, description="Current emergency fund balance")
+    home_value: Optional[float] = Field(default=0.0, ge=0, description="Estimated current home value")
+    non_liquid_savings: Optional[float] = Field(
+        default=0.0,
+        ge=0,
+        description="Non-liquid savings: stocks, ETFs, brokerage accounts",
+    )
     debts: List[DebtItem] = Field(default_factory=list)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -105,6 +112,7 @@ class UserProfileInput(BaseModel):
         "married_separate",
         "head_of_household",
     ]
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
     # ── Risk tolerance signals (Grable-Lytton instrument) ────────────────────
     risk_instrument_responses: List[int] = Field(
@@ -134,6 +142,17 @@ class UserProfileInput(BaseModel):
     )
     sector_theme_tilts: List[str] = Field(default_factory=list)
 
+
+    # ── Tax fields ────────────────────────────────────────────────────────────────────────
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    pretax_401k: Optional[float] = Field(default=0.0, ge=0)
+    pretax_ira: Optional[float] = Field(default=0.0, ge=0)
+    pretax_hsa: Optional[float] = Field(default=0.0, ge=0)
+    employer_match_rate: float = Field(default=0.5, ge=0, le=1.0)
+    employer_match_cap_pct: float = Field(default=0.05, ge=0, le=1.0)
+    has_hsa_eligible_plan: bool = False
+    hsa_coverage: Optional[Literal["self_only", "family"]] = None
     # ── LLM confidence metadata ───────────────────────────────────────────────
     confidence: Dict[str, float] = Field(default_factory=dict)
     uncertainty_flags: List[str] = Field(default_factory=list)
@@ -384,6 +403,17 @@ class BrokerageDepositOut(BaseModel):
     status: Optional[str] = None
 
 
+class BrokerageJournalRequest(BaseModel):
+    user_email: str
+    amount: float = Field(gt=0)
+
+
+class BrokerageJournalOut(BaseModel):
+    id: Optional[str] = None
+    status: Optional[str] = None
+    cash_available: float = Field(ge=0)
+
+
 class FundingTransactionOut(BaseModel):
     id: int
     user_email: str
@@ -631,6 +661,8 @@ class HarvestableLoss(BaseModel):
     ticker: str
     unrealized_loss: float = Field(ge=0)
     note: str
+    estimated_tax_value: Optional[float] = Field(default=None, ge=0)
+    tax_rate_used: Optional[float] = Field(default=None, ge=0)
 
 
 class WashSaleWarning(BaseModel):
@@ -654,7 +686,7 @@ class TaxReportRequest(BaseModel):
         "married_separate",
         "head_of_household",
     ]
-    bracket: Optional[float] = Field(default=None, ge=0)
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 # ── Financial analysis ────────────────────────────────────────────────────────
@@ -748,4 +780,28 @@ class OnboardResponse(BaseModel):
     financial_analysis: Optional[FinancialAnalysis] = None
     optimizer_input: Optional[OptimizerInput] = None
     portfolio: Optional[PortfolioResponse] = None
+    clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
+    tax_breakdown: Optional[TaxBreakdown] = None
+    bucket_plan: Optional[BucketPlan] = None
+
+
+class MaintenanceRebalanceRequest(BaseModel):
+    user_email: str
+    trigger: Literal["quarterly", "reprofile"]
+    profile_patch: Optional[Dict[str, Any]] = None
+    fresh_data: bool = True
+    execute: bool = True
+
+
+class MaintenanceRebalanceResponse(BaseModel):
+    trigger: Literal["quarterly", "reprofile"]
+    data_source: Literal["skipped", "live", "cached"]
+    status: Literal["greenlight", "halt", "needs_clarification", "no_profile"]
+    action: Literal["none", "steer", "trade"]
+    drifts: Optional[Dict[Sleeve, Drift]] = None
+    trades: List[RebalanceTrade] = Field(default_factory=list)
+    fills: List[FillOut] = Field(default_factory=list)
+    positions: Optional[Positions] = None
+    portfolio: Optional[PortfolioResponse] = None
+    gate_result: Optional[GateResult] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
