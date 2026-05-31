@@ -7,15 +7,8 @@ const VALID_THEMES = new Set(['light', 'dark'])
 
 const ThemeContext = createContext(null)
 
-function getStoredTheme() {
-  if (typeof window === 'undefined') return DEFAULT_THEME
-
-  const storedTheme = window.localStorage.getItem(STORAGE_KEY)
-  return VALID_THEMES.has(storedTheme) ? storedTheme : DEFAULT_THEME
-}
-
 export function ThemeProvider({ children }) {
-  const [theme, setThemeState] = useState(getStoredTheme)
+  const [theme, setThemeState] = useState(DEFAULT_THEME)
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)

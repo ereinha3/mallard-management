@@ -22,6 +22,15 @@ const LIABILITY_ICONS = {
   other:        { icon: CreditCard,color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)' },
 }
 
+const ACCOUNTS_PAGE_STYLE = {
+  background: 'color-mix(in srgb, var(--bg-surface) 92%, var(--bg-base))',
+}
+
+const ACCOUNTS_SURFACE_STYLE = {
+  background: 'var(--bg-surface)',
+  boxShadow: '0 14px 38px rgba(0, 0, 0, 0.08)',
+}
+
 function numberOrNull(value) {
   const num = Number(value)
   return Number.isFinite(num) ? num : null
@@ -52,7 +61,7 @@ function AccountCard({ account, isLiability }) {
   const Icon = config.icon
 
   return (
-    <div className="card-premium p-5 transition-all hover:border-gold-light group">
+    <div className="card-premium p-5 transition-all hover:border-gold-light group" style={ACCOUNTS_SURFACE_STYLE}>
       <button type="button" className="w-full flex items-center gap-4 text-left" onClick={() => setOpen(!open)}>
         <div
           className="flex items-center justify-center rounded-xl shrink-0"
@@ -112,7 +121,7 @@ function AccountCard({ account, isLiability }) {
 function LinkModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
-      <div className="card-premium p-6 max-w-md w-full mx-4 bg-surface">
+      <div className="card-premium p-6 max-w-md w-full mx-4 bg-surface" style={ACCOUNTS_SURFACE_STYLE}>
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <div className="font-display font-semibold text-xl text-primary">Plaid connection pending</div>
@@ -190,8 +199,8 @@ export default function AccountsTab({ onboardResult }) {
     .filter(Boolean)
 
   return (
-    <div className="flex flex-col h-full bg-base overflow-y-auto">
-      <div className="px-8 py-6 border-b border-border bg-surface sticky top-0 z-10">
+    <div className="flex flex-col h-full bg-base overflow-y-auto" style={ACCOUNTS_PAGE_STYLE}>
+      <div className="px-8 py-6 border-b border-border bg-surface sticky top-0 z-10" style={{ background: 'var(--bg-surface)' }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display font-semibold text-2xl text-primary leading-none">Accounts</h1>
@@ -221,7 +230,7 @@ export default function AccountsTab({ onboardResult }) {
           {incomeFields.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {incomeFields.map(item => (
-                <div key={item.label} className="card-premium p-5">
+                <div key={item.label} className="card-premium p-5" style={ACCOUNTS_SURFACE_STYLE}>
                   <div className="text-xs font-bold text-muted uppercase tracking-widest">{item.cadence}</div>
                   <div className="mt-1 text-sm font-medium text-primary">{item.label}</div>
                   <div className="mt-3 text-xl font-mono font-bold text-emerald">
@@ -231,7 +240,7 @@ export default function AccountsTab({ onboardResult }) {
               ))}
             </div>
           ) : (
-            <div className="card-premium p-8 text-center text-sm text-muted">
+            <div className="card-premium p-8 text-center text-sm text-muted" style={ACCOUNTS_SURFACE_STYLE}>
               No income fields were provided during onboarding.
             </div>
           )}
@@ -257,7 +266,7 @@ export default function AccountsTab({ onboardResult }) {
               ))}
             </div>
           ) : (
-            <div className="card-premium p-8 text-center text-sm text-muted">
+            <div className="card-premium p-8 text-center text-sm text-muted" style={ACCOUNTS_SURFACE_STYLE}>
               No asset accounts were provided during onboarding.
             </div>
           )}
@@ -283,28 +292,28 @@ export default function AccountsTab({ onboardResult }) {
               ))}
             </div>
           ) : (
-            <div className="card-premium p-8 text-center text-sm text-muted">
+            <div className="card-premium p-8 text-center text-sm text-muted" style={ACCOUNTS_SURFACE_STYLE}>
               No debts were provided during onboarding.
             </div>
           )}
         </section>
 
         <footer className="pt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="card-premium p-6 bg-surface border-dashed">
+          <div className="card-premium p-6 bg-surface border-dashed" style={ACCOUNTS_SURFACE_STYLE}>
             <ShieldCheck size={24} className="text-gold mb-3" />
             <div className="text-sm font-semibold text-primary mb-1">Bank-Grade Security</div>
             <div className="text-xs text-muted leading-relaxed">
               Live account credentials are not stored by Mallard. This build is using profile-backed balances only.
             </div>
           </div>
-          <div className="card-premium p-6 bg-surface border-dashed">
+          <div className="card-premium p-6 bg-surface border-dashed" style={ACCOUNTS_SURFACE_STYLE}>
             <Lock size={24} className="text-gold mb-3" />
             <div className="text-sm font-semibold text-primary mb-1">Read-Only Intent</div>
             <div className="text-xs text-muted leading-relaxed">
               Future account aggregation should be read-only unless explicit trading approval is added.
             </div>
           </div>
-          <div className="card-premium p-6 bg-surface border-dashed">
+          <div className="card-premium p-6 bg-surface border-dashed" style={ACCOUNTS_SURFACE_STYLE}>
             <ExternalLink size={24} className="text-gold mb-3" />
             <div className="text-sm font-semibold text-primary mb-1">Plaid Not Connected</div>
             <div className="text-xs text-muted leading-relaxed">
