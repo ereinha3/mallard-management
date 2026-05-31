@@ -134,15 +134,63 @@ export async function postOnboard(profile, userEmail = null, sessionId = null) {
 /**
  * POST /api/v1/portfolio — build a portfolio from a profile.
  */
-export async function postPortfolio(profile) {
+export async function postPortfolio(profile, method = 'erc') {
   const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(profile),
+    body: JSON.stringify({ profile, method }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/projection — run a portfolio projection.
+ */
+export async function postProjection(payload) {
+  const res = await fetch(`${BASE}/api/v1/projection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Projection error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/rebalance — generate a rebalance recommendation.
+ */
+export async function postRebalance(payload) {
+  const res = await fetch(`${BASE}/api/v1/rebalance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Rebalance error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/tax/report — generate a tax report.
+ */
+export async function postTaxReport(payload) {
+  const res = await fetch(`${BASE}/api/v1/tax/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Tax report error ${res.status}: ${text}`)
   }
   return res.json()
 }
