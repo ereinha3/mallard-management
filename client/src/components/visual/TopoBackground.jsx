@@ -373,7 +373,6 @@ export default function TopoBackground({ phase = 'idle' }) {
       setReducedMotion(event.matches)
     }
 
-    setReducedMotion(motionQuery.matches)
     motionQuery.addEventListener('change', handleMotionChange)
 
     return () => {

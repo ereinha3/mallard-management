@@ -75,6 +75,7 @@ export default function AdvisorChat({ context, user, initialDraft }) {
   const inputRef = useRef(null)
   const sessionIdRef = useRef(null)
   const shouldAutoScrollRef = useRef(false)
+  const userEmail = user?.email
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return
@@ -108,7 +109,7 @@ export default function AdvisorChat({ context, user, initialDraft }) {
       void streamAdvisor({
         messages: msgList,
         context,
-        user_email: user?.email,
+        user_email: userEmail,
         session_id: sessionIdRef.current,
         onSession: (sessionId) => {
           sessionIdRef.current = sessionId
@@ -136,7 +137,7 @@ export default function AdvisorChat({ context, user, initialDraft }) {
     } catch (err) {
       handleStreamError(err)
     }
-  }, [context, isNearBottom, user?.email])
+  }, [context, isNearBottom, userEmail])
 
   function handleSend(e) {
     e.preventDefault()
