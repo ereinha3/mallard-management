@@ -16,8 +16,12 @@ import os
 import threading
 from typing import Any, AsyncGenerator, Generator, Optional
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 
 from models import ChatMessage
 
@@ -86,6 +90,10 @@ def _stream_sync(
     messages: list[ChatMessage],
     context: Optional[Any],
 ) -> Generator[dict, None, None]:
+    if genai is None or types is None:
+        yield {"type": "error", "content": "google-genai is not installed."}
+        return
+
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         yield {"type": "error", "content": "GOOGLE_API_KEY is not set."}

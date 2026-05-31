@@ -1,8 +1,19 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+_BACKEND_DIR = Path(__file__).resolve().parent
+_ENGINE_DIR = _BACKEND_DIR.parent / "engine"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+if str(_ENGINE_DIR) not in sys.path:
+    sys.path.append(str(_ENGINE_DIR))
+
 from api.v1 import router as v1_router
 
 app = FastAPI(
@@ -33,5 +44,5 @@ app.include_router(v1_router, prefix="/api/v1", tags=["gate"])
 
 
 @app.get("/health", tags=["meta"])
-def health() -> dict:
+async def health() -> dict:
     return {"status": "ok", "service": "greenlight-gate"}
