@@ -7,6 +7,7 @@ import {
 import { formatCurrency, formatPercent, numberOrNull } from '../lib/utils'
 import RetirementScore from './RetirementScore'
 import ProjectionChart from './ProjectionChart'
+import InvestPanel from './InvestPanel'
 
 const ASSET_ICONS = {
   cash:       { icon: PiggyBank, color: '#8b5cf6' },
@@ -230,7 +231,7 @@ function AssetRow({ label, value, percent, icon: Icon, color }) {
   )
 }
 
-export default function Dashboard({ onboardResult }) {
+export default function Dashboard({ onboardResult, userEmail }) {
   const [projection, setProjection] = useState(null)
   const [projectionLoading, setProjectionLoading] = useState(false)
   const [projectionError, setProjectionError] = useState(null)
@@ -475,6 +476,8 @@ export default function Dashboard({ onboardResult }) {
             </div>
           </div>
         </div>
+
+        <InvestPanel userEmail={userEmail} portfolio={portfolio} />
 
         <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
           <div className="card-premium p-5 anim-fade-up d400">

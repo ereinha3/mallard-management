@@ -1553,18 +1553,28 @@ async def brokerage_account(
     request: api_models.BrokerageAccountRequest,
     db: Session = Depends(get_db),
 ) -> api_models.BrokerageAccountOut:
+    # Idempotent: one Alpaca brokerage account per user. Re-opening just returns
+    # the stored id so repeated clicks don't mint duplicate sandbox accounts.
+    existing = get_or_create_investment_account(db, request.user_email)
+    if existing.alpaca_account_id:
+        db.commit()
+        return api_models.BrokerageAccountOut(
+            user_email=existing.user_email,
+            alpaca_account_id=existing.alpaca_account_id,
+        )
+
     try:
         service = BrokerageService(client=get_broker_client())
         account_id = service.create_brokerage_account({"email_address": request.user_email})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    account = set_alpaca_account_id(db, request.user_email, account_id)
+    existing.alpaca_account_id = account_id
     db.commit()
-    db.refresh(account)
+    db.refresh(existing)
     return api_models.BrokerageAccountOut(
-        user_email=account.user_email,
-        alpaca_account_id=account.alpaca_account_id or account_id,
+        user_email=existing.user_email,
+        alpaca_account_id=existing.alpaca_account_id or account_id,
     )
 
 

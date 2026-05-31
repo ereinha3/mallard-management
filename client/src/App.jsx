@@ -176,7 +176,7 @@ export default function App() {
 
   const activeContent = (
     <>
-      {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} />}
+      {activePage === 'dashboard' && <Dashboard onboardResult={onboardResult} userEmail={user?.email} />}
       {activePage === 'greenlight' && (
         <GreenlightFlow
           onboardResult={onboardResult}

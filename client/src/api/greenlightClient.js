@@ -297,6 +297,41 @@ export async function postMockDeposit({ user_email, amount }) {
   return res.json()
 }
 
+/**
+ * POST /api/v1/brokerage/account — open (or return the existing) Alpaca Broker
+ * sandbox account for this user. Idempotent: repeated calls reuse the stored id.
+ */
+export async function postBrokerageAccount({ user_email }) {
+  const res = await fetch(`${BASE}/api/v1/brokerage/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Brokerage account error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/brokerage/journal — instantly fund the user's sandbox account by
+ * journaling cash (JNLC) from the firm sweep account. Returns the updated
+ * cash_available. Sandbox cap: $1,000/user.
+ */
+export async function postBrokerageJournal({ user_email, amount }) {
+  const res = await fetch(`${BASE}/api/v1/brokerage/journal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, amount }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Funding error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
 export async function postExecutionPreview({ user_email, weights }) {
   const res = await fetch(`${BASE}/api/v1/execution/preview`, {
     method: 'POST',

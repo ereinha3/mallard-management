@@ -71,6 +71,10 @@ def seeded_db_url(tmp_path_factory: pytest.TempPathFactory) -> str:
 @pytest.fixture(autouse=True)
 def greenlight_db(monkeypatch: pytest.MonkeyPatch, seeded_db_url: str) -> None:
     monkeypatch.setenv("GREENLIGHT_DB_URL", seeded_db_url)
+    # Keep broker calls hermetic: a developer's .env may set BROKER_PROVIDER to a
+    # real broker (loaded via load_dotenv at import), but tests must use the
+    # in-process simulator regardless of local environment.
+    monkeypatch.setenv("BROKER_PROVIDER", "simulator")
 
 
 def _persona(name: str) -> dict:

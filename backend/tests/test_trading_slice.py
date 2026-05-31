@@ -133,6 +133,38 @@ def test_brokerage_account_route_persists_alpaca_account_id(
     assert account_response.json()["alpaca_account_id"] == "alpaca-acct-route"
 
 
+def test_brokerage_account_route_is_idempotent_per_user(
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A second create call must reuse the stored id, not mint a new sandbox account."""
+
+    from api import v1 as api_v1
+
+    class CountingBrokerClient:
+        def __init__(self) -> None:
+            self.create_calls = 0
+
+        def create_account(self, request: object) -> object:
+            self.create_calls += 1
+            return type("Account", (), {"id": f"alpaca-acct-{self.create_calls}"})()
+
+    fake = CountingBrokerClient()
+    monkeypatch.setattr(api_v1, "get_broker_client", lambda: fake)
+    client = _client(test_app)
+    email = "idempotent-brokerage@example.com"
+
+    first = client.post("/api/v1/brokerage/account", json={"user_email": email})
+    second = client.post("/api/v1/brokerage/account", json={"user_email": email})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["alpaca_account_id"] == "alpaca-acct-1"
+    # Second call returns the same id and does NOT hit Alpaca again.
+    assert second.json()["alpaca_account_id"] == "alpaca-acct-1"
+    assert fake.create_calls == 1
+
+
 def test_execution_preview_sizes_buys_against_available_cash(test_app: FastAPI):
     client = _client(test_app)
     email = "execution-preview@example.com"
