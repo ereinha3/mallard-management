@@ -145,15 +145,12 @@ def test_build_target_weights_sums_to_one():
 
     weights = build_target_weights(risk_profile, universe, load_prices())
 
-    assert weights.method == "erc"
+    assert weights.method == "strategic"
     assert 0.0 <= weights.blend_alpha <= 1.0
     assert abs(sum(weights.by_ticker.values()) - 1.0) < 1e-6
     assert abs(sum(weights.by_sleeve.values()) - 1.0) < 1e-6
     assert abs(sum(weights.by_bucket.values()) - 1.0) < 1e-6
-    # The synthetic fixture prices only a subset of the universe (the reclassified
-    # bond buckets and short-Treasury safe bucket are unpriced here), so the ERC
-    # path emits the priced buckets. Assert validity (subset) + non-empty rather
-    # than full coverage; the live universe prices every bucket.
+    # The strategic path emits the focused core plus any selected overlays.
     assert set(weights.by_bucket) <= set(universe.risky_buckets) | set(universe.safe_buckets)
     assert weights.by_bucket
     assert weights.by_bucket["gold"] < 0.35

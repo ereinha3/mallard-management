@@ -145,8 +145,8 @@ def test_build_target_weights_applies_tilt_inside_risky_buckets():
             horizon_years=37,
         )
 
-    aggressive = build_target_weights(_profile(GAMMA_MIN), universe, prices)
-    conservative = build_target_weights(_profile(GAMMA_MAX), universe, prices)
+    aggressive = build_target_weights(_profile(GAMMA_MIN), universe, prices, method="erc")
+    conservative = build_target_weights(_profile(GAMMA_MAX), universe, prices, method="erc")
 
     risky = [bucket for bucket in universe.risky_buckets if bucket in aggressive.by_bucket]
     agg_risky_total = sum(aggressive.by_bucket[bucket] for bucket in risky)

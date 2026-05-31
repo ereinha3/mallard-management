@@ -18,6 +18,7 @@ from schemas.constants import (
 )
 from schemas.models import TargetWeights
 from optimizer.erc import cov_ledoit_wolf, erc_weights
+from optimizer.strategic import strategic_target_weights
 from optimizer.tilt import momentum_vol_tilt
 
 
@@ -330,7 +331,7 @@ def _portfolio_vols_and_corr(
     return sigma_risky, sigma_safe, rho
 
 
-def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> TargetWeights:
+def _build_erc_target_weights(risk_profile: Any, universe: Any, prices: Any) -> TargetWeights:
     """Build TargetWeights per docs/greenlight/05 §2.6 and §4."""
 
     bucket_matrix = _bucket_returns(universe, prices)
@@ -413,3 +414,26 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
         blend_alpha=float(alpha_final),
         method="erc",
     )
+
+
+def build_target_weights(
+    risk_profile: Any,
+    universe: Any,
+    prices: Any,
+    *,
+    method: str = "strategic",
+    use_erc: bool | None = None,
+) -> TargetWeights:
+    """Build TargetWeights, defaulting to the strategic model portfolio.
+
+    The legacy ERC/CAL allocator remains available as ``method="erc"`` or
+    ``use_erc=True`` for experiments and regression tests.
+    """
+
+    if use_erc is True:
+        method = "erc"
+    if method == "strategic":
+        return strategic_target_weights(risk_profile, universe, prices)
+    if method == "erc":
+        return _build_erc_target_weights(risk_profile, universe, prices)
+    raise ValueError(f"unknown optimizer method: {method!r}")

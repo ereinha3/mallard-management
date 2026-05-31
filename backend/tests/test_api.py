@@ -171,7 +171,7 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "greenlight"
-    assert body["portfolio"]["weights"]["method"] == "erc"
+    assert body["portfolio"]["weights"]["method"] == "strategic"
 
     profile_response = client.get(f"/api/v1/profile/{email}")
     assert profile_response.status_code == 200
@@ -185,7 +185,7 @@ def test_onboard_persists_registered_user_profile_and_record(test_app: FastAPI):
     assert record["account"]["email"] == email
     assert record["profile_input"]["household_income"] == body["validated_profile"]["household_income"]
     assert record["onboard_result"]["status"] == "greenlight"
-    assert record["onboard_result"]["portfolio"]["weights"]["method"] == "erc"
+    assert record["onboard_result"]["portfolio"]["weights"]["method"] == "strategic"
 
 
 def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
@@ -284,7 +284,7 @@ def test_onboard_greenlight_persona_returns_portfolio(test_app: FastAPI):
     body = response.json()
     assert body["status"] == "greenlight"
     assert body["optimizer_input"]["capital_on_hand"] == 7500
-    assert body["portfolio"]["weights"]["method"] == "erc"
+    assert body["portfolio"]["weights"]["method"] == "strategic"
     assert abs(sum(body["portfolio"]["weights"]["by_ticker"].values()) - 1.0) < 1e-6
     assert abs(sum(body["portfolio"]["weights"]["by_bucket"].values()) - 1.0) < 1e-6
     assert body["portfolio"]["weights"]["by_bucket"]["gold"] < 0.35

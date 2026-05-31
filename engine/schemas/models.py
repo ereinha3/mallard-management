@@ -193,7 +193,7 @@ class TargetWeights(ContractModel):
     by_sleeve: dict[Sleeve, Weight]
     by_bucket: dict[Bucket, Weight] = Field(default_factory=dict)
     blend_alpha: Weight
-    method: Literal["erc", "black_litterman", "cvar"]
+    method: Literal["strategic", "erc", "black_litterman", "cvar"]
 
     @model_validator(mode="after")
     def validate_weight_sums(self) -> Self:

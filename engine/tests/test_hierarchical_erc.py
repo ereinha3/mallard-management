@@ -87,7 +87,7 @@ def test_satellite_cap_restores_broad_core_risky_weight() -> None:
     bucket_matrix = bucket_return_matrix(universe, prices)
     flat_erc = erc_weights(bucket_matrix[universe.risky_buckets])
 
-    weights = build_target_weights(risk_profile, universe, prices)
+    weights = build_target_weights(risk_profile, universe, prices, method="erc")
 
     assert weights.blend_alpha > 0.0
     assert sum(weights.by_bucket.values()) == pytest.approx(1.0)
