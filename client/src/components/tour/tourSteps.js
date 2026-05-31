@@ -29,10 +29,10 @@ const tourSteps = [
     page: 'learn',
   },
   {
-    selector: "[data-tour='nav-accounts']",
-    title: 'Accounts',
-    body: 'Review linked brokerage accounts and keep your account picture organized in one place.',
-    page: 'accounts',
+    selector: "[data-tour='nav-profile']",
+    title: 'Profile',
+    body: 'Manage profile details, investing preferences, goals, and profile-backed account balances in one place.',
+    page: 'profile',
   },
   {
     selector: "[data-tour='nav-risk']",
@@ -43,7 +43,7 @@ const tourSteps = [
   {
     selector: "[data-tour='nav-settings']",
     title: 'Settings',
-    body: 'Manage preferences, profile details, and the information Mallard uses to personalize your experience.',
+    body: 'Manage app settings and account access.',
     page: 'settings',
   },
 ]

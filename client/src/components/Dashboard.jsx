@@ -120,7 +120,7 @@ function getProjectionInputs(onboardResult, profile) {
   }
 }
 
-function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color, delay = '' }) {
+function MetricCard({ label, value, suffix, delta, deltaLabel, description, icon: Icon, color, delay = '' }) {
   const isPos = delta >= 0
   const displayValue = typeof value === 'number'
     ? (suffix ? value.toFixed(1) : formatCurrency(value))
@@ -154,6 +154,11 @@ function MetricCard({ label, value, suffix, delta, deltaLabel, icon: Icon, color
           </span>
           {deltaLabel && <span style={{ color: 'var(--text-muted)' }}>{deltaLabel}</span>}
         </div>
+      )}
+      {description && (
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {description}
+        </p>
       )}
     </div>
   )
@@ -323,6 +328,7 @@ export default function Dashboard({ onboardResult }) {
             label="Savings Rate"
             value={savingsRate ?? 'Not available'}
             suffix="%"
+            description="Share of income you save each month: (income - expenses) / income."
             icon={Target}
             color="var(--blue)"
             delay="d250"
