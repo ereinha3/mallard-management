@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from data.loaders import latest_prices
-from schemas.models import Fill, OrderPlan, Positions
+from schemas.models import Fill, OrderPlan, Positions, RebalanceTrade
 
 
 class SimulatorBroker:
@@ -43,6 +43,47 @@ class SimulatorBroker:
             self._shares[buy.ticker] = new_shares
             self.cash -= trade_value
             fills.append(Fill(ticker=buy.ticker, shares=buy.shares, price=price, ts=ts))
+
+        return fills
+
+    def place_trades(self, trades: list[RebalanceTrade]) -> list[Fill]:
+        """Execute rebalance trades, selling before buying so proceeds fund buys."""
+
+        tickers = list(dict.fromkeys(trade.ticker for trade in trades))
+        prices = self._prices_for(tickers)
+        fills: list[Fill] = []
+        ts = datetime.now(UTC)
+
+        sell_trades = [trade for trade in trades if trade.side == "sell"]
+        buy_trades = [trade for trade in trades if trade.side == "buy"]
+
+        realized_proceeds = 0.0
+        for trade in sell_trades:
+            price = prices[trade.ticker]
+            held_shares = self._shares.get(trade.ticker, 0.0)
+            executed_shares = min(trade.shares, held_shares)
+            if executed_shares <= 0:
+                continue
+
+            proceeds = executed_shares * price
+            realized_proceeds += proceeds
+            remaining_shares = held_shares - executed_shares
+            self._shares[trade.ticker] = 0.0 if abs(remaining_shares) < 1e-9 else remaining_shares
+            fills.append(Fill(ticker=trade.ticker, shares=executed_shares, price=price, ts=ts))
+
+        self.cash += realized_proceeds
+
+        for trade in buy_trades:
+            price = prices[trade.ticker]
+            trade_value = trade.shares * price
+            old_shares = self._shares.get(trade.ticker, 0.0)
+            old_cost = self._avg_cost.get(trade.ticker, 0.0)
+            new_shares = old_shares + trade.shares
+            if new_shares > 0:
+                self._avg_cost[trade.ticker] = ((old_shares * old_cost) + trade_value) / new_shares
+            self._shares[trade.ticker] = new_shares
+            self.cash -= trade_value
+            fills.append(Fill(ticker=trade.ticker, shares=trade.shares, price=price, ts=ts))
 
         return fills
 
