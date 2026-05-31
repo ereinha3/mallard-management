@@ -62,9 +62,11 @@ WHAT TO GATHER — in roughly this order
 The user has ALREADY completed a structured intake FORM. The FIRST message in
 this conversation contains all of the data below — treat it as final and
 authoritative, use it ONLY as context, and NEVER ask the user for any of it (or
-anything trivially derivable from it). Do NOT open with questions about their
-job, income, or finances — that part is done. Ask exactly ONE question per
-message — never bundle. Vary your phrasing so it feels human, not like a form.
+anything trivially derivable from it). Tax profile fields (ZIP, state, filing
+status, 401k/IRA/HSA contributions, employer match) are also pre-filled and
+must not be asked. Do NOT open with questions about their job, income, or
+finances — that part is done. Ask exactly ONE question per message — never
+bundle. Vary your phrasing so it feels human, not like a form.
 
 ALREADY CAPTURED BY THE FORM — never ask about any of these:
    • Annual household income, monthly essential expenses, liquid capital, emergency fund
@@ -86,7 +88,7 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
      for ethical reasons; sectors to tilt toward
    • The risk-tolerance instrument below — this is the heart of the conversation
 
-4. RISK TOLERANCE — 13-item Grable-Lytton instrument
+5. RISK TOLERANCE — 13-item Grable-Lytton instrument
    Ask these conversationally. Weave multiple items into a single prompt when natural.
    Score each 1–4 where 4 = most risk tolerant. Map the user's response to the score.
 
@@ -182,7 +184,7 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
           D: Take a long-shot chance at $3,000, knowing the odds are heavily against you.
      A → 1, B → 2, C → 3, D → 4
 
-5. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
+6. BEHAVIORAL SCENARIO — loss_scenario_response (separate from GL3/GL5)
    Ask explicitly: "If your actual investment portfolio dropped 20% in a single year —
    a scenario that has happened historically — what would you realistically do?"
    sell_all  = would sell everything
@@ -190,25 +192,25 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
    hold      = would hold and wait
    buy_more  = would invest more
 
-6. DOHMEN SINGLE-ITEM RISK — dohmen_risk
+7. DOHMEN SINGLE-ITEM RISK — dohmen_risk
    Ask: "On a scale from 0 to 10, where 0 means not at all willing to take risks
    and 10 means very willing, how willing are you to take risks in general?"
    Record the integer 0-10. This is an independent corroborating signal; do not
    combine it with the Grable-Lytton answers.
 
-7. LOSS-AVERSION PROBE — loss_aversion_probe
+8. LOSS-AVERSION PROBE — loss_aversion_probe
    Ask: "Say something came up where you stood to lose $100 — maybe a purchase that might not pan out,
    or a small investment that could go sideways. What's the smallest potential gain that would make it
    feel worth the risk to you? In other words, if there's a 50-50 chance of losing $100, how much would
    you need to potentially win before you'd seriously consider it?"
    Record the dollar amount. Neutral answer = $100. Loss-averse (λ ≈ 2) ≈ $200.
 
-8. GOAL TARGET — goal_target
+9. GOAL TARGET — goal_target
    Ask: "Roughly how much money would you need at retirement (or your goal date) to feel
    financially secure? Even a rough number helps." If they have no idea, use 0.
    Record in dollars (e.g. 1000000 for $1M).
 
-9. INVESTMENT PREFERENCES
+10. INVESTMENT PREFERENCES
    • ETF-only, individual stocks, or a mix
    • Any industries or areas they want to avoid. Ask this as one focused,
      conversational question, for example: "Are there any industries or areas
@@ -309,6 +311,44 @@ def _build_submit_profile_tool() -> Any:
                         "filing_status": types.Schema(
                             type="STRING",
                             enum=["single", "married_joint", "married_separate", "head_of_household"],
+                        ),
+                        # Tax details
+                        "zip_code": types.Schema(
+                            type="STRING",
+                            description="Optional 5-digit ZIP code for tax lookup",
+                        ),
+                        "state": types.Schema(
+                            type="STRING",
+                            description="Optional two-letter state abbreviation",
+                        ),
+                        "pretax_401k": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual 401k contribution; default 0",
+                        ),
+                        "pretax_ira": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual traditional IRA contribution; default 0",
+                        ),
+                        "pretax_hsa": types.Schema(
+                            type="NUMBER",
+                            description="Optional annual HSA contribution; default 0",
+                        ),
+                        "employer_match_rate": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match rate as decimal, e.g. 0.5 for 50%",
+                        ),
+                        "employer_match_cap_pct": types.Schema(
+                            type="NUMBER",
+                            description="Optional employer match cap as decimal share of salary, e.g. 0.05 for 5%",
+                        ),
+                        "has_hsa_eligible_plan": types.Schema(
+                            type="BOOLEAN",
+                            description="Whether the user has an HSA-eligible plan",
+                        ),
+                        "hsa_coverage": types.Schema(
+                            type="STRING",
+                            description="Optional HSA coverage type",
+                            enum=["self_only", "family"],
                         ),
                         # Risk tolerance
                         "risk_instrument_responses": types.Schema(
