@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle, Loader, Save, Settings, SlidersHorizontal } from 'lucide-react'
 import { postUpdateProfile } from '../api/greenlightClient'
 import { formatCurrency } from '../lib/utils'
@@ -10,28 +10,8 @@ const ARRAY_FIELDS = new Set(['goals', 'esg_exclusions', 'sector_theme_tilts'])
 const TAG_OPTIONS = {
   goals: ['retirement', 'home purchase', 'education', 'emergency fund', 'wealth building', 'travel', 'other'],
   esg_exclusions: ['fossil fuels', 'weapons', 'tobacco', 'gambling', 'alcohol', 'private prisons', 'none'],
-  sector_theme_tilts: ['clean energy', 'healthcare', 'technology', 'real estate', 'international', 'small cap', 'dividends', 'none'],
+  sector_theme_tilts: ['clean energy', 'healthcare', 'technology', 'real estate', 'international', 'small cap', 'dividends', 'bonds', 'none'],
 }
-
-const GOAL_OPTIONS = ['retirement', 'home', 'education', 'general_wealth']
-const ESG_EXCLUSION_OPTIONS = ['fossil_fuels', 'weapons', 'tobacco', 'gambling']
-const SECTOR_THEME_OPTIONS = [
-  'technology',
-  'healthcare',
-  'financials',
-  'energy',
-  'consumer',
-  'industrials',
-  'real_estate',
-  'clean_energy',
-  'ai',
-  'us_equity',
-  'intl_equity',
-  'bonds',
-  'tips',
-  'gold',
-  'reits',
-]
 
 const FINANCIAL_FIELDS = [
   { key: 'household_income', label: 'Household income', type: 'money' },
@@ -42,16 +22,16 @@ const FINANCIAL_FIELDS = [
 ]
 
 const PREFERENCE_FIELDS = [
-  { key: 'goals', label: 'Goals', type: 'tags', options: [...TAG_OPTIONS.goals, ...GOAL_OPTIONS] },
+  { key: 'goals', label: 'Goals', type: 'tags', options: TAG_OPTIONS.goals },
   { key: 'goal_target', label: 'Goal target', type: 'money' },
   {
     key: 'universe_pref',
     label: 'Universe preference',
-    type: 'select',
+    type: 'pills',
     options: ['broad_market', 'esg', 'income', 'growth', 'custom'],
   },
-  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: [...TAG_OPTIONS.esg_exclusions, ...ESG_EXCLUSION_OPTIONS] },
-  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: [...TAG_OPTIONS.sector_theme_tilts, ...SECTOR_THEME_OPTIONS] },
+  { key: 'esg_exclusions', label: 'ESG exclusions', type: 'tags', options: TAG_OPTIONS.esg_exclusions },
+  { key: 'sector_theme_tilts', label: 'Sector/theme tilts', type: 'tags', options: TAG_OPTIONS.sector_theme_tilts },
 ]
 
 const OPTIONAL_RISK_FIELDS = [
@@ -76,7 +56,8 @@ function getUserEmail(onboardResult, userEmail) {
 }
 
 function labelize(value) {
-  return String(value ?? '').replace(/_/g, ' ')
+  const label = String(value ?? '').replace(/_/g, ' ')
+  return label.toLowerCase() === 'esg' ? 'ESG' : label
 }
 
 function serializeField(value) {
@@ -165,13 +146,141 @@ function mergeProfileResult(onboardResult, patch) {
   }
 }
 
+function MultiSelectDropdown({ id, field, value, options, onChange, style }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef(null)
+  const selectedValues = parseField(field.key, value)
+  const selectedSet = new Set(selectedValues)
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (!dropdownRef.current?.contains(event.target)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  function toggleOption(option) {
+    const nextValues = selectedSet.has(option)
+      ? selectedValues.filter(item => item !== option)
+      : [...selectedValues, option]
+
+    onChange(field.key, nextValues.join(', '))
+  }
+
+  return (
+    <div ref={dropdownRef} id={id} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        style={{
+          ...style,
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
+      >
+        {selectedValues.length > 0 ? selectedValues.join(', ') : 'Select...'}
+      </button>
+
+      {isOpen && (
+        <div
+          role="listbox"
+          aria-multiselectable="true"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            maxHeight: 200,
+            overflowY: 'auto',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            background: 'var(--bg-surface)',
+            boxShadow: '0 16px 34px rgba(0,0,0,0.18)',
+          }}
+        >
+          {options.map(option => {
+            const isSelected = selectedSet.has(option)
+
+            return (
+              <div
+                key={option}
+                role="option"
+                aria-selected={isSelected}
+                tabIndex={0}
+                onClick={() => toggleOption(option)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    toggleOption(option)
+                  }
+                }}
+                className="transition-colors"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  border: 0,
+                  background: 'transparent',
+                  color: isSelected ? 'var(--gold-light)' : 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  textAlign: 'left',
+                }}
+                onMouseEnter={event => {
+                  event.currentTarget.style.background = 'var(--bg-elevated)'
+                }}
+                onMouseLeave={event => {
+                  event.currentTarget.style.background = 'transparent'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  readOnly
+                  style={{
+                    width: 13,
+                    height: 13,
+                    margin: 0,
+                    accentColor: 'var(--gold-light)',
+                    cursor: 'pointer',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 14,
+                    flex: '0 0 14px',
+                    color: 'var(--gold-light)',
+                    visibility: isSelected ? 'visible' : 'hidden',
+                  }}
+                >
+                  ✓
+                </span>
+                <span>{labelize(option)}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Field({ field, value, onChange }) {
   const inputId = `profile-${field.key}`
-  const tagValues = field.type === 'tags' ? parseField(field.key, value) : []
+  const fieldOptions = field.options ?? []
   const selectedValues = field.type === 'multi-select' ? parseField(field.key, value) : []
-  const options = field.type === 'multi-select' || field.type === 'tags'
-    ? [...new Set([...(field.options ?? []), ...selectedValues, ...tagValues])]
-    : field.options ?? []
+  const options = field.type === 'multi-select'
+    ? [...new Set([...fieldOptions, ...selectedValues])]
+    : fieldOptions
   const commonStyle = {
     width: '100%',
     borderRadius: 8,
@@ -200,6 +309,32 @@ function Field({ field, value, onChange }) {
             <option key={option} value={option}>{labelize(option)}</option>
           ))}
         </select>
+      ) : field.type === 'pills' ? (
+        <div id={inputId} className="flex flex-wrap gap-2">
+          {options.map(option => {
+            const isSelected = value === option
+
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => onChange(field.key, option)}
+                className="font-semibold transition-all"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 20,
+                  border: isSelected ? '1px solid var(--border-gold)' : '1px solid var(--border)',
+                  background: isSelected ? 'rgba(201,168,76,0.1)' : 'var(--bg-elevated)',
+                  color: isSelected ? 'var(--gold-light)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                {labelize(option)}
+              </button>
+            )
+          })}
+        </div>
       ) : field.type === 'multi-select' ? (
         <select
           id={inputId}
@@ -222,33 +357,14 @@ function Field({ field, value, onChange }) {
           ))}
         </select>
       ) : field.type === 'tags' ? (
-        <div id={inputId} className="flex flex-wrap gap-2">
-          {options.map(option => {
-            const isSelected = tagValues.includes(option)
-            const nextValues = isSelected
-              ? tagValues.filter(item => item !== option)
-              : [...tagValues, option]
-
-            return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => onChange(field.key, nextValues.join(', '))}
-                className="text-xs font-semibold transition-all"
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  border: isSelected ? '1px solid var(--gold-light)' : '1px solid var(--border-bright)',
-                  background: isSelected ? 'rgba(218, 165, 32, 0.16)' : 'var(--bg-elevated)',
-                  color: isSelected ? 'var(--gold-light)' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {labelize(option)}
-              </button>
-            )
-          })}
-        </div>
+        <MultiSelectDropdown
+          id={inputId}
+          field={field}
+          value={value}
+          options={options}
+          onChange={onChange}
+          style={commonStyle}
+        />
       ) : (
         <input
           id={inputId}
