@@ -775,6 +775,8 @@ class DebtPayoffPlan(BaseModel):
     payoff_scope: Optional[str] = None
     months_to_freedom: Optional[int] = None
     total_interest_paid: Optional[float] = None
+    upfront_cash_applied: Optional[float] = None
+    monthly_payment_budget: Optional[float] = None
     monthly_schedule: List[DebtPayoffMonth] = Field(default_factory=list)
     per_debt: List[DebtPayoffDetail] = Field(default_factory=list)
     avalanche_vs_snowball_interest_saved: Optional[float] = None

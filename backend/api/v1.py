@@ -245,6 +245,14 @@ def _validation_clarifications(exc: ValidationError) -> list[api_models.Clarific
     return clarifications
 
 
+def _preserve_debt_payment_fields(payload: dict[str, Any], source: api_models.UserProfileInput) -> None:
+    for payload_debt, source_debt in zip(payload.get("debts", []), source.debts):
+        if source_debt.minimum_payment is not None:
+            payload_debt["minimum_payment"] = source_debt.minimum_payment
+        if source_debt.min_payment is not None:
+            payload_debt["min_payment"] = source_debt.min_payment
+
+
 def _engine_clarifications(payload: dict[str, Any]) -> list[api_models.ClarificationRequest]:
     requests = payload.get("clarification_requests", [])
     return [
@@ -275,6 +283,7 @@ def _to_api_validated(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    _preserve_debt_payment_fields(payload, source)
     payload["monthly_surplus"] = round(validated.derived.monthly_surplus, 2)
     payload["emergency_fund_months"] = round(
         validated.emergency_fund / validated.monthly_expenses,
@@ -303,6 +312,7 @@ def _to_api_validated_from_profile(
     payload["hsa_coverage"] = source.hsa_coverage
     payload["home_value"] = source.home_value
     payload["non_liquid_savings"] = source.non_liquid_savings
+    _preserve_debt_payment_fields(payload, source)
     payload["monthly_surplus"] = round(monthly_surplus, 2)
     payload["emergency_fund_months"] = round(profile.emergency_fund / profile.monthly_expenses, 3)
     payload["required_emergency_fund"] = round(profile.monthly_expenses * EF_MONTHS, 2)
@@ -476,6 +486,11 @@ def _estimated_minimum_payment(debt: Any) -> float:
     return min(max(float(debt.balance) * 0.02, 25.0), float(debt.balance))
 
 
+def _upfront_cash_available_for_debt(profile: api_models.ValidatedProfile) -> float:
+    emergency_excess = max(0.0, profile.emergency_fund - profile.required_emergency_fund)
+    return round(max(0.0, profile.capital_on_hand) + emergency_excess, 2)
+
+
 def _debt_gate_status(apr: float) -> str:
     if apr > HIGH_APR:
         return "halt"
@@ -542,16 +557,19 @@ def _compute_financial_analysis(
     debt_payoff_plan = None
     if profile.debts:
         optimizer = DebtPayoffOptimizer()
+        upfront_cash = _upfront_cash_available_for_debt(profile)
         debt_payoff_plan = optimizer.optimize(
             profile.debts,
             profile.monthly_surplus,
             "avalanche",
+            upfront_cash=upfront_cash,
             mortgage_apr_threshold=HIGH_APR,
         )
         snowball_plan = optimizer.optimize(
             profile.debts,
             profile.monthly_surplus,
             "snowball",
+            upfront_cash=upfront_cash,
             mortgage_apr_threshold=HIGH_APR,
         )
         if (
@@ -1362,6 +1380,18 @@ def _stored_profile_or_404(db: Session, email: str) -> Profile:
     return profile
 
 
+def _needs_debt_payoff_backfill(result: Mapping[str, Any], profile_input: Mapping[str, Any]) -> bool:
+    financial_analysis = result.get("financial_analysis")
+    if not isinstance(financial_analysis, Mapping):
+        return False
+    if result.get("debt_payoff_plan") is not None:
+        return False
+    if financial_analysis.get("debt_payoff_plan") is not None:
+        return False
+    debts = profile_input.get("debts")
+    return isinstance(debts, list) and bool(debts)
+
+
 def _request_email(query_email: str | None, body_email: str | None) -> str:
     email = query_email or body_email
     if not email:
@@ -1734,9 +1764,31 @@ async def positions(user_email: str, db: Session = Depends(get_db)) -> api_model
 
 @router.get("/profile/{email}", response_model=api_models.OnboardResponse)
 async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.OnboardResponse:
-    result = get_profile_result(db, email)
+    profile = db.query(Profile).filter(Profile.user_email == email).first()
+    result = profile.get_result() if profile else None
     if not result:
         return api_models.OnboardResponse(status="no_profile")
+
+    profile_input = profile.get_input() if profile else {}
+    if _needs_debt_payoff_backfill(result, profile_input):
+        try:
+            profile_model = api_models.UserProfileInput.model_validate(profile_input)
+            refreshed = _run_pipeline(profile_model)
+            refreshed_plan = refreshed.debt_payoff_plan
+            if refreshed_plan is not None:
+                plan_payload = refreshed_plan.model_dump(mode="json")
+                result.setdefault("financial_analysis", {})
+                result["financial_analysis"]["debt_payoff_plan"] = plan_payload
+                result["debt_payoff_plan"] = plan_payload
+                upsert_profile(
+                    db,
+                    email,
+                    json.dumps(profile_input),
+                    json.dumps(result),
+                )
+                db.commit()
+        except Exception:
+            pass
 
     return api_models.OnboardResponse(**result)
 
@@ -1835,6 +1887,9 @@ async def onboard(
     When ``session_id`` is supplied, the elicitation session that produced this
     profile is marked ``complete`` so it is no longer surfaced as resumable.
     """
+    if user_email and not get_user(db, user_email):
+        raise HTTPException(status_code=404, detail="User not found; profile was not saved")
+
     # Compute Gilbert's gross-to-net tax breakdown FIRST (best-effort, LLM-backed,
     # so guarded + timed out), then feed its marginal federal bracket into the
     # gate / TLH math instead of the manual `bracket` field. If it is absent or
@@ -1883,7 +1938,7 @@ async def onboard(
         except Exception:
             pass
 
-    if user_email and get_user(db, user_email):
+    if user_email:
         upsert_profile(
             db,
             user_email,

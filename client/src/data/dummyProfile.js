@@ -14,35 +14,30 @@ const debts = [
     balance: 340000,
     apr: 0.064,
     kind: 'mortgage',
+    min_payment: 2250,
   },
   {
     balance: 18000,
     apr: 0.058,
     kind: 'student',
+    min_payment: 235,
   },
 ]
 
 const debtPayoffPlan = {
   method: 'avalanche',
   payoff_scope: 'consumer_debt',
-  months_to_freedom: 8,
-  total_interest_paid: 381.98,
+  months_to_freedom: 0,
+  total_interest_paid: 0,
+  upfront_cash_applied: 18000,
+  monthly_payment_budget: 2385,
   avalanche_vs_snowball_interest_saved: 0,
   monthly_free_cash_after_payoff: 2385,
   excluded_debt_kinds: ['mortgage'],
   excluded_debt_balance: 340000,
-  monthly_schedule: [
-    { month: 1, total_balance_remaining: 15702, interest_paid: 87, principal_paid: 2298, targeted_debt_kind: 'student_loan' },
-    { month: 2, total_balance_remaining: 13392.89, interest_paid: 75.89, principal_paid: 2309.11, targeted_debt_kind: 'student_loan' },
-    { month: 3, total_balance_remaining: 11072.63, interest_paid: 64.73, principal_paid: 2320.27, targeted_debt_kind: 'student_loan' },
-    { month: 4, total_balance_remaining: 8741.14, interest_paid: 53.52, principal_paid: 2331.48, targeted_debt_kind: 'student_loan' },
-    { month: 5, total_balance_remaining: 6398.39, interest_paid: 42.25, principal_paid: 2342.75, targeted_debt_kind: 'student_loan' },
-    { month: 6, total_balance_remaining: 4044.32, interest_paid: 30.93, principal_paid: 2354.07, targeted_debt_kind: 'student_loan' },
-    { month: 7, total_balance_remaining: 1678.86, interest_paid: 19.55, principal_paid: 2365.45, targeted_debt_kind: 'student_loan' },
-    { month: 8, total_balance_remaining: 0, interest_paid: 8.11, principal_paid: 1678.86, targeted_debt_kind: 'student_loan' },
-  ],
+  monthly_schedule: [],
   per_debt: [
-    { kind: 'student_loan', starting_balance: 18000, payoff_month: 8, total_interest_paid: 381.98 },
+    { kind: 'student', starting_balance: 18000, payoff_month: 0, total_interest_paid: 0 },
   ],
 }
 

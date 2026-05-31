@@ -207,7 +207,13 @@ function DebtPayoffSchedule({ gateResult }) {
         </div>
       </div>
 
-      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+        <div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Cash applied now</div>
+          <div className="font-mono text-sm font-semibold" style={{ color: 'var(--emerald)' }}>
+            {plan.upfront_cash_applied != null ? formatCurrency(plan.upfront_cash_applied) : 'Not available'}
+          </div>
+        </div>
         <div>
           <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Interest paid</div>
           <div className="font-mono text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>

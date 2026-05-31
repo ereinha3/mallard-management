@@ -544,7 +544,13 @@ export default function Dashboard({ onboardResult }) {
               </span>
             </div>
             {payoffPlan && (
-              <div className="mt-3 pt-3 grid grid-cols-2 gap-3 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+              <div className="mt-3 pt-3 grid grid-cols-3 gap-3 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ color: 'var(--text-muted)' }}>Cash applied</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+                    {payoffPlan.upfront_cash_applied != null ? formatCurrency(payoffPlan.upfront_cash_applied, true) : 'Not available'}
+                  </div>
+                </div>
                 <div>
                   <div style={{ color: 'var(--text-muted)' }}>Debt freedom</div>
                   <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>

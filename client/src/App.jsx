@@ -429,7 +429,7 @@ export default function App() {
     screen = (
       <TaxProfileForm
         user={user}
-        zip={user?.zip}
+        zip={user?.zip_code ?? user?.zip}
         homeValue={user?.home_value}
         onComplete={(profile) => {
           setTaxProfile(profile)
