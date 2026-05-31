@@ -68,7 +68,7 @@ export default function RetirementScore({ score }) {
             className="font-display font-semibold"
             style={{ fontSize: 42, lineHeight: 1, color, letterSpacing: '-0.03em' }}
           >
-            {hasScore ? displayed : '—'}
+            {hasScore ? Math.round(displayed * 10) / 10 : '—'}
           </span>
           <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             /100
