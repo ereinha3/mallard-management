@@ -52,26 +52,31 @@ function getProfile(onboardResult) {
 }
 
 function getAssetRows(profile) {
+  const assetsObj = (profile.assets && typeof profile.assets === 'object') ? profile.assets : {}
+  const hasHomeInAssets = Object.keys(assetsObj).some(key => key.toLowerCase().includes('home'))
   const rows = [
     { label: 'Liquid Cash', value: numberOrNull(profile.capital_on_hand), type: 'cash' },
     { label: 'Emergency Fund', value: numberOrNull(profile.emergency_fund), type: 'emergency' },
   ]
 
-  if (profile.assets && typeof profile.assets === 'object') {
-    Object.entries(profile.assets).forEach(([key, value]) => {
-      const amount = numberOrNull(value)
-      if (amount == null || amount <= 0) return
-      rows.push({
-        label: key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
-        value: amount,
-        type: key.includes('home') ? 'home'
-          : key.includes('vehicle') || key.includes('auto') ? 'vehicle'
-          : key.includes('brokerage') ? 'brokerage'
-          : key.includes('retirement') || key.includes('401') ? 'retirement'
-          : 'other',
-      })
-    })
+  if (!hasHomeInAssets) {
+    rows.push({ label: 'House', value: numberOrNull(profile.home_value), type: 'home' })
   }
+  rows.push({ label: 'Non-Liquid Savings', value: numberOrNull(profile.non_liquid_savings), type: 'other' })
+
+  Object.entries(assetsObj).forEach(([key, value]) => {
+    const amount = numberOrNull(value)
+    if (amount == null || amount <= 0) return
+    rows.push({
+      label: key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
+      value: amount,
+      type: key.includes('home') ? 'home'
+        : key.includes('vehicle') || key.includes('auto') ? 'vehicle'
+        : key.includes('brokerage') ? 'brokerage'
+        : key.includes('retirement') || key.includes('401') ? 'retirement'
+        : 'other',
+    })
+  })
 
   const unique = new Map()
   rows.forEach(row => {

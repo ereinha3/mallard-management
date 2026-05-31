@@ -499,51 +499,53 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
                     {methodLabel}
                   </div>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr>
-                      {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Source'].map(h => (
-                        <th key={h} className="text-left pb-2 font-semibold uppercase"
-                          style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: '0.08em', borderBottom: '1px solid var(--border)' }}>
-                          {h}
-                        </th>
+                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['Ticker', 'Sleeve', 'Weight', 'Amount', 'Source'].map(h => (
+                          <th key={h} className="text-left pb-2 font-semibold uppercase"
+                            style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: '0.08em', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg-surface)', zIndex: 1 }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetRows.map((a, index) => (
+                        <RevealItem
+                          as="tr"
+                          key={`${a.ticker}-${a.sleeve}`}
+                          index={index}
+                          reducedMotion={reducedMotion}
+                          style={{ borderBottom: '1px solid var(--border)' }}
+                        >
+                          <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
+                          <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
+                          <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
+                          <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
+                            {a.amount != null ? formatMoney(a.amount) : 'N/A'}
+                          </td>
+                          <td className="py-2.5">
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
+                            >
+                              {realPortfolioPresent ? 'engine' : 'live fetch'}
+                            </span>
+                          </td>
+                        </RevealItem>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {targetRows.map((a, index) => (
-                      <RevealItem
-                        as="tr"
-                        key={`${a.ticker}-${a.sleeve}`}
-                        index={index}
-                        reducedMotion={reducedMotion}
-                        style={{ borderBottom: '1px solid var(--border)' }}
-                      >
-                        <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
-                        <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
-                        <td className="py-2.5 font-mono" style={{ color: a.color }}>{a.pct.toFixed(1)}%</td>
-                        <td className="py-2.5 font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
-                          {a.amount != null ? formatMoney(a.amount) : 'N/A'}
-                        </td>
-                        <td className="py-2.5">
-                          <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium"
-                            style={{ background: 'var(--green-soft)', color: 'var(--green-bright, var(--green))' }}
-                          >
-                            {realPortfolioPresent ? 'engine' : 'live fetch'}
-                          </span>
-                        </td>
-                      </RevealItem>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
-                      <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="pt-3 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Capital available</td>
+                        <td className="pt-3 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{capital != null ? formatMoney(capital) : 'N/A'}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
                 <div
                   className="mt-4 rounded-xl p-3 text-xs"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
