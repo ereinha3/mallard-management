@@ -231,9 +231,8 @@ Call submit_profile when you have ALL of:
   age, horizon_years, filing_status, all 13 GL item scores,
   loss_scenario_response, income_stability.
 
-IMPORTANT: Call submit_profile as a function call IMMEDIATELY — do NOT send any
-text message before or after calling it. The UI handles the transition automatically.
-Do not say "I have everything" or "let me pass this" — just invoke the function.
+Before calling, send a brief message: "I have everything I need — let me pass this to
+the analysis engine now."
 """.strip()
 
 # ── Tool definition ───────────────────────────────────────────────────────────

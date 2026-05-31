@@ -2,38 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckCircle, AlertTriangle, Send, Loader } from 'lucide-react'
 import { streamChat, postOnboard } from '../../api/greenlightClient'
 
-// ─── DEV BYPASS ───────────────────────────────────────────────────────────────
-// Set to true to show a "Skip (dev)" button that jumps straight to the gate.
-// Flip to false (or delete this block) before the final demo.
-const DEV_MODE = true
-
-const DEV_PROFILE = {
-  household_income: 200000,
-  monthly_expenses: 8000,
-  capital_on_hand: 50000,
-  emergency_fund: 10000,
-  debts: [
-    { balance: 60000, apr: 0.06, kind: "auto" },
-    { balance: 2300000, apr: 0.04, kind: "mortgage" },
-  ],
-  age: 28,
-  horizon_years: 30,
-  goals: ["early_retirement", "family"],
-  goal_target: 8000000,
-  dependents: 0,
-  filing_status: "married_joint",
-  risk_instrument_responses: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-  loss_scenario_response: "buy_more",
-  loss_aversion_probe: 101,
-  income_stability: "mixed",
-  universe_pref: "mix",
-  esg_exclusions: [],
-  sector_theme_tilts: [],
-  confidence: {},
-  uncertainty_flags: [],
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
 function AgentBubble({ text, isStreaming }) {
   return (
     <div className="flex gap-3 items-start">
@@ -133,17 +101,6 @@ export default function IntakeChat({ onComplete }) {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
-  // DEV BYPASS handler — remove with DEV_MODE block above before final demo
-  const handleDevSkip = useCallback(async () => {
-    setAnalyzing(true)
-    try {
-      const result = await postOnboard(DEV_PROFILE)
-      onComplete(result)
-    } catch {
-      onComplete(null)
-    }
-  }, [onComplete])
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
@@ -192,17 +149,6 @@ export default function IntakeChat({ onComplete }) {
         }
         setStreamingText('')
         setIsStreaming(false)
-        // Fallback: if Gemini said it was ready but forgot to call submit_profile,
-        // send one more turn to nudge it into actually calling the function.
-        const readyPhrases = ["let me pass this", "analysis engine now", "have everything i need"]
-        const lower = accumulated.toLowerCase()
-        if (readyPhrases.some(p => lower.includes(p))) {
-          const nudge = [...msgList,
-            { role: 'assistant', content: accumulated },
-            { role: 'user', content: 'Please call submit_profile now with everything you have collected.' }
-          ]
-          setTimeout(() => callBackend(nudge), 300)
-        }
       },
     })
   }, [onComplete])
@@ -334,26 +280,6 @@ export default function IntakeChat({ onComplete }) {
         </div>
 
         <div className="px-8 py-5 shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-          {/* DEV BYPASS — delete this block before final demo */}
-          {DEV_MODE && (
-            <div style={{ marginBottom: 10, textAlign: 'right' }}>
-              <button
-                onClick={handleDevSkip}
-                disabled={analyzing}
-                style={{
-                  fontSize: 11, padding: '4px 10px', borderRadius: 6,
-                  border: '1px dashed rgba(196,154,44,0.5)',
-                  background: 'rgba(196,154,44,0.08)',
-                  color: 'var(--gold-light)',
-                  cursor: analyzing ? 'not-allowed' : 'pointer',
-                  opacity: analyzing ? 0.5 : 1,
-                  fontFamily: 'DM Mono, monospace',
-                }}
-              >
-                ⚡ Skip (dev)
-              </button>
-            </div>
-          )}
           <form onSubmit={handleSend} style={{ display: 'flex', gap: 10 }}>
             <input
               ref={inputRef}

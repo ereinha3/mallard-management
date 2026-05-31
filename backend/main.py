@@ -1,8 +1,5 @@
 from dotenv import load_dotenv
-from pathlib import Path
-
-# Load .env from the backend directory regardless of where uvicorn is launched from
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv()
 
 import sys
 from pathlib import Path
