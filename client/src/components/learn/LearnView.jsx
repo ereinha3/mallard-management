@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, GraduationCap } from 'lucide-react'
 import { lessonCount, modules } from './lessons'
 
@@ -189,12 +189,21 @@ function buildAskPrompt(lesson, horizonYears) {
 }
 
 export default function LearnView({ onboardResult, onAskMallard }) {
+  const audioRef = useRef(null)
   const [activeLessonId, setActiveLessonId] = useState(modules[0].lessons[0].id)
   const [completedIds, setCompletedIds] = useState([])
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCompletedIds(getStoredProgress())
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      stopAudio({ resetState: false })
+    }
   }, [])
 
   const completedSet = useMemo(() => new Set(completedIds), [completedIds])
@@ -203,6 +212,75 @@ export default function LearnView({ onboardResult, onAskMallard }) {
   const overallPercent = Math.round((completedSet.size / lessonCount) * 100)
   const isComplete = completedSet.has(lesson.id)
   const sources = Array.isArray(lesson.sources) ? lesson.sources : []
+  const hasElevenLabsApiKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY)
+
+  function stopAudio({ resetState = true } = {}) {
+    if (!audioRef.current) return
+    audioRef.current.pause()
+    if (audioRef.current.src) {
+      URL.revokeObjectURL(audioRef.current.src)
+    }
+    audioRef.current = null
+    if (resetState) {
+      setIsPlaying(false)
+    }
+  }
+
+  async function listenToLesson() {
+    if (!hasElevenLabsApiKey || isLoading) return
+
+    if (isPlaying) {
+      stopAudio()
+      return
+    }
+
+    stopAudio()
+    setIsLoading(true)
+
+    try {
+      const text = `${lesson.sections.join('. ')}. Key takeaway: ${lesson.takeaway}`
+      const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': import.meta.env.VITE_ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Unable to generate lesson audio')
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+
+      audio.onended = () => {
+        setIsPlaying(false)
+        URL.revokeObjectURL(url)
+        if (audioRef.current === audio) {
+          audioRef.current = null
+        }
+      }
+
+      audioRef.current = audio
+      setIsLoading(false)
+      setIsPlaying(true)
+      await audio.play()
+    } catch {
+      stopAudio()
+      setIsLoading(false)
+      setIsPlaying(false)
+    }
+  }
 
   function markComplete() {
     if (completedSet.has(lesson.id)) return
@@ -275,9 +353,39 @@ export default function LearnView({ onboardResult, onAskMallard }) {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--green, var(--emerald))' }}>
                     {module.title}
                   </p>
-                  <h2 className="font-display text-3xl font-semibold leading-tight lg:text-4xl" style={{ color: 'var(--text-primary)' }}>
-                    {lesson.title}
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="font-display text-3xl font-semibold leading-tight lg:text-4xl" style={{ color: 'var(--text-primary)' }}>
+                      {lesson.title}
+                    </h2>
+                    {hasElevenLabsApiKey ? (
+                      <button
+                        type="button"
+                        onClick={listenToLesson}
+                        disabled={isLoading}
+                        className="inline-flex min-h-8 items-center justify-center rounded-full px-3 py-1 text-xs font-semibold transition-all duration-150 disabled:cursor-wait"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid var(--gold)',
+                          color: 'var(--gold)',
+                        }}
+                        aria-label={isPlaying ? 'Stop lesson audio' : 'Listen to lesson'}
+                      >
+                        {isLoading ? (
+                          <span
+                            className="h-3.5 w-3.5 animate-spin rounded-full"
+                            style={{
+                              border: '2px solid rgba(219, 184, 100, 0.35)',
+                              borderTopColor: 'var(--gold)',
+                            }}
+                          />
+                        ) : isPlaying ? (
+                          '■ Stop'
+                        ) : (
+                          '▶ Listen'
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div
                   className="flex w-fit shrink-0 items-center gap-2 rounded-full px-3 py-2 font-mono text-xs"
