@@ -27,7 +27,7 @@ function ReadOnlyField({ label, value }) {
   )
 }
 
-function EditableField({ label, value, onChange, type = 'text', autoComplete }) {
+function EditableField({ label, value, onChange, type = 'text', autoComplete, maxLength }) {
   return (
     <label className="block py-2" style={{ borderBottom: '1px solid var(--border)' }}>
       <span className="block text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -36,6 +36,7 @@ function EditableField({ label, value, onChange, type = 'text', autoComplete }) 
         value={value}
         onChange={onChange}
         autoComplete={autoComplete}
+        maxLength={maxLength}
         className="w-full bg-transparent text-sm font-mono"
         style={{
           color: 'var(--text-primary)',
@@ -157,7 +158,7 @@ export default function SettingsView({ user: signedInUser, onLogout, onNavigate,
           <ReadOnlyField label="Email" value={user.email} />
           <EditableField label="Phone" type="tel" value={accountForm.phone} onChange={updatePhone} autoComplete="tel" />
           <EditableField label="Street Address" value={accountForm.address} onChange={updateAccountField('address')} autoComplete="street-address" />
-          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" />
+          <EditableField label="ZIP Code" value={accountForm.zip_code} onChange={updateAccountField('zip_code')} autoComplete="postal-code" maxLength={5} />
           <button
             type="button"
             onClick={handleSaveAccount}
