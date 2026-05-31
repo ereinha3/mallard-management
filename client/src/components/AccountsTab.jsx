@@ -217,7 +217,7 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
         </div>
       </div>
 
-      <div className="p-8 space-y-10 max-w-6xl">
+      <div data-tour="accounts-holdings" className="p-8 space-y-10 max-w-6xl">
         <section>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">

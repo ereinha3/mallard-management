@@ -237,9 +237,9 @@ function Field({ field, value, onChange }) {
   )
 }
 
-function FieldSection({ icon: Icon, title, fields, formState, onChange }) {
+function FieldSection({ icon: Icon, title, fields, formState, onChange, dataTour }) {
   return (
-    <section className="card-premium p-5">
+    <section data-tour={dataTour} className="card-premium p-5">
       <div className="flex items-center gap-2 mb-4">
         <Icon size={14} style={{ color: 'var(--gold-light)' }} />
         <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -327,6 +327,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
           <button
             type="submit"
             form="profile-edit-form"
+            data-tour="profile-save"
             disabled={isSaving}
             className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all"
             style={{
@@ -343,7 +344,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
         </div>
       </header>
 
-      <form id="profile-edit-form" onSubmit={handleSave} className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr' }}>
+      <form id="profile-edit-form" data-tour="profile-edit" onSubmit={handleSave} className="p-8 grid gap-5 max-w-6xl" style={{ gridTemplateColumns: '1fr' }}>
         <FieldSection
           icon={Settings}
           title="Financial Profile"
@@ -358,6 +359,7 @@ export default function ProfileView({ onboardResult, userEmail, onUpdated, embed
           fields={PREFERENCE_FIELDS}
           formState={formState}
           onChange={handleChange}
+          dataTour="profile-preferences"
         />
 
         {riskFields.length > 0 && (

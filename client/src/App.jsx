@@ -107,7 +107,7 @@ export default function App() {
       )}
       {activePage === 'risk' && <RiskView onboardResult={onboardResult} />}
       {activePage === 'alerts' && <AlertsView onboardResult={onboardResult} />}
-      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} />}
+      {activePage === 'settings' && <SettingsView onboardResult={onboardResult} user={user} onLogout={handleLogout} onNavigate={setActivePage} />}
 
       {!PAGES_WITH_CONTENT.includes(activePage) && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: 'transparent' }}>
@@ -126,6 +126,7 @@ export default function App() {
         {!askMallardOpen && (
           <button
             type="button"
+            data-tour="ask-mallard-button"
             aria-label="Open Ask Mallard"
             onClick={() => setAskMallardOpen(true)}
             style={{

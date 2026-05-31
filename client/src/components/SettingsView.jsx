@@ -1,5 +1,6 @@
-import { User, Sun, Moon, LogOut } from 'lucide-react'
+import { User, Sun, Moon, LogOut, RotateCcw } from 'lucide-react'
 import { useTheme } from '../theme/ThemeProvider'
+import { useTour } from './tour/TourProvider'
 
 function formatValue(value) {
   if (value == null || value === '') return 'Not provided'
@@ -23,9 +24,14 @@ function ReadOnlyField({ label, value }) {
   )
 }
 
-export default function SettingsView({ user: signedInUser, onLogout }) {
+export default function SettingsView({ user: signedInUser, onLogout, onNavigate }) {
   const user = signedInUser ?? {}
   const { theme, setTheme } = useTheme()
+  const { startTour } = useTour()
+
+  function handleReplayTour() {
+    startTour({ onNavigate })
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -51,7 +57,7 @@ export default function SettingsView({ user: signedInUser, onLogout }) {
           <ReadOnlyField label="ZIP Code" value={user.zip_code} />
         </section>
 
-        <section className="card-premium p-5">
+        <section className="card-premium p-5" data-tour="settings-appearance">
           <div className="flex items-center gap-2 mb-4">
             <Sun size={14} style={{ color: 'var(--green-light)' }} />
             <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -96,7 +102,7 @@ export default function SettingsView({ user: signedInUser, onLogout }) {
           </div>
         </section>
 
-        <section className="card-premium p-5" style={{ gridColumn: '1 / -1' }}>
+        <section className="card-premium p-5" data-tour="settings-session" style={{ gridColumn: '1 / -1' }}>
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -106,21 +112,40 @@ export default function SettingsView({ user: signedInUser, onLogout }) {
                 Sign out of this Mallard Management session.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
-              style={{
-                border: '1px solid rgba(217, 64, 64, 0.75)',
-                borderRadius: 8,
-                background: 'transparent',
-                color: 'var(--ruby)',
-                cursor: 'pointer',
-              }}
-            >
-              <LogOut size={15} />
-              Sign Out
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                data-tour="tour-replay"
+                onClick={handleReplayTour}
+                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                style={{
+                  border: '1px solid var(--border-bright)',
+                  borderRadius: 8,
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={15} />
+                Replay Tutorial
+              </button>
+              <button
+                type="button"
+                data-tour="settings-logout"
+                onClick={onLogout}
+                className="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold transition-colors"
+                style={{
+                  border: '1px solid rgba(217, 64, 64, 0.75)',
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: 'var(--ruby)',
+                  cursor: 'pointer',
+                }}
+              >
+                <LogOut size={15} />
+                Sign Out
+              </button>
+            </div>
           </div>
         </section>
       </div>

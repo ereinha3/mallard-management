@@ -7,6 +7,7 @@ import PortfolioEditor from './PortfolioEditor'
 import { postPortfolio } from '../../api/greenlightClient'
 import { CountUpNumber, PortfolioRevealStyles, RevealItem, usePrefersReducedMotion } from './PortfolioReveal'
 import RebalancePanel from './RebalancePanel'
+import { useTour } from '../tour/TourProvider'
 import {
   SLEEVE_ORDER,
   estimatePortfolioMetrics,
@@ -162,6 +163,7 @@ function GuideOverlay({ onClose, onComplete, userEmail }) {
 
 export default function PortfolioView({ onRebalance, onboardResult, onApplied, userEmail }) {
   const reducedMotion = usePrefersReducedMotion()
+  const { isActive: tourActive } = useTour()
   const [showRebalance, setShowRebalance] = useState(false)
   const [showEditor, setShowEditor] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
@@ -173,6 +175,10 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
   useEffect(() => {
     setLocalResult(onboardResult)
   }, [onboardResult])
+
+  useEffect(() => {
+    if (tourActive) setShowEditor(true)
+  }, [tourActive])
 
   const baseResult = localResult ?? onboardResult
   const profile = useMemo(() => getProfile(baseResult), [baseResult])
@@ -352,6 +358,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
+                data-tour="greenlight-editor-toggle"
                 onClick={() => setShowEditor(prev => !prev)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
                 style={{
@@ -397,6 +404,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
         {portfolio && (
           <div key={revealSignature} className="space-y-5">
             <div
+              data-tour="greenlight-portfolio"
               className="card-premium p-5 anim-fade-up d100 portfolio-reveal-card"
               style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))' }}
             >
@@ -667,6 +675,7 @@ export default function PortfolioView({ onRebalance, onboardResult, onApplied, u
             Greenlight can re-interview you, rebuild the target, then open the slider editor.
           </div>
           <button
+            data-tour="greenlight-rebalance"
             onClick={onRebalance ?? (() => setShowRebalance(true))}
             disabled={!portfolio}
             className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all"
