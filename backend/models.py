@@ -418,6 +418,7 @@ class Projection(BaseModel):
     bad_case_terminal: float
     median_terminal: float
     n_paths: int = Field(ge=1)
+    seed: int
 
 
 class Position(BaseModel):
