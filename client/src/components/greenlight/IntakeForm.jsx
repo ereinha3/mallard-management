@@ -8,12 +8,7 @@ const FIELDS = [
   { name: 'liquidCapital', label: 'Liquid capital / savings', type: 'currency', placeholder: '45,000' },
   { name: 'emergencyFund', label: 'Emergency fund balance', type: 'currency', placeholder: '20,000' },
   { name: 'age', label: 'Age', type: 'number', placeholder: '38' },
-  {
-    name: 'filing_status',
-    label: 'Tax filing status',
-    type: 'select',
-    options: ['Single', 'Married filing jointly', 'Married filing separately', 'Head of household'],
-  },
+  { name: 'nonLiquidSavings', label: 'Non-liquid savings (stocks, ETFs, brokerage)', type: 'currency', placeholder: '50,000' },
   { name: 'dependents', label: 'Financial dependents', type: 'number', placeholder: '0', min: 0, max: 20 },
 ]
 
@@ -65,7 +60,7 @@ export default function IntakeForm({ onSubmit }) {
     liquidCapital: '',
     emergencyFund: '',
     age: '',
-    filing_status: '',
+    nonLiquidSavings: '',
     dependents: '',
   })
   const [employmentValues, setEmploymentValues] = useState({
@@ -95,16 +90,6 @@ export default function IntakeForm({ onSubmit }) {
     const parsedValues = {}
 
     FIELDS.forEach(field => {
-      if (field.type === 'select') {
-        const value = values[field.name].trim()
-        if (!value) {
-          nextErrors[field.name] = 'This field is required.'
-        } else {
-          parsedValues[field.name] = value
-        }
-        return
-      }
-
       if (field.name === 'dependents') {
         const parsed = parseBoundedInteger(values[field.name], field.min, field.max)
         if (parsed === null) {
