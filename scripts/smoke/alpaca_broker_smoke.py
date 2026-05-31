@@ -48,6 +48,7 @@ def main() -> int:
 
     service = BrokerageService()
     account_id = ""
+    relationship_id = ""
 
     try:
         email = f"alpaca-smoke-{uuid.uuid4().hex}@example.com"
@@ -66,12 +67,13 @@ def main() -> int:
                 "account_type": "CHECKING",
             },
         )
-        check("create ACH relationship", bool(getattr(relationship, "id", None)), str(relationship))
+        relationship_id = str(getattr(relationship, "id", "") or "")
+        check("create ACH relationship", bool(relationship_id), str(relationship))
     except Exception as exc:
         check("create ACH relationship", False, str(exc))
 
     try:
-        deposit = service.create_deposit(account_id, 25.0)
+        deposit = service.create_deposit(account_id, relationship_id, 25.0)
         check("create ACH deposit", bool(getattr(deposit, "id", None)), str(deposit))
     except Exception as exc:
         check("create ACH deposit", False, str(exc))

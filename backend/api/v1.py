@@ -1191,7 +1191,9 @@ async def brokerage_deposit(
 
     try:
         service = BrokerageService(client=get_broker_client())
-        deposit = service.create_deposit(account.alpaca_account_id, request.amount)
+        deposit = service.create_deposit(
+            account.alpaca_account_id, request.relationship_id, request.amount
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

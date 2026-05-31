@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date, datetime
 from typing import Any, Mapping
 
 
@@ -15,7 +14,7 @@ from typing import Any, Mapping
 SANDBOX_IDENTITY = {
     "given_name": "Jane",
     "family_name": "Investor",
-    "date_of_birth": date(1990, 1, 1),
+    "date_of_birth": "1990-01-01",
     "tax_id": "666-55-4321",
     "tax_id_type": "USA_SSN",
     "country_of_citizenship": "USA",
@@ -39,8 +38,8 @@ SANDBOX_DISCLOSURES = {
     "immediate_family_exposed": False,
 }
 SANDBOX_AGREEMENT = {
-    "agreement": "margin_agreement",
-    "signed_at": datetime(2024, 1, 1, 0, 0, 0),
+    "agreement": "customer_agreement",
+    "signed_at": "2024-01-01T00:00:00Z",
     "ip_address": "127.0.0.1",
 }
 
@@ -135,6 +134,7 @@ class BrokerageService:
     def create_ach_relationship(self, account_id: str, bank: Mapping[str, Any]) -> Any:
         # Sandbox uses manual bank details; production should link accounts with Plaid.
         request = self._create_ach_relationship_request(
+            account_owner_name=bank.get("account_owner_name", "Jane Investor"),
             nickname=bank.get("nickname"),
             bank_routing_number=bank.get("routing_number"),
             bank_account_number=bank.get("account_number"),
@@ -142,11 +142,12 @@ class BrokerageService:
         )
         return self._client.create_ach_relationship_for_account(account_id, request)
 
-    def create_deposit(self, account_id: str, amount: float) -> Any:
+    def create_deposit(self, account_id: str, relationship_id: str, amount: float) -> Any:
         request = self._create_ach_transfer_request(
-            amount=float(amount),
+            amount=str(amount),
             direction=self._transfer_direction_in(),
             timing=self._transfer_timing_immediate(),
+            relationship_id=relationship_id,
         )
         return self._client.create_transfer_for_account(account_id, request)
 
@@ -175,7 +176,7 @@ class BrokerageService:
         return account_type
 
     def _transfer_direction_in(self) -> Any:
-        return "IN"
+        return "INCOMING"
 
     def _transfer_timing_immediate(self) -> Any:
-        return "IMMEDIATE"
+        return "immediate"

@@ -346,6 +346,7 @@ class BrokerageACHRelationshipOut(BaseModel):
 
 class BrokerageDepositRequest(BaseModel):
     user_email: str
+    relationship_id: str
     amount: float = Field(gt=0)
 
 

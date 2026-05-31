@@ -74,14 +74,15 @@ def test_create_deposit_submits_ach_transfer_request() -> None:
     client = FakeBrokerClient()
     service = BrokerageService(client=client)
 
-    deposit = service.create_deposit("alpaca-acct-123", 250.0)
+    deposit = service.create_deposit("alpaca-acct-123", "ach-123", 250.0)
 
     assert deposit.id == "deposit-123"
     account_id, request = client.transfers[0]
     assert account_id == "alpaca-acct-123"
-    assert request.amount == 250.0
-    assert str(request.direction).lower().endswith("in")
-    assert str(request.timing).lower().endswith("immediate")
+    assert request.amount == "250.0"
+    assert request.relationship_id == "ach-123"
+    assert str(request.direction).upper() == "INCOMING"
+    assert str(request.timing).lower() == "immediate"
 
 
 def test_brokerage_service_raises_cleanly_without_sdk_or_credentials(
