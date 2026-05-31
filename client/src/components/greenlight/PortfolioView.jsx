@@ -58,8 +58,29 @@ function RiskMetric({ label, value, color }) {
   )
 }
 
-export default function PortfolioView({ onRebalance }) {
-  const total = ALLOCATION.reduce((s, a) => s + a.amount, 0)
+export default function PortfolioView({ onRebalance, onboardResult }) {
+  // Derive live values from the onboard result where available
+  const profile = onboardResult?.profile ?? onboardResult ?? {}
+  const clientName = profile?.name ?? profile?.first_name ?? 'You'
+  const capitalOnHand = profile?.capital_on_hand ?? profile?.capital ?? null
+  const monthlyContrib = profile?.monthly_savings ?? profile?.monthly_contribution ?? null
+  const userAge = profile?.age ?? 28
+
+  // Scale the allocation amounts if we have real capital
+  const baseTotal = ALLOCATION.reduce((s, a) => s + a.amount, 0)
+  const scaleFactor = capitalOnHand != null ? capitalOnHand / baseTotal : 1
+  const scaledAllocation = ALLOCATION.map(a => ({
+    ...a,
+    amount: Math.round(a.amount * scaleFactor),
+  }))
+
+  const total = scaledAllocation.reduce((s, a) => s + a.amount, 0)
+
+  // Adjust glidepath to start at user's actual age
+  const glidepathData = GLIDEPATH.map(p => ({
+    ...p,
+    age: p.age - 28 + userAge,
+  }))
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
@@ -68,7 +89,7 @@ export default function PortfolioView({ onRebalance }) {
         {/* Header */}
         <div className="anim-fade-up">
           <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-            Portfolio · Maya · ESG-screened
+            Portfolio · {clientName} · ESG-screened
           </div>
           <div
             className="font-display font-semibold"
@@ -91,7 +112,7 @@ export default function PortfolioView({ onRebalance }) {
           <RiskMetric label="Expected Shortfall (95%)" value="−8.4%" color="var(--ruby)" />
           <RiskMetric label="Risk Aversion γ" value="3.8" />
           <RiskMetric label="Binding Axis" value="Capacity" color="var(--blue)" />
-          <RiskMetric label="Capital Deployed" value="$7,500" color="var(--emerald)" />
+          <RiskMetric label="Capital Deployed" value={`$${total.toLocaleString()}`} color="var(--emerald)" />
         </div>
 
         {/* Allocation + Order plan */}
@@ -108,7 +129,7 @@ export default function PortfolioView({ onRebalance }) {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={ALLOCATION}
+                    data={scaledAllocation}
                     dataKey="pct"
                     innerRadius={60}
                     outerRadius={90}
@@ -116,7 +137,7 @@ export default function PortfolioView({ onRebalance }) {
                     startAngle={90}
                     endAngle={-270}
                   >
-                    {ALLOCATION.map((a) => (
+                    {scaledAllocation.map((a) => (
                       <Cell key={a.label} fill={a.color} />
                     ))}
                   </Pie>
@@ -129,13 +150,13 @@ export default function PortfolioView({ onRebalance }) {
                 textAlign: 'center', pointerEvents: 'none',
               }}>
                 <div className="font-display font-semibold" style={{ fontSize: 22, color: 'var(--text-primary)' }}>
-                  {ALLOCATION.filter(a => a.label.includes('Equity') || a.label === 'REITs').reduce((s, a) => s + a.pct, 0)}%
+                  {scaledAllocation.filter(a => a.label.includes('Equity') || a.label === 'REITs').reduce((s, a) => s + a.pct, 0)}%
                 </div>
                 <div className="text-xs" style={{ color: 'var(--text-muted)' }}>equity</div>
               </div>
             </div>
             <div className="mt-3 space-y-1.5">
-              {ALLOCATION.map(a => (
+              {scaledAllocation.map(a => (
                 <div key={a.label} className="flex items-center gap-2 text-xs">
                   <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: a.color }} />
                   <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{a.label}</span>
@@ -174,7 +195,7 @@ export default function PortfolioView({ onRebalance }) {
                 </tr>
               </thead>
               <tbody>
-                {ALLOCATION.map(a => (
+                {scaledAllocation.map(a => (
                   <tr key={a.ticker} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td className="py-2.5 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{a.ticker}</td>
                     <td className="py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{a.label}</td>
@@ -205,7 +226,8 @@ export default function PortfolioView({ onRebalance }) {
               className="mt-4 rounded-xl p-3 text-xs"
               style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
             >
-              <strong style={{ color: 'var(--text-secondary)' }}>DCA schedule:</strong> +$600/mo steered toward underweight sleeves until next quarterly rebalance.
+              <strong style={{ color: 'var(--text-secondary)' }}>DCA schedule:</strong>{' '}
+              +${(monthlyContrib ?? 600).toLocaleString()}/mo steered toward underweight sleeves until next quarterly rebalance.
             </div>
           </div>
         </div>
@@ -235,7 +257,7 @@ export default function PortfolioView({ onRebalance }) {
           </div>
           <div style={{ height: 200 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={GLIDEPATH} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+              <LineChart data={glidepathData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis
                   dataKey="age"
@@ -252,11 +274,11 @@ export default function PortfolioView({ onRebalance }) {
                 />
                 <Tooltip content={<CustomTooltipGlide />} />
                 <ReferenceLine
-                  x={28} stroke="rgba(196,154,44,0.5)" strokeDasharray="4 4"
+                  x={userAge} stroke="rgba(196,154,44,0.5)" strokeDasharray="4 4"
                   label={{ value: 'Now', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
                 />
                 <ReferenceLine
-                  x={65} stroke="rgba(30,184,122,0.5)" strokeDasharray="4 4"
+                  x={userAge + 37} stroke="rgba(30,184,122,0.5)" strokeDasharray="4 4"
                   label={{ value: 'Retire', position: 'top', fill: 'var(--emerald)', fontSize: 10, fontFamily: 'DM Mono' }}
                 />
                 <Line type="monotone" dataKey="equity" stroke="var(--gold-light)" strokeWidth={2} dot={false} />

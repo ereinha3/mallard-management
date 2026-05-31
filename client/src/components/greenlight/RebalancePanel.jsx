@@ -164,7 +164,7 @@ function RebalancePlan() {
               Contribution Steer: Within Band
             </div>
             <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              Next <span className="font-mono">$600/mo</span> → <span className="font-mono">BND 50% · SCHP 30% · USRT 20%</span>
+              Next <span className="font-mono">${monthlyContrib.toLocaleString()}/mo</span> → <span className="font-mono">BND 50% · SCHP 30% · USRT 20%</span>
             </div>
             <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               Bonds, TIPS, REITs are slightly underweight but within the band. Steer contributions toward them. No trade, no fee, no taxable event.
@@ -242,7 +242,10 @@ function TaxPanel() {
   )
 }
 
-export default function RebalancePanel() {
+export default function RebalancePanel({ onboardResult }) {
+  const profile = onboardResult?.profile ?? onboardResult ?? {}
+  const monthlyContrib = profile?.monthly_savings ?? profile?.monthly_contribution ?? 600
+
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'var(--bg-base)' }}>
       <div className="p-7 space-y-5">

@@ -80,6 +80,63 @@ export async function getConfig() {
   return res.json()
 }
 
+// ── Next.js finance-engine API (port 3000) ────────────────────────────────
+
+const FINANCE_BASE = import.meta.env.VITE_FINANCE_URL ?? 'http://localhost:3000'
+
+/**
+ * POST /api/tax/harvest — analyse tax-loss harvesting opportunities.
+ * @param {object} harvestInput  Matches HarvestInputSchema from lib/tax/taxLossHarvesting.ts
+ */
+export async function postHarvestAnalysis(harvestInput) {
+  const res = await fetch(`${FINANCE_BASE}/api/tax/harvest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(harvestInput),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Harvest API error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/tax/rebalance — analyse tax-aware rebalancing.
+ * @param {object} rebalanceInput  Matches RebalanceInputSchema from lib/tax/rebalancing.ts
+ */
+export async function postRebalanceAnalysis(rebalanceInput) {
+  const res = await fetch(`${FINANCE_BASE}/api/tax/rebalance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rebalanceInput),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Rebalance API error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/optimization/quarterly-report — run the full quarterly optimizer.
+ * @param {object} clientSnapshot  Matches ClientSnapshotSchema from lib/optimization/types.ts
+ */
+export async function postQuarterlyReport(clientSnapshot) {
+  const res = await fetch(`${FINANCE_BASE}/api/optimization/quarterly-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(clientSnapshot),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Quarterly report error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+// ── Streaming advisor Q&A ─────────────────────────────────────────────────
+
 /**
  * POST /api/v1/advisor/chat — streaming advisor Q&A.
  * Same SSE protocol as streamChat but never emits profile_ready.

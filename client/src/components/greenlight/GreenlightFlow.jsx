@@ -139,6 +139,7 @@ export default function GreenlightFlow() {
         {step === STEPS.GATE_HALT && (
           <GateScreen
             status="halt"
+            gateResult={gateResult}
             onFix={() => setStep(STEPS.INTAKE_FIX)}
           />
         )}
@@ -148,14 +149,18 @@ export default function GreenlightFlow() {
         {step === STEPS.GATE_GREEN && (
           <GateScreen
             status="green"
+            gateResult={gateResult}
             onContinue={() => setStep(STEPS.PORTFOLIO)}
           />
         )}
         {step === STEPS.PORTFOLIO && (
-          <PortfolioView onRebalance={() => setStep(STEPS.REBALANCE)} />
+          <PortfolioView
+            onboardResult={gateResult}
+            onRebalance={() => setStep(STEPS.REBALANCE)}
+          />
         )}
         {step === STEPS.REBALANCE && (
-          <RebalancePanel />
+          <RebalancePanel onboardResult={gateResult} />
         )}
       </div>
 
