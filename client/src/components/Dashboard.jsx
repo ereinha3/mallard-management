@@ -234,6 +234,7 @@ export default function Dashboard({ onboardResult }) {
   const bucketPlan = onboardResult?.bucket_plan ?? null
   const risk = onboardResult?.financial_analysis?.risk
   const portfolio = onboardResult?.portfolio ?? null
+  const payoffPlan = onboardResult?.financial_analysis?.debt_payoff_plan ?? onboardResult?.debt_payoff_plan
 
   const assets = getAssetRows(profile)
   const liabilities = getLiabilityRows(onboardResult, profile)
@@ -539,6 +540,22 @@ export default function Dashboard({ onboardResult }) {
                 {formatMaybeCurrency(totalDebt, true)}
               </span>
             </div>
+            {payoffPlan && (
+              <div className="mt-3 pt-3 grid grid-cols-2 gap-3 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ color: 'var(--text-muted)' }}>Debt freedom</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {payoffPlan.months_to_freedom != null ? `${payoffPlan.months_to_freedom} mo` : 'Not available'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div style={{ color: 'var(--text-muted)' }}>Saved vs snowball</div>
+                  <div className="font-mono font-semibold" style={{ color: 'var(--emerald)' }}>
+                    {payoffPlan.avalanche_vs_snowball_interest_saved != null ? formatCurrency(payoffPlan.avalanche_vs_snowball_interest_saved, true) : 'Not available'}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card-premium p-5 anim-fade-up d500">
