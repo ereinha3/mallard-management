@@ -1405,6 +1405,12 @@ def _needs_debt_payoff_backfill(result: Mapping[str, Any], profile_input: Mappin
     return isinstance(debts, list) and bool(debts)
 
 
+def _needs_tax_planning_backfill(result: Mapping[str, Any], profile_input: Mapping[str, Any]) -> bool:
+    if result.get("tax_breakdown") is not None and result.get("bucket_plan") is not None:
+        return False
+    return bool(profile_input.get("zip_code") or profile_input.get("state"))
+
+
 def _request_email(query_email: str | None, body_email: str | None) -> str:
     email = query_email or body_email
     if not email:
@@ -1793,6 +1799,21 @@ async def get_profile(email: str, db: Session = Depends(get_db)) -> api_models.O
         return api_models.OnboardResponse(status="no_profile")
 
     profile_input = profile.get_input() if profile else {}
+    if _needs_tax_planning_backfill(result, profile_input):
+        try:
+            profile_model = api_models.UserProfileInput.model_validate(profile_input)
+            refreshed = await _run_pipeline_with_tax_planning(profile_model)
+            result = refreshed.model_dump(mode="json")
+            upsert_profile(
+                db,
+                email,
+                json.dumps(profile_input),
+                json.dumps(result),
+            )
+            db.commit()
+        except Exception:
+            pass
+
     if _needs_debt_payoff_backfill(result, profile_input):
         try:
             profile_model = api_models.UserProfileInput.model_validate(profile_input)
@@ -1868,7 +1889,7 @@ async def profile_update(
             },
         ) from exc
 
-    response = _run_pipeline(profile_input)
+    response = await _run_pipeline_with_tax_planning(profile_input)
     upsert_profile(
         db,
         email,
@@ -1896,27 +1917,9 @@ def _marginal_federal_rate(tax_breakdown: Any) -> float | None:
         return None
 
 
-@router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
-async def onboard(
+async def _run_pipeline_with_tax_planning(
     profile_input: api_models.UserProfileInput,
-    user_email: str | None = None,
-    session_id: str | None = None,
-    db: Session = Depends(get_db),
 ) -> api_models.OnboardResponse:
-    """
-    Validate profile -> compute risk profile -> run responsibility gate.
-    Returns a halt with math or a greenlight with a packaged OptimizerInput.
-
-    When ``session_id`` is supplied, the elicitation session that produced this
-    profile is marked ``complete`` so it is no longer surfaced as resumable.
-    """
-    if user_email and not get_user(db, user_email):
-        raise HTTPException(status_code=404, detail="User not found; profile was not saved")
-
-    # Compute Gilbert's gross-to-net tax breakdown FIRST (best-effort, LLM-backed,
-    # so guarded + timed out), then feed its marginal federal bracket into the
-    # gate / TLH math instead of the manual `bracket` field. If it is absent or
-    # fails, the gate falls back to the deterministic default (G-03).
     tax_breakdown = None
     if profile_input.zip_code or profile_input.state:
         try:
@@ -1960,6 +1963,28 @@ async def onboard(
             )
         except Exception:
             pass
+
+    return response
+
+
+@router.post("/onboard", response_model=api_models.OnboardResponse, summary="Full intake pipeline")
+async def onboard(
+    profile_input: api_models.UserProfileInput,
+    user_email: str | None = None,
+    session_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> api_models.OnboardResponse:
+    """
+    Validate profile -> compute risk profile -> run responsibility gate.
+    Returns a halt with math or a greenlight with a packaged OptimizerInput.
+
+    When ``session_id`` is supplied, the elicitation session that produced this
+    profile is marked ``complete`` so it is no longer surfaced as resumable.
+    """
+    if user_email and not get_user(db, user_email):
+        raise HTTPException(status_code=404, detail="User not found; profile was not saved")
+
+    response = await _run_pipeline_with_tax_planning(profile_input)
 
     if user_email:
         upsert_profile(
