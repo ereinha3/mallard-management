@@ -51,7 +51,7 @@ def test_demo_pipeline_smoke_greenlight_spine(test_app: FastAPI, monkeypatch: py
     assert onboard["status"] == "greenlight"
     onboard_portfolio = onboard["portfolio"]
     onboard_weights = onboard_portfolio["weights"]
-    assert onboard_weights["method"] == "erc"
+    assert onboard_weights["method"] == "strategic"
     _assert_weight_map_sums_to_one(onboard_weights)
     assert onboard_portfolio["universe"]["tickers"]
     assert onboard_portfolio["etfs"]
