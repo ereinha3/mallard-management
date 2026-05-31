@@ -265,6 +265,168 @@ async function run() {
   check("bucket=thematic returns etfs", Array.isArray(t11d.etfs) && t11d.count > 0);
   console.log("  INFO     Thematic bucket: " + t11d.count + " ETFs");
 
+  // ── TEST 12: Tax-Loss Harvesting ────────────────────────────────────
+  console.log("\n[12] Tax-Loss Harvesting — two losers, one winner");
+  const t12 = await post("/api/tax/harvest", {
+    holdings: [
+      { ticker: "VXUS", name: "Vanguard Total Intl", shares: 100, costBasisPerShare: 60,
+        currentPricePerShare: 52, purchaseDate: "2024-06-01", accountType: "taxable" },
+      { ticker: "BND",  name: "Vanguard Total Bond", shares: 200, costBasisPerShare: 77,
+        currentPricePerShare: 71, purchaseDate: "2023-03-15", accountType: "taxable" },
+      { ticker: "VTI",  name: "Vanguard Total Market", shares: 50, costBasisPerShare: 200,
+        currentPricePerShare: 260, purchaseDate: "2022-01-01", accountType: "taxable" },
+    ],
+    filingStatus: "single",
+    realizedShortTermGainsYTD: 0,
+    realizedLongTermGainsYTD: 2000,
+    shortTermLossCarryforward: 0,
+    longTermLossCarryforward: 0,
+    ordinaryMarginalRate: 0.22,
+    ltcgRate: 0.15,
+    estimatedTradeCostDollars: 0,
+  });
+  if (t12._raw) { console.log("  ERROR:", t12._raw.slice(0,200)); failed++; }
+  else {
+    check("candidates exist",            Array.isArray(t12.candidates));
+    check("VXUS is a candidate",         t12.candidates.some(c => c.ticker === "VXUS"));
+    check("VTI is NOT a candidate",      !t12.candidates.some(c => c.ticker === "VTI"));
+    check("totalHarvestableLoss > 0",    t12.totalHarvestableLoss > 0);
+    check("legalNotices present",        t12.legalNotices?.length > 0);
+    console.log("  INFO     Harvestable loss: $" + t12.totalHarvestableLoss.toFixed(2));
+    console.log("  INFO     Est. tax savings: $" + t12.estimatedTaxSavingsThisYear?.toFixed(2));
+    console.log("  INFO     Candidates: " + t12.candidates.map(c => c.ticker + " ($" + Math.abs(c.unrealizedLoss).toFixed(0) + " loss)").join(", "));
+  }
+
+  // ── TEST 13: Roth Conversion ─────────────────────────────────────────
+  console.log("\n[13] Roth Conversion — mid-career, low-income year");
+  const t13 = await post("/api/tax/roth-conversion", {
+    ordinaryIncomeThisYear: 65000,
+    filingStatus: "single",
+    age: 42,
+    traditionalIraBalance: 180000,
+    rothIraBalance: 25000,
+    nonDeductibleIraBasis: 0,
+    expectedRetirementMarginalRate: 0.28,
+    itemizedDeductions: 0,
+    yearsToRetirement: 23,
+    expectedAnnualReturn: 0.07,
+    taxYear: 2026,
+  });
+  if (t13._raw) { console.log("  ERROR:", t13._raw.slice(0,200)); failed++; }
+  else {
+    check("scenarios exist",             Array.isArray(t13.scenarios) && t13.scenarios.length > 0);
+    check("currentMarginalRate > 0",     t13.currentMarginalRate > 0);
+    check("rmdRequired = false",         t13.rmdRequired, false);
+    check("recommendedAmount > 0",       t13.recommendedConversionAmount > 0);
+    check("legalNotices present",        t13.legalNotices?.length > 0);
+    console.log("  INFO     Current rate: " + (t13.currentMarginalRate * 100).toFixed(0) + "% | Bracket room: $" + t13.currentBracketRemainingRoom?.toLocaleString());
+    console.log("  INFO     Recommended conversion: $" + t13.recommendedConversionAmount?.toLocaleString());
+    t13.scenarios?.slice(0,2).forEach(s => console.log("  INFO     Scenario: " + s.label + " — tax cost $" + s.taxCostThisYear?.toLocaleString()));
+  }
+
+  // ── TEST 14: Capital Gains Timing ────────────────────────────────────
+  console.log("\n[14] Capital Gains Timing — 0% opportunity + short-term warning");
+  const t14 = await post("/api/tax/gains-timing", {
+    ordinaryTaxableIncome: 38000,
+    filingStatus: "single",
+    realizedLtcgYtd: 0,
+    realizedStcgYtd: 0,
+    stateLtcgRate: 0.05,
+    positions: [
+      { id: "p1", ticker: "VTI",  name: "Vanguard Total Market", shares: 20,
+        costBasisPerShare: 200, currentPricePerShare: 265,
+        purchaseDate: "2022-03-01", isRealEstate: false },
+      { id: "p2", ticker: "VXUS", name: "Vanguard Total Intl",   shares: 50,
+        costBasisPerShare: 55, currentPricePerShare: 52,
+        purchaseDate: "2024-11-01", isRealEstate: false },
+      { id: "p3", ticker: "QQQ",  name: "Invesco QQQ", shares: 5,
+        costBasisPerShare: 450, currentPricePerShare: 510,
+        purchaseDate: "2025-12-01", isRealEstate: false },
+    ],
+  });
+  if (t14._raw) { console.log("  ERROR:", t14._raw.slice(0,200)); failed++; }
+  else {
+    check("positions analyzed",          Array.isArray(t14.positions) && t14.positions.length === 3);
+    check("zeroRateOpportunity = true",  t14.zeroRateOpportunity, true);
+    check("VTI = sell_now_0pct",         t14.positions.find(p => p.ticker === "VTI")?.recommendation === "sell_now_0pct");
+    check("QQQ = wait/caution",          ["wait_for_long_term","caution_high_rate"].includes(t14.positions.find(p => p.ticker === "QQQ")?.recommendation));
+    console.log("  INFO     Current LTCG rate: " + (t14.currentLtcgRate * 100).toFixed(0) + "% | 0% room: $" + t14.zeroRateRoomRemaining?.toLocaleString());
+    t14.positions?.forEach(p => console.log("  INFO     " + p.ticker.padEnd(6) + " " + p.recommendation + " | tax if sold: $" + p.totalTaxIfSoldNow));
+  }
+
+  // ── TEST 15: Rebalancing ─────────────────────────────────────────────
+  console.log("\n[15] Tax-Aware Rebalancing — drifted portfolio");
+  const t15 = await post("/api/tax/rebalance", {
+    holdings: [
+      { ticker: "VTI",  accountType: "roth_ira",           currentValue: 45000, costBasis: 30000, purchaseDate: "2021-01-01" },
+      { ticker: "BND",  accountType: "traditional_401k",   currentValue: 30000, costBasis: 28000, purchaseDate: "2020-06-01" },
+      { ticker: "VXUS", accountType: "taxable_brokerage",  currentValue: 25000, costBasis: 22000, purchaseDate: "2022-09-01" },
+      { ticker: "VNQ",  accountType: "traditional_401k",   currentValue: 15000, costBasis: 12000, purchaseDate: "2021-03-01" },
+    ],
+    targetWeights: { VTI: 0.40, BND: 0.30, VXUS: 0.20, VNQ: 0.10 },
+    monthlyNewContributions: { traditional_401k: 500, roth_ira: 200 },
+    filingStatus: "single",
+    ltcgRate: 0.15,
+    ordinaryMarginalRate: 0.22,
+    stateLtcgRate: 0.05,
+    driftThreshold: 0.05,
+  });
+  if (t15._raw) { console.log("  ERROR:", t15._raw.slice(0,200)); failed++; }
+  else {
+    check("drift analyzed",              Array.isArray(t15.drift) && t15.drift.length > 0);
+    check("trades generated",            Array.isArray(t15.trades));
+    check("totalPortfolioValue > 0",     t15.totalPortfolioValue > 0);
+    check("legalNotices present",        t15.legalNotices?.length > 0);
+    console.log("  INFO     Portfolio: $" + t15.totalPortfolioValue?.toLocaleString() + " | Needs rebalancing: " + t15.needsRebalancing);
+    console.log("  INFO     Est. tax cost: $" + t15.estimatedTotalTaxCost?.toLocaleString() + " | Trades: " + t15.trades?.length);
+    t15.drift?.forEach(d => console.log("  INFO     " + d.ticker.padEnd(6) + " target:" + (d.targetWeight*100).toFixed(0) + "% actual:" + (d.currentWeight*100).toFixed(0) + "% drift:" + (d.drift*100).toFixed(1) + "%"));
+  }
+
+  // ── TEST 16: Quarterly Optimization Pipeline ────────────────────────
+  console.log("\n[16] Quarterly Optimization Pipeline — full client snapshot");
+  const t16 = await post("/api/optimization/quarterly-report", {
+    clientId: "test-client-001",
+    asOfDate: new Date().toISOString().slice(0, 10),
+    holdings: [
+      { ticker: "VTI",  name: "Vanguard Total Market",   shares: 50,  costBasisPerShare: 200, currentPricePerShare: 255, purchaseDate: "2022-03-01", accountType: "taxable_brokerage", isRealEstate: false },
+      { ticker: "VXUS", name: "Vanguard Total Intl",     shares: 100, costBasisPerShare: 60,  currentPricePerShare: 52,  purchaseDate: "2023-06-01", accountType: "taxable_brokerage", isRealEstate: false },
+      { ticker: "BND",  name: "Vanguard Total Bond",     shares: 200, costBasisPerShare: 77,  currentPricePerShare: 71,  purchaseDate: "2023-03-15", accountType: "traditional_401k",   isRealEstate: false },
+      { ticker: "VTI",  name: "Vanguard Total Market",   shares: 30,  costBasisPerShare: 180, currentPricePerShare: 255, purchaseDate: "2021-01-01", accountType: "roth_ira",           isRealEstate: false },
+    ],
+    taxProfile: {
+      grossIncome: 120000, filingStatus: "single", state: "OR", age: 35,
+      federalMarginalRate: 0.22, combinedMarginalRate: 0.30, ltcgRate: 0.15,
+      stateLtcgRate: 0.09, itemizedDeductions: 0,
+    },
+    retirement: {
+      traditionalIraBalance: 45000, rothIraBalance: 18000, nonDeductibleIraBasis: 0,
+      expectedRetirementMarginalRate: 0.22, yearsToRetirement: 30, expectedAnnualReturn: 0.07,
+    },
+    ytdGains: { realizedShortTermGains: 0, realizedLongTermGains: 1500, shortTermLossCarryforward: 0, longTermLossCarryforward: 0 },
+    targetWeights: { VTI: 0.50, VXUS: 0.20, BND: 0.30 },
+    monthlyContributions: { traditional_401k: 500, roth_ira: 200 },
+    minimumActionThreshold: 500,
+    rebalanceDriftThreshold: 0.05,
+    estimatedTradeCostDollars: 0,
+  });
+  if (t16._raw) { console.log("  ERROR:", t16._raw.slice(0,200)); failed++; }
+  else {
+    check("quarter exists",              typeof t16.quarter === "string");
+    check("actions array exists",        Array.isArray(t16.actions));
+    check("harvestResult exists",        t16.harvestResult != null);
+    check("rothResult exists",           t16.rothResult != null);
+    check("timingResult exists",         t16.timingResult != null);
+    check("rebalanceResult exists",      t16.rebalanceResult != null);
+    check("legalNotices present",        t16.legalNotices?.length > 0);
+    check("strategiesRun = 4",          t16.strategiesRun?.length === 4);
+    check("VXUS harvested",             t16.harvestResult?.candidates?.some(c => c.ticker === "VXUS"));
+    console.log("  INFO     Quarter: " + t16.quarter + " | Actions: " + t16.actions?.length);
+    console.log("  INFO     Est. savings this year: $" + t16.totalEstimatedSavingsThisYear?.toLocaleString());
+    console.log("  INFO     Est. long-term savings: $" + t16.totalEstimatedSavingsLongTerm?.toLocaleString());
+    t16.actions?.forEach(a => console.log("  INFO     [" + a.priority.padEnd(7) + "] " + a.category.padEnd(16) + " " + a.title));
+    if (t16.noActionNeeded?.length > 0) console.log("  INFO     No-action items: " + t16.noActionNeeded.length);
+  }
+
   // ── Final summary ───────────────────────────────────────────────────
   console.log("\n" + "=".repeat(65));
   console.log("  RESULTS: " + passed + " passed, " + failed + " failed");

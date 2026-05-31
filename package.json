@@ -9,7 +9,9 @@
     "lint": "eslint",
     "update-tax": "ts-node --project tsconfig.json scripts/updateTaxConstants.ts",
     "update-tax:dry": "ts-node --project tsconfig.json scripts/updateTaxConstants.ts --dry-run",
-    "build-etf-universe": "ts-node --project tsconfig.json scripts/buildEtfUniverse.ts"
+    "build-etf-universe": "ts-node --project tsconfig.json scripts/buildEtfUniverse.ts",
+    "optimize": "ts-node --project tsconfig.json scripts/runQuarterlyOptimization.ts",
+    "optimize:dry": "ts-node --project tsconfig.json scripts/runQuarterlyOptimization.ts --dry-run"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

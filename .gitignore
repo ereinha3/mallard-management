@@ -14,6 +14,10 @@ tsconfig.tsbuildinfo
 # ETF universe cache — rebuilt by scripts/buildEtfUniverse.ts
 data/etf-universe.json
 
+# Client portfolio snapshots and optimization reports — NEVER commit client data
+data/clients/
+data/optimization-reports/
+
 # Misc
 **/.codex-tasks
 client-integration/
