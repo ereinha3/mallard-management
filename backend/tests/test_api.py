@@ -641,12 +641,9 @@ def test_projection_without_seed_echoes_replayable_seed(test_app: FastAPI):
     assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(replay_projection)
 
 
-def test_projection_without_seed_generates_fresh_replayable_seeds(
+def test_projection_without_seed_is_deterministic_cached_and_replayable(
     test_app: FastAPI,
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    generated_seeds = iter([101, 202])
-    monkeypatch.setattr(api_v1.secrets, "randbelow", lambda upper: next(generated_seeds))
     client = _client(test_app)
     portfolio_response = client.post(
         "/api/v1/portfolio",
@@ -662,18 +659,23 @@ def test_projection_without_seed_generates_fresh_replayable_seeds(
     assert second_response.status_code == 200
     first_projection = first_response.json()
     second_projection = second_response.json()
-    assert first_projection["seed"] == 101
-    assert second_projection["seed"] == 202
 
-    for projection in (first_projection, second_projection):
-        replay_response = client.post(
-            "/api/v1/projection",
-            json=_projection_payload(weights, seed=projection["seed"]),
-        )
-        assert replay_response.status_code == 200
-        assert _projection_reproducible_fields(projection) == _projection_reproducible_fields(
-            replay_response.json()
-        )
+    # New contract: identical inputs with no explicit seed are deterministic and
+    # served from the read-through cache — same seed, identical results, no jitter.
+    assert first_projection["seed"] == second_projection["seed"]
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(
+        second_projection
+    )
+
+    # The returned seed remains replayable via an explicit-seed call.
+    replay_response = client.post(
+        "/api/v1/projection",
+        json=_projection_payload(weights, seed=first_projection["seed"]),
+    )
+    assert replay_response.status_code == 200
+    assert _projection_reproducible_fields(first_projection) == _projection_reproducible_fields(
+        replay_response.json()
+    )
 
 
 def test_portfolio_reoptimize_risk_dial_returns_valid_weight_sets(test_app: FastAPI):
