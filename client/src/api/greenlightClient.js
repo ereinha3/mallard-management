@@ -40,7 +40,7 @@ export async function login({ email, password }) {
 }
 
 export async function getProfile(email) {
-  const res = await fetch(`${BASE}/api/v1/profile/${email}`)
+  const res = await fetch(`${BASE}/api/v1/profile/${encodeURIComponent(email)}`)
   if (!res.ok) return null
   return res.json()
 }
@@ -134,15 +134,63 @@ export async function postOnboard(profile, userEmail = null, sessionId = null) {
 /**
  * POST /api/v1/portfolio — build a portfolio from a profile.
  */
-export async function postPortfolio(profile) {
+export async function postPortfolio(profile, method = 'erc') {
   const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(profile),
+    body: JSON.stringify({ profile, method }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/projection — run a portfolio projection.
+ */
+export async function postProjection(payload) {
+  const res = await fetch(`${BASE}/api/v1/projection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Projection error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/rebalance — generate a rebalance recommendation.
+ */
+export async function postRebalance(payload) {
+  const res = await fetch(`${BASE}/api/v1/rebalance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Rebalance error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * POST /api/v1/tax/report — generate a tax report.
+ */
+export async function postTaxReport(payload) {
+  const res = await fetch(`${BASE}/api/v1/tax/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Tax report error ${res.status}: ${text}`)
   }
   return res.json()
 }
@@ -200,6 +248,80 @@ export async function postSavePortfolio({ user_email, portfolio, risk_summary = 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(`Save portfolio error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function getPositions(userEmail) {
+  if (!userEmail) throw new Error('Positions require a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/positions/${encodeURIComponent(userEmail)}`)
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Positions error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function getFundingAccount(userEmail) {
+  if (!userEmail) throw new Error('Funding account requires a user email.')
+
+  const res = await fetch(`${BASE}/api/v1/funding/account/${encodeURIComponent(userEmail)}`)
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Funding account error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function postMockDeposit({ user_email, amount }) {
+  const res = await fetch(`${BASE}/api/v1/funding/mock/deposit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, amount }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Deposit error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function postExecutionPreview({ user_email, weights }) {
+  const res = await fetch(`${BASE}/api/v1/execution/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, weights }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Execution preview error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function postExecutionSubmit({ user_email, weights }) {
+  const res = await fetch(`${BASE}/api/v1/execution/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, weights }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Execution submit error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function postRebalanceSubmit({ user_email, weights }) {
+  const res = await fetch(`${BASE}/api/v1/execution/rebalance/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_email, weights }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new Error(`Rebalance submit error ${res.status}: ${text}`)
   }
   return res.json()
 }

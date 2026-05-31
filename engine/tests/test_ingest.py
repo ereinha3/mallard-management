@@ -5,6 +5,7 @@ from io import StringIO
 import pandas as pd
 from sqlalchemy import func, select
 
+from data import universe_seed
 from data.db import InstrumentMeta, MacroSeries, Price, get_session
 from data.ingest.fred_source import fetch_series
 from data.ingest.refresh import refresh
@@ -44,14 +45,17 @@ def test_fred_source_uses_injected_opener_without_network():
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2024-01-01", "2024-01-03"]
 
 
+def test_refresh_sources_universe_from_seed_config():
+    rows = universe_seed.instrument_rows()
+    assert len(rows) >= 90
+    assert {"VTI", "GLD", "BND"} <= {r["ticker"] for r in rows}
+    # The seed must populate every Instrument column the schema models.
+    assert {"name", "bucket", "sleeve", "role", "fossil_fuels", "weapons"} <= set(rows[0])
+
+
 def test_refresh_upserts_fixture_dataframes_idempotently(tmp_path):
     db_url = f"sqlite:///{tmp_path / 'refresh.db'}"
-    classification = tmp_path / "classification.csv"
-    classification.write_text(
-        "ticker,asset_class,bucket,region,size,style,underlying_index,issuer,quote_type\n"
-        "AAA,equity,us_equity_large,us,large,blend,AAA Index,Issuer A,ETF\n"
-        "BBB,bond,bonds_core,us,na,na,BBB Index,Issuer B,ETF\n"
-    )
+    expected_instruments = len(universe_seed.instrument_rows())
     prices = pd.DataFrame(
         {
             "date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-02"]),
@@ -75,17 +79,20 @@ def test_refresh_upserts_fixture_dataframes_idempotently(tmp_path):
     for _ in range(2):
         summary = refresh(
             db_url=db_url,
-            tickers_from=classification,
             price_fetcher=lambda tickers: prices,
             meta_fetcher=lambda tickers: meta,
             fred_fetcher=lambda series_id: macro,
         )
 
-    assert summary == {"instruments": 2, "prices": 3, "instrument_meta": 2, "macro_series": 1}
+    assert summary == {
+        "instruments": expected_instruments,
+        "prices": 3,
+        "instrument_meta": 2,
+        "macro_series": 1,
+    }
     with get_session(db_url) as session:
         assert session.scalar(select(func.count()).select_from(Price)) == 3
         assert session.scalar(select(func.count()).select_from(MacroSeries)) == 1
         aaa_meta = session.get(InstrumentMeta, {"ticker": "AAA", "as_of": pd.Timestamp("2024-01-03").date()})
         assert aaa_meta is not None
         assert aaa_meta.avg_dollar_volume == 16000.0
-

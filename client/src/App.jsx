@@ -16,7 +16,6 @@ import LearnView from './components/learn/LearnView'
 import PageTransition from './components/visual/PageTransition'
 import TopoBackground from './components/visual/TopoBackground'
 import { TourProvider } from './components/tour/TourProvider'
-import { DUMMY_USER, DUMMY_ONBOARD_RESULT } from './data/dummyProfile'
 import { getProfile, getActiveOnboarding } from './api/greenlightClient'
 
 const PAGES_WITH_CONTENT = ['dashboard', 'greenlight', 'learn', 'profile', 'risk', 'alerts', 'settings']
@@ -318,7 +317,6 @@ export default function App() {
           setUser(u)
         }}
         onDevSkip={() => {
-          // Developer shortcut: bypass login + onboarding, land in the app with demo data
           setTopoPhase('exit')
           setLoadingProfile(false)
           setResumeSession(null)

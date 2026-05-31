@@ -4,9 +4,16 @@ EF_MONTHS = 3
 HIGH_APR = 0.08
 LOW_APR = 0.05
 LTCG_RATE = 0.15
+ORDINARY_TO_LTCG_RATE = ((0.12, 0.00), (0.35, 0.15), (1.00, 0.20))
+ORDINARY_LOSS_OFFSET_CAP = 3000.0
+MFS_ORDINARY_LOSS_OFFSET_CAP = 1500.0
 EXPECTED_MARKET_RETURN = 0.07
 GAMMA_MIN = 1.5
 GAMMA_MAX = 8.0
+# Momentum-vol tilt uses trailing 12-1 month return by default.
+TILT_LOOKBACK_MONTHS = 12
+# Cross-sectional signal multiplier for gamma-modulated risky-bucket tilt.
+TILT_LAMBDA = 0.5
 GL_MEAN = 28.27
 GL_SD = 4.94
 GL_ALPHA = 0.77

@@ -52,6 +52,91 @@
 
 ---
 
+## 1a. Re-audit delta — 2026-05-31 (post-merge into `main`)
+
+Re-verified by two read-only Codex re-auditors after merging recent work (`2ade255 Hybrid elicitation`, `9460314 Editable settings`, `ethan2`). **The in-flight backtest / Monte-Carlo agent has NOT landed in this repo** — zero commits to `engine/backtest` or `engine/montecarlo`, working tree clean — so all engine MC/backtest gaps (`G-02`, `G-23`, `G-24`, `G-25`) and the other engine gaps (`G-03`, `G-04`) are **unchanged**.
+
+**Closed / improved**
+- ✅ **Elicitation MVP constraint (01 §3.1) — CLOSED.** Intake is now a server-driven hybrid question order via `backend/llm/instrument.py` (`SCRIPT`: `income_stability`, GL1–GL13, loss-scenario, Dohmen, loss-aversion, goal, prefs). Order is driven by `step_from_messages` selecting `SCRIPT[step]` (`instrument.py:184,203`) + an injected turn-control block (`elicitation.py:386`); GL item order pinned + tested (`test_instrument.py:60`). *(Caveat: stateless turn-count control, not content-aware completion.)*
+- 🟡 **G-07 improved → still PARTIAL.** Exact GL1–GL13 order now pinned in code (`instrument.py:23`, presented "VERBATIM" `instrument.py:224`), but the **13–47 scoring-range mismatch remains** (schema allows 1–4 ×13 = max 52 at `backend/models.py:110,141`).
+
+**Still open**
+- ❌ **G-01 — STILL OPEN (top priority).** `greenlightClient.js` was edited (added `getActiveOnboarding`, address in `register`) but **`postProjection` / `postRebalance` / `postTaxReport` are still absent and `postPortfolio` still posts a raw `profile` body** (`greenlightClient.js:137,141`). MC fan chart / rebalance / tax panels still cannot reach the engine; consumers still guard against the missing wrappers (`Dashboard.jsx:225`, `RebalancePanel.jsx:355`).
+- ❌ **G-05** (validity firewall still not enforced before `profile_ready` — `elicitation.py:440` emits straight from `function_call_args`; range/length checks only later at `/onboard`), **G-06** (raw `RiskSignals` contract still not modeled), **G-09** (engine builds the re-ask note at `fusion.py:87` but the chat stream never re-asks — `v1.py:1604`) — **unchanged**.
+- ❌ **G-02, G-04, G-23, G-24, G-25** — unchanged (no commits in those areas).
+- ✅ **G-03 — CLOSED (this session, `ethan3`).** Bracket-aware tax + gate math implemented: new `engine/tax/rates.py` (ordinary→LTCG map, loss-offset caps), `bracket` threaded through `tax_report`/`evaluate_gate`/`_debt_math` and the API (`/tax/report`, `/onboard`, gate). Adversarial Codex test pass surfaced + fixed a real bug (`TaxReportRequest.bracket` was missing `le=1`, accepting `1.01`) and added engine-boundary hardening (clamp + NaN→None). Engine 69 / backend 57 green; regression tests added.
+
+**Mitigated (not closed as written)**
+- 🟡 **G-38.** `SettingsView` still ignores `onboardResult` (`SettingsView.jsx:49` destructures only `user`/handlers), but a **new editable `ProfileView`** consumes `validated_profile ?? profile` and saves via `postUpdateProfile` (`ProfileView.jsx:45,451`) — the product need (edit the validated profile) is now met on a different screen. Settings became editable for account fields.
+- 🟡 **G-36.** `PortfolioView` now attempts a live `postPortfolio` fetch when `onboardResult.portfolio` is absent (`PortfolioView.jsx:231`), but the hardcoded `GLIDEPATH` (`PortfolioView.jsx:28`) and estimated-metric fallback (`engineData.js:245`) remain.
+
+**New undocumented additions (decide: document in specs or remove)**
+- `backend/llm/instrument.py` — hybrid-elicitation `SCRIPT` controller (`ScriptItem`/`SCRIPT` at `instrument.py:7`).
+- **Advisor account tools** — `get_account_summary`, `get_my_settings`, `get_my_profile_inputs` (`advisor.py:125`, impls `explain_tools.py:245,264,313`, tested `test_account_tools.py:56`). Expands function-tool explainability; **`G-31` (MCP) still open** — still Gemini function-tools, not MCP.
+- New endpoint `GET /api/v1/users/{email}/active-onboarding` + client `getActiveOnboarding`.
+- New editable `ProfileView` (tag/dropdown controls) saving via `postUpdateProfile`; address capture in signup.
+- LLM model pinned to `gemini-3.5-flash` (`elicitation.py:31`, `advisor.py:31`) — config, not in specs.
+
+> **Net:** of the two in-flight agents, the **chat-intake agent's guided-order work is merged and closes the 01 §3.1 intake constraint**; the **backtest/MC agent's work is not in this repo yet**. The single highest-impact gap (`G-01`) is **still open** — the frontend remains unable to call the live Projection/Rebalance/Tax endpoints despite `greenlightClient.js` being touched.
+
+---
+
+## 1b. Post-merge re-audit — HEAD `0ba5ca0` (supersedes earlier statuses)
+
+After the `ethan` merge (DB universe seed, bucket allocation, `tilt.py`, BL/CVaR, JNLC) + the `G-01` SDK wiring + `G-03`. Re-verified read-only by Codex against current HEAD. **Owner** = the in-flight workstream that will close it (ModuleA–G engine remediation, or CHAT = the elicitation-convergence agent); **UNOWNED** = needs separate work.
+
+**✅ Now CLOSED:** `G-01` (SDK wrappers + `{profile,method}` body), `G-03` (bracket-aware tax+gate), `G-36` (live portfolio fetch; hardcoded GLIDEPATH gone). Plus the 01 §3.1 guided-intake constraint (§1a).
+
+**Owned by in-flight agents (tracked, not actionable by us):**
+
+| Gap | Status | Owner | Note |
+|---|---|---|---|
+| G-02 | PARTIAL | ModuleB | backtest improved (ragged/SPY); **API still drops CAGR/DSR/drawdown/`naive_mvo`** |
+| G-04 | PARTIAL | ModuleA | pref/theme filters exist; bundled universe ETF-only so `stock` pref can't yield stock-only |
+| G-05 | OPEN | CHAT | `profile_ready` still emits raw fn-args before server GL firewall |
+| G-06 | OPEN | CHAT | raw auditable `RiskSignals` contract still unmodeled |
+| G-07 | PARTIAL | CHAT | GL order pinned; scoring still 13×(1–4)=52 max vs spec 13–47 |
+| G-09 | OPEN | CHAT | engine requests clarification; chat doesn't re-administer conflicting items |
+| G-17/D-1 | PARTIAL | ModuleC1 | custom NumPy vs riskfolio/sklearn/cvxpy commitment |
+| G-18 | OPEN | ModuleC2 | glide still ignores `horizon` |
+| G-19 | PARTIAL | ModuleC2 | optimizer consumes only `target_vol_band.mid` |
+| G-20/D-5 | PARTIAL | ModuleG | BL/CVaR backend live; full-sleeve replacement, no frontend toggle |
+| G-21 | PARTIAL | ModuleD | `tilt.py` wired; signal still rewards positive raw-vol z-score |
+| G-25 | PARTIAL | ModuleB | DSR uses static trial count; no experiment log |
+
+**❌ REMAINS UNOWNED (actionable backlog):**
+
+| Gap | Status | Note |
+|---|---|---|
+| G-08 | OPEN | signal variances hardcoded; missing loss-probe defaults to 100.0 (`v1.py:137`) |
+| G-10 | OPEN | capacity formula deviates from 02 §3.1 |
+| G-11/D-6 | OPEN | `tolerance_score` is raw GL sum, not normalized 0–100 |
+| G-12/D-4 | PARTIAL | standalone §6 routes absent (capability under `/api/v1/*`) — doc reconcile |
+| G-13 | PARTIAL | `path_to_greenlight` exists; no conversion-event state machine |
+| G-14 | PARTIAL | no cached/offline LLM fallback (demo-safety) |
+| G-15 | PARTIAL | `/config` exposes only gate+market, not GL/γ/SR_REF/capacity weights |
+| G-16 | OPEN | loss-aversion not applied as a downstream optimizer shade |
+| G-22 | OPEN | no min-var/max-div ERC ensemble |
+| G-23 | OPEN | bootstrap fixed `BLOCK_L=12`; no Politis-White auto length |
+| G-24 | OPEN | API randomizes first no-seed projection |
+| G-26/D-3 | PARTIAL | risk-free is FRED `DGS3MO` vs documented `^IRX` — doc reconcile |
+| G-27 | OPEN | no generic event/audit-history table |
+| G-28 | OPEN | execution endpoints force `monthly_surplus=0.0` (DCA bypassed) |
+| G-29 | PARTIAL | Alpaca broker best-effort fills; no lifecycle reconciliation |
+| G-30 | PARTIAL | JNLC service landed but **no API route** wires it |
+| G-31/D-2 | PARTIAL | explainability is Gemini function-tools; no MCP server (chosen: **re-document**) |
+| G-32 | OPEN | auth returns `mock-token-*`; routes unprotected |
+| G-33 | OPEN | no `/sim/fast-forward` (or live quarterly trigger) |
+| G-35 | PARTIAL | backend returns checks; UI keeps hardcoded fallback gate cards |
+| G-37 | OPEN | `AlertsView` reads `gate.path_to_greenlight`; backend path under `financial_analysis` |
+| G-38 | PARTIAL | `SettingsView` ignores `onboardResult` (mitigated by editable `ProfileView`) |
+
+### Our pick from the remainder — **Portfolio maintenance: quarterly rebalance + elevate-to-active** ✅ LANDED (commit `88bfbf8`)
+
+Highest pitch value: makes the README's "**then maintains it automatically**" claim real and demoable, and delivers the *execution/automation* half (advances `G-28`/`G-33` and the 01 §6 event-driven reallocation). Shipped: `POST /api/v1/maintenance/rebalance` with `trigger=quarterly` (guarded live data refresh, 20s timeout→cached fallback → drift-band `decide_rebalance` → execute if past 5pp band) and `trigger=reprofile` (merge profile patch → re-optimize → full transition via new `engine/rebalance/rebalancer.rebalance_to_target` → execute), both elevating the new portfolio to active through the simulator (Alpaca behind `BROKER_PROVIDER`). Engine 81 / backend 67 green. Remaining for full `G-33`: a live scheduler and/or `/sim/fast-forward`; frontend "Run quarterly rebalance" trigger is a teammate-lane follow-on.
+
+---
+
 ## 2. Cross-cutting verdict by spec principle
 
 The README names six non-negotiable commitments. Status of each:

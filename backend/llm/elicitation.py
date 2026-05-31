@@ -212,7 +212,16 @@ WHAT TO ELICIT IN THE CHAT — only what the form could not capture:
 
 10. INVESTMENT PREFERENCES
    • ETF-only, individual stocks, or a mix
-   • Any sectors/industries to exclude for ethical reasons (e.g. fossil fuels, weapons, tobacco)
+   • Any industries or areas they want to avoid. Ask this as one focused,
+     conversational question, for example: "Are there any industries or areas
+     you'd rather avoid in your portfolio, such as oil & gas / fossil fuels,
+     defense / weapons, tobacco, or gambling?"
+     Record only these canonical esg_exclusions values:
+       fossil_fuels, weapons, tobacco, gambling
+     Map synonyms naturally: oil, gas, coal, oil & gas, and fossil fuels →
+     fossil_fuels; defense, military contractors, arms, and weapons → weapons.
+     If they say no, none, no preference, or that they do not care, record
+     empty exclusions: [].
    • Any sectors they want to tilt toward
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -243,7 +252,8 @@ WHEN TO CALL submit_profile
 Call submit_profile when you have ALL of:
   household_income, monthly_expenses, capital_on_hand, emergency_fund,
   age, horizon_years, filing_status, all 13 GL item scores,
-  loss_scenario_response, dohmen_risk, loss_aversion_probe, income_stability.
+  loss_scenario_response, dohmen_risk, loss_aversion_probe, income_stability,
+  and esg_exclusions (including [] for no preference).
 
 Before calling, send a brief message: "I have everything I need — let me pass this to
 the analysis engine now."
@@ -365,7 +375,19 @@ def _build_submit_profile_tool() -> Any:
                         ),
                         # Preferences
                         "universe_pref": types.Schema(type="STRING", enum=["etf", "stock", "mix"]),
-                        "esg_exclusions": types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
+                        "esg_exclusions": types.Schema(
+                            type="ARRAY",
+                            items=types.Schema(
+                                type="STRING",
+                                enum=["fossil_fuels", "weapons", "tobacco", "gambling"],
+                            ),
+                            description=(
+                                "Canonical industries the user wants excluded; use an empty "
+                                "list for no preference. Map oil, gas, coal, oil & gas, and "
+                                "fossil fuels to fossil_fuels; map defense, military "
+                                "contractors, arms, and weapons to weapons."
+                            ),
+                        ),
                         "sector_theme_tilts": types.Schema(type="ARRAY", items=types.Schema(type="STRING")),
                         # LLM metadata
                         "confidence": types.Schema(type="OBJECT", description="Per-field confidence 0-1"),
@@ -380,7 +402,7 @@ def _build_submit_profile_tool() -> Any:
                         "emergency_fund", "debts", "age", "horizon_years",
                         "filing_status", "risk_instrument_responses",
                         "loss_scenario_response", "dohmen_risk",
-                        "loss_aversion_probe", "income_stability",
+                        "loss_aversion_probe", "income_stability", "esg_exclusions",
                     ],
                 ),
             )

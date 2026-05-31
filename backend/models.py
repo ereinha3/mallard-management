@@ -112,6 +112,7 @@ class UserProfileInput(BaseModel):
         "married_separate",
         "head_of_household",
     ]
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
     # ── Risk tolerance signals (Grable-Lytton instrument) ────────────────────
     risk_instrument_responses: List[int] = Field(
@@ -309,28 +310,51 @@ class OptimizerInput(BaseModel):
 
 # ── Canonical engine finance endpoint models ─────────────────────────────────
 
-Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits"]
+# Mirrors engine/schemas/models.py Sleeve (Wave-0 contract for the Sharpe-audit
+# remediation). Only `cash_like` is the CAL risk-free leg; other fixed-income
+# sleeves are capped risky diversifiers. `bonds`/`tips` kept for back-compat.
+Sleeve = Literal[
+    "us_equity", "intl_equity", "gold", "reits", "real_assets",
+    "bonds", "tips",
+    "cash_like", "core_bonds", "credit", "duration_hedge", "inflation",
+]
 
 
 class ExcludedTicker(BaseModel):
     ticker: str
     reason: str
+    replacement: Optional[str] = None
 
 
 class Universe(BaseModel):
     tickers: List[str]
     sleeves: Dict[Sleeve, List[str]]
+    buckets: Dict[str, List[str]] = Field(default_factory=dict)
     risky_sleeves: List[Sleeve]
     safe_sleeves: List[Sleeve]
+    risky_buckets: List[str] = Field(default_factory=list)
+    safe_buckets: List[str] = Field(default_factory=list)
     market_weights: Dict[Sleeve, float]
+    bucket_market_weights: Dict[str, float] = Field(default_factory=dict)
     excluded: List[ExcludedTicker] = Field(default_factory=list)
 
 
 class TargetWeights(BaseModel):
     by_ticker: Dict[str, float]
     by_sleeve: Dict[Sleeve, float]
+    by_bucket: Dict[str, float] = Field(default_factory=dict)
     blend_alpha: float = Field(ge=0, le=1)
     method: Literal["erc", "black_litterman", "cvar"]
+
+
+class PortfolioETF(BaseModel):
+    ticker: str
+    name: str
+    sleeve: Sleeve
+    bucket: str
+    weight: float = Field(ge=0)
+    replacement_for: Optional[str] = None
+    exclusion_reason: Optional[str] = None
 
 
 class FundingDepositRequest(BaseModel):
@@ -370,6 +394,7 @@ class BrokerageACHRelationshipOut(BaseModel):
 
 class BrokerageDepositRequest(BaseModel):
     user_email: str
+    relationship_id: str
     amount: float = Field(gt=0)
 
 
@@ -419,7 +444,7 @@ class FillOut(BaseModel):
 class RiskMetrics(BaseModel):
     expected_vol: float = Field(ge=0)
     expected_shortfall_95: float = Field(ge=0)
-    risk_contributions: Dict[Sleeve, float]
+    risk_contributions: Dict[str, float]
 
 
 class PortfolioRequest(BaseModel):
@@ -431,6 +456,7 @@ class PortfolioResponse(BaseModel):
     universe: Universe
     weights: TargetWeights
     metrics: RiskMetrics
+    etfs: List[PortfolioETF] = Field(default_factory=list)
 
 
 class BacktestRequest(BaseModel):
@@ -514,6 +540,7 @@ class PortfolioAnalyzeWeightsRequest(BaseModel):
 class AnalyzedWeights(BaseModel):
     by_ticker: Dict[str, float]
     by_sleeve: Dict[Sleeve, float]
+    by_bucket: Dict[str, float] = Field(default_factory=dict)
 
 
 class PortfolioWeightsValidation(BaseModel):
@@ -623,6 +650,8 @@ class HarvestableLoss(BaseModel):
     ticker: str
     unrealized_loss: float = Field(ge=0)
     note: str
+    estimated_tax_value: Optional[float] = Field(default=None, ge=0)
+    tax_rate_used: Optional[float] = Field(default=None, ge=0)
 
 
 class WashSaleWarning(BaseModel):
@@ -646,7 +675,7 @@ class TaxReportRequest(BaseModel):
         "married_separate",
         "head_of_household",
     ]
-    bracket: Optional[float] = Field(default=None, ge=0)
+    bracket: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 # ── Financial analysis ────────────────────────────────────────────────────────
@@ -743,3 +772,25 @@ class OnboardResponse(BaseModel):
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
     tax_breakdown: Optional[TaxBreakdown] = None
     bucket_plan: Optional[BucketPlan] = None
+
+
+class MaintenanceRebalanceRequest(BaseModel):
+    user_email: str
+    trigger: Literal["quarterly", "reprofile"]
+    profile_patch: Optional[Dict[str, Any]] = None
+    fresh_data: bool = True
+    execute: bool = True
+
+
+class MaintenanceRebalanceResponse(BaseModel):
+    trigger: Literal["quarterly", "reprofile"]
+    data_source: Literal["skipped", "live", "cached"]
+    status: Literal["greenlight", "halt", "needs_clarification", "no_profile"]
+    action: Literal["none", "steer", "trade"]
+    drifts: Optional[Dict[Sleeve, Drift]] = None
+    trades: List[RebalanceTrade] = Field(default_factory=list)
+    fills: List[FillOut] = Field(default_factory=list)
+    positions: Optional[Positions] = None
+    portfolio: Optional[PortfolioResponse] = None
+    gate_result: Optional[GateResult] = None
+    clarification_requests: List[ClarificationRequest] = Field(default_factory=list)

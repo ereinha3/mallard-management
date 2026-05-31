@@ -1,9 +1,8 @@
-// Drop this file into client/src/hooks/useFinancialProfile.js
 import { useState, useEffect, useCallback } from "react";
-import { fetchFinancialProfile } from "../api/mallardClient";
+import { postOnboard } from "../api/greenlightClient";
 
 /**
- * Hook that fetches the full financial profile from Gilbert's backend.
+ * Hook that runs the full Greenlight profile pipeline.
  *
  * Usage in Dashboard.jsx:
  *   const { data, loading, error, refresh } = useFinancialProfile(userProfile);
@@ -22,7 +21,7 @@ export function useFinancialProfile(profileInput) {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchFinancialProfile(profileInput);
+      const result = await postOnboard(profileInput);
       setData(result);
     } catch (err) {
       setError(err.message ?? "Failed to load financial profile");

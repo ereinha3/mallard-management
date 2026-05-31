@@ -61,7 +61,13 @@ def test_run_backtest_writes_contract_json(tmp_path):
         "sixty_forty",
         "target_date",
         "naive_mvo",
+        "spy",
     }
+    # The SPY benchmark must share the exact date grid of the strategy so the
+    # equity curves overlay cleanly on the chart.
+    erc_dates = [point.date for point in result.strategies["greenlight_erc"].equity_curve]
+    spy_dates = [point.date for point in result.strategies["spy"].equity_curve]
+    assert spy_dates == erc_dates
     for strategy in result.strategies.values():
         assert strategy.equity_curve
         assert len(strategy.equity_curve) == len(strategy.drawdown_curve)
@@ -84,7 +90,7 @@ def test_run_backtest_report_returns_api_shape_and_benchmark_curves(tmp_path):
     assert report["equity_curve"]
     assert {"date", "value"} <= set(report["equity_curve"][0])
 
-    assert set(report["benchmarks"]) == {"one_over_n", "sixty_forty", "target_date"}
+    assert set(report["benchmarks"]) == {"one_over_n", "sixty_forty", "target_date", "spy"}
     for benchmark in report["benchmarks"].values():
         assert benchmark["equity_curve"]
         assert set(benchmark["metrics"]) == {

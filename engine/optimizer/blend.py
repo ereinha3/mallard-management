@@ -9,9 +9,16 @@ import numpy as np
 import pandas as pd
 
 from data.loaders import load_prices
-from schemas.constants import GLIDE_BASE_AGE, GLIDE_FLOOR
+from schemas.constants import (
+    GAMMA_MAX,
+    GLIDE_BASE_AGE,
+    GLIDE_FLOOR,
+    TILT_LAMBDA,
+    TILT_LOOKBACK_MONTHS,
+)
 from schemas.models import TargetWeights
 from optimizer.erc import cov_ledoit_wolf, erc_weights
+from optimizer.tilt import momentum_vol_tilt
 
 
 def solve_blend_alpha(
@@ -70,6 +77,18 @@ def _target_vol_mid(risk_profile: Any) -> float:
     return float(_get_attr_or_key(target_vol_band, "mid"))
 
 
+def _gamma_mid(risk_profile: Any) -> float:
+    """Risk-tolerance gamma used to scale the momentum/vol tilt.
+
+    GAMMA_MAX (most conservative) disables the tilt; lower gamma tilts more.
+    """
+
+    gamma_band = _get_attr_or_key(risk_profile, "gamma_band")
+    if gamma_band is None:
+        return GAMMA_MAX
+    return float(_get_attr_or_key(gamma_band, "mid", GAMMA_MAX))
+
+
 def _ticker_returns(prices: Any | None) -> pd.DataFrame:
     if prices is None:
         prices = load_prices()
@@ -87,17 +106,67 @@ def _ticker_returns(prices: Any | None) -> pd.DataFrame:
     return wide.astype(float).pct_change().dropna(how="all")
 
 
-def _sleeve_returns(universe: Any, prices: Any | None) -> pd.DataFrame:
+def _bucket_to_sleeve(universe: Any) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    sleeves = getattr(universe, "sleeves", {})
+    for bucket, bucket_tickers in getattr(universe, "buckets", {}).items():
+        bucket_set = set(bucket_tickers)
+        for sleeve, sleeve_tickers in sleeves.items():
+            if bucket_set.intersection(set(sleeve_tickers)):
+                mapping[str(bucket)] = str(sleeve)
+                break
+    return mapping
+
+
+def _group_returns(
+    universe: Any,
+    prices: Any | None,
+    groups: Mapping[str, list[str]],
+    *,
+    allow_sleeve_fallback: bool = False,
+) -> pd.DataFrame:
     ticker_returns = _ticker_returns(prices)
-    sleeve_matrix = pd.DataFrame(index=ticker_returns.index)
+    matrix = pd.DataFrame(index=ticker_returns.index)
+    sleeve_matrix: dict[str, pd.Series] = {}
+    if allow_sleeve_fallback:
+        for sleeve, tickers in getattr(universe, "sleeves", {}).items():
+            available = [ticker for ticker in tickers if ticker in ticker_returns.columns]
+            if available:
+                sleeve_matrix[str(sleeve)] = ticker_returns[available].mean(axis=1)
+    bucket_sleeves = _bucket_to_sleeve(universe) if allow_sleeve_fallback else {}
 
-    for sleeve, tickers in universe.sleeves.items():
+    for group, tickers in groups.items():
         available = [ticker for ticker in tickers if ticker in ticker_returns.columns]
-        if not available:
-            raise KeyError(f"No cached prices available for sleeve {sleeve!r}")
-        sleeve_matrix[sleeve] = ticker_returns[available].mean(axis=1)
+        if available:
+            matrix[group] = ticker_returns[available].mean(axis=1)
+            continue
+        fallback = sleeve_matrix.get(bucket_sleeves.get(str(group), ""))
+        if fallback is None:
+            # No priced tickers for this group in the given window (e.g. a fund
+            # that had not yet listed in a historical backtest window). Skip it
+            # rather than failing; callers filter risky/safe buckets to the
+            # groups actually present.
+            continue
+        matrix[group] = fallback
 
-    return sleeve_matrix.dropna(how="any")
+    return matrix.dropna(how="any")
+
+
+def _sleeve_returns(universe: Any, prices: Any | None) -> pd.DataFrame:
+    return _group_returns(universe, prices, universe.sleeves)
+
+
+def _bucket_returns(universe: Any, prices: Any | None) -> pd.DataFrame:
+    buckets = getattr(universe, "buckets", None)
+    if not buckets:
+        return _sleeve_returns(universe, prices)
+    return _group_returns(universe, prices, buckets, allow_sleeve_fallback=True)
+
+
+def bucket_return_matrix(universe: Any, prices: Any | None = None) -> pd.DataFrame:
+    """Return the bucket-level return matrix used by the ERC blend."""
+
+    return _bucket_returns(universe, prices)
 
 
 def _normalized(weights: Mapping[str, float]) -> dict[str, float]:
@@ -107,13 +176,30 @@ def _normalized(weights: Mapping[str, float]) -> dict[str, float]:
     return {key: float(value / total) for key, value in weights.items()}
 
 
+def _safe_bucket_weights(universe: Any) -> dict[str, float]:
+    safe_buckets = list(getattr(universe, "safe_buckets", []) or [])
+    if not safe_buckets:
+        return {
+            str(sleeve): weight
+            for sleeve, weight in _safe_sleeve_weights(universe).items()
+        }
+    bucket_market_weights = getattr(universe, "bucket_market_weights", {})
+    weights = {
+        str(bucket): float(bucket_market_weights.get(bucket, 0.0))
+        for bucket in safe_buckets
+    }
+    if sum(weights.values()) <= 0:
+        weights = {str(bucket): 1.0 for bucket in safe_buckets}
+    return _normalized(weights)
+
+
 def _safe_sleeve_weights(universe: Any) -> dict[str, float]:
     weights = {
-        sleeve: float(universe.market_weights.get(sleeve, 0.0))
+        str(sleeve): float(universe.market_weights.get(sleeve, 0.0))
         for sleeve in universe.safe_sleeves
     }
     if sum(weights.values()) <= 0:
-        weights = {sleeve: 1.0 for sleeve in universe.safe_sleeves}
+        weights = {str(sleeve): 1.0 for sleeve in universe.safe_sleeves}
     return _normalized(weights)
 
 
@@ -127,12 +213,12 @@ def _periods_per_year(index: Any) -> float:
 
 
 def _portfolio_vols_and_corr(
-    sleeve_matrix: pd.DataFrame,
+    return_matrix: pd.DataFrame,
     risky_weights: Mapping[str, float],
     safe_weights: Mapping[str, float],
 ) -> tuple[float, float, float]:
-    risky = sleeve_matrix[list(risky_weights)].dot(pd.Series(risky_weights, dtype=float))
-    safe = sleeve_matrix[list(safe_weights)].dot(pd.Series(safe_weights, dtype=float))
+    risky = return_matrix[list(risky_weights)].dot(pd.Series(risky_weights, dtype=float))
+    safe = return_matrix[list(safe_weights)].dot(pd.Series(safe_weights, dtype=float))
     portfolios = pd.DataFrame({"risky": risky, "safe": safe}).dropna(how="any")
     cov = cov_ledoit_wolf(portfolios) * _periods_per_year(portfolios.index)
 
@@ -149,12 +235,36 @@ def _portfolio_vols_and_corr(
 def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> TargetWeights:
     """Build TargetWeights per docs/greenlight/05 §2.6 and §4."""
 
-    sleeve_matrix = _sleeve_returns(universe, prices)
-    risky_matrix = sleeve_matrix[list(universe.risky_sleeves)]
+    bucket_matrix = _bucket_returns(universe, prices)
+    risky_buckets = [
+        str(bucket)
+        for bucket in getattr(universe, "risky_buckets", getattr(universe, "risky_sleeves", []))
+        if str(bucket) in bucket_matrix.columns
+    ]
+    if not risky_buckets:
+        raise ValueError("Universe must include at least one risky bucket.")
+    risky_matrix = bucket_matrix[risky_buckets]
     risky_weights = erc_weights(risky_matrix)
-    safe_weights = _safe_sleeve_weights(universe)
+    # Gamma-modulated momentum/volatility tilt over the risky buckets: aggressive
+    # profiles rotate toward higher-momentum/higher-vol buckets (scaling down
+    # low-vol gold); the most conservative profile leaves ERC weights unchanged.
+    risky_weights = momentum_vol_tilt(
+        risky_weights,
+        risky_matrix,
+        _gamma_mid(risk_profile),
+        lookback_months=TILT_LOOKBACK_MONTHS,
+        lam=TILT_LAMBDA,
+    )
+    safe_weights = {
+        bucket: weight
+        for bucket, weight in _safe_bucket_weights(universe).items()
+        if bucket in bucket_matrix.columns
+    }
+    if not safe_weights:
+        raise ValueError("Universe must include at least one safe bucket.")
+    safe_weights = _normalized(safe_weights)
     sigma_risky, sigma_safe, rho = _portfolio_vols_and_corr(
-        sleeve_matrix,
+        bucket_matrix,
         risky_weights,
         safe_weights,
     )
@@ -175,17 +285,24 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
     )
     alpha_final = alpha_star * glide_factor(age=age, horizon=horizon)
 
-    by_sleeve: dict[str, float] = {}
-    for sleeve, weight in risky_weights.items():
-        by_sleeve[sleeve] = alpha_final * weight
-    for sleeve, weight in safe_weights.items():
-        by_sleeve[sleeve] = (1.0 - alpha_final) * weight
+    by_bucket: dict[str, float] = {}
+    for bucket, weight in risky_weights.items():
+        by_bucket[bucket] = alpha_final * weight
+    for bucket, weight in safe_weights.items():
+        by_bucket[bucket] = (1.0 - alpha_final) * weight
+    by_bucket = _normalized(by_bucket)
+
+    bucket_sleeves = _bucket_to_sleeve(universe)
+    by_sleeve: dict[str, float] = {str(sleeve): 0.0 for sleeve in universe.sleeves}
+    for bucket, bucket_weight in by_bucket.items():
+        sleeve = bucket_sleeves.get(str(bucket), str(bucket))
+        by_sleeve[sleeve] = by_sleeve.get(sleeve, 0.0) + bucket_weight
     by_sleeve = _normalized(by_sleeve)
 
     by_ticker: dict[str, float] = {}
-    for sleeve, sleeve_weight in by_sleeve.items():
-        tickers = list(universe.sleeves[sleeve])
-        ticker_weight = sleeve_weight / len(tickers)
+    for bucket, bucket_weight in by_bucket.items():
+        tickers = list(universe.buckets[bucket])
+        ticker_weight = bucket_weight / len(tickers)
         for ticker in tickers:
             by_ticker[ticker] = by_ticker.get(ticker, 0.0) + ticker_weight
     by_ticker = _normalized(by_ticker)
@@ -193,6 +310,7 @@ def build_target_weights(risk_profile: Any, universe: Any, prices: Any) -> Targe
     return TargetWeights(
         by_ticker=by_ticker,
         by_sleeve=by_sleeve,
+        by_bucket=by_bucket,
         blend_alpha=float(alpha_final),
         method="erc",
     )

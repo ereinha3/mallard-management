@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Feather, CheckCircle, Send, AlertTriangle, FastForward } from 'lucide-react'
+import { Feather, CheckCircle, Send, AlertTriangle } from 'lucide-react'
 import { streamChat, postOnboard } from '../api/greenlightClient'
-import { DUMMY_ONBOARD_RESULT } from '../data/dummyProfile'
 import IntakeForm from './greenlight/IntakeForm.jsx'
 
 // ── Building / analysis screen ────────────────────────────────────────────────
@@ -81,7 +80,7 @@ function BuildingScreen({ onboardResult }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)' }}>
             <span>Analysis</span>
-            <span>{Math.round(progress)}%</span>
+            <span>{phase === 'done' ? 'Complete' : 'Running'}</span>
           </div>
         </div>
 
@@ -460,26 +459,6 @@ export default function OnboardingChat({ user, taxProfile, onComplete, resumeSes
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
-            {/* Dev-only: skip onboarding and load demo data */}
-            <button
-              type="button"
-              onClick={() => onComplete(DUMMY_ONBOARD_RESULT)}
-              title="Developer shortcut: skip the chat and load demo data"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 11px', borderRadius: 8, cursor: 'pointer',
-                background: 'var(--green-soft, rgba(26,107,66,0.12))',
-                border: '1px solid var(--green, var(--emerald))',
-                color: 'var(--green-bright, var(--emerald))',
-                fontSize: 11.5, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace',
-                letterSpacing: '0.04em', transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--green, var(--emerald))'; e.currentTarget.style.color = '#fff' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--green-soft, rgba(26,107,66,0.12))'; e.currentTarget.style.color = 'var(--green-bright, var(--emerald))' }}
-            >
-              <FastForward size={13} />
-              DEV: SKIP
-            </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: isStreaming ? 'var(--gold-light)' : 'var(--emerald)', transition: 'background 0.3s', animation: isStreaming ? 'pulse 1.2s ease-in-out infinite' : 'none' }} />
               <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
