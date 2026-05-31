@@ -1,6 +1,6 @@
 from data.loaders import load_prices
 from pytest import approx
-from rebalance.rebalancer import decide_rebalance
+from rebalance.rebalancer import decide_rebalance, rebalance_to_target
 from schemas.models import Positions, TargetWeights
 
 
@@ -67,3 +67,29 @@ def test_rebalance_trades_minimal_correction_when_band_breached():
     assert decision.trades[0].ticker == "VTI"
     assert decision.trades[0].side == "sell"
     assert decision.trades[0].shares == approx(60.0 / _latest_price("VTI"))
+
+
+def test_rebalance_to_target_fully_realigns_single_ticker_position():
+    positions = _positions({"VTI": 1000.0})
+    weights = _target(vti=0.2, bnd=0.5, tip=0.3)
+    prices = {ticker: _latest_price(ticker) for ticker in ("VTI", "BND", "TIP")}
+
+    trades = rebalance_to_target(positions, weights, prices)
+
+    assert [trade.side for trade in trades] == ["sell", "buy", "buy"]
+    assert trades[0].ticker == "VTI"
+    dollars = {"VTI": 1000.0, "BND": 0.0, "TIP": 0.0}
+    cash = 0.0
+    for trade in trades:
+        trade_value = trade.shares * prices[trade.ticker]
+        if trade.side == "sell":
+            dollars[trade.ticker] -= trade_value
+            cash += trade_value
+        else:
+            dollars[trade.ticker] += trade_value
+            cash -= trade_value
+
+    assert dollars["VTI"] == approx(200.0)
+    assert dollars["BND"] == approx(500.0)
+    assert dollars["TIP"] == approx(300.0)
+    assert cash == approx(0.0)
