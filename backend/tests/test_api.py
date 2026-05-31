@@ -113,6 +113,88 @@ def _register(client: TestClient, email: str, password: str = "correct-horse") -
     return response.json()
 
 
+def _stub_tax_calculator(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime
+
+    from taxplanning.models import (
+        FederalTaxInfo,
+        LocalTaxInfo,
+        StateTaxInfo,
+        TaxBracket,
+        TaxBreakdown,
+        TaxRateBundle,
+    )
+
+    class StubTaxCalculator:
+        async def calculate(
+            self,
+            gross_income,
+            filing_status,
+            zip_code,
+            pretax_401k=0.0,
+            pretax_ira=0.0,
+            pretax_hsa=0.0,
+            tax_year=2025,
+            state_code=None,
+        ):
+            pretax = float(pretax_401k or 0.0) + float(pretax_ira or 0.0) + float(pretax_hsa or 0.0)
+            agi = max(0.0, float(gross_income or 0.0) - pretax)
+            federal = agi * 0.12
+            state = agi * 0.05
+            fica_social_security = min(float(gross_income or 0.0), 176100.0) * 0.062
+            fica_medicare = float(gross_income or 0.0) * 0.0145
+            total = federal + state + fica_social_security + fica_medicare
+            return TaxBreakdown(
+                gross_income=float(gross_income or 0.0),
+                pretax_deductions=pretax,
+                agi=agi,
+                federal_income_tax=federal,
+                state_income_tax=state,
+                local_tax=0.0,
+                fica_social_security=fica_social_security,
+                fica_medicare=fica_medicare,
+                additional_medicare=0.0,
+                total_tax=total,
+                effective_tax_rate=total / float(gross_income or 1.0),
+                net_income=float(gross_income or 0.0) - total - pretax,
+                tax_rate_bundle=TaxRateBundle(
+                    federal=FederalTaxInfo(
+                        year=tax_year,
+                        filing_status=filing_status,
+                        brackets=[TaxBracket(rate=0.12, min_income=0, max_income=50000), TaxBracket(rate=0.22, min_income=50000, max_income=None)],
+                        standard_deduction=0.0,
+                        fica_social_security_rate=0.062,
+                        fica_social_security_wage_base=176100.0,
+                        fica_medicare_rate=0.0145,
+                        additional_medicare_rate=0.009,
+                        additional_medicare_threshold=200000.0,
+                    ),
+                    state=StateTaxInfo(
+                        year=tax_year,
+                        state_code=state_code or "CA",
+                        filing_status=filing_status,
+                        brackets=[TaxBracket(rate=0.05, min_income=0, max_income=None)],
+                        standard_deduction=0.0,
+                        has_flat_rate=True,
+                        flat_rate=0.05,
+                        no_income_tax=False,
+                    ),
+                    local=LocalTaxInfo(
+                        zip_code=zip_code or "",
+                        city="",
+                        county="",
+                        state_code=state_code or "CA",
+                        local_tax_rate=0.0,
+                        notes="test stub",
+                    ),
+                    retrieved_at=datetime.utcnow(),
+                    tax_year=tax_year,
+                ),
+            )
+
+    monkeypatch.setattr(api_v1, "TaxCalculator", StubTaxCalculator)
+
+
 def test_register_then_login_returns_mock_token(test_app: FastAPI):
     client = _client(test_app)
     body = _register(client, "auth-login@example.com")
@@ -339,6 +421,43 @@ def test_profile_get_backfills_missing_debt_payoff_plan(test_app: FastAPI):
     assert plan["upfront_cash_applied"] is not None
 
 
+def test_profile_get_backfills_missing_tax_planning(test_app: FastAPI, monkeypatch: pytest.MonkeyPatch):
+    _stub_tax_calculator(monkeypatch)
+    client = _client(test_app)
+    email = "profile-tax-backfill@example.com"
+    _register(client, email)
+    payload = {
+        **_persona("persona_greenlight.json"),
+        "zip_code": "94105",
+        "state": "CA",
+        "pretax_401k": 6000,
+    }
+
+    onboard_response = client.post(f"/api/v1/onboard?user_email={email}", json=payload)
+    assert onboard_response.status_code == 200
+
+    with SessionLocal() as db:
+        profile = db.query(Profile).filter(Profile.user_email == email).one()
+        result = profile.get_result()
+        result["tax_breakdown"] = None
+        result["bucket_plan"] = None
+        profile.onboard_result = json.dumps(result)
+        db.commit()
+
+    profile_response = client.get(f"/api/v1/profile/{email}")
+
+    assert profile_response.status_code == 200
+    body = profile_response.json()
+    assert body["tax_breakdown"]["gross_income"] == payload["household_income"]
+    assert body["tax_breakdown"]["state_income_tax"] > 0
+    assert body["bucket_plan"]["buckets"]
+
+    with SessionLocal() as db:
+        saved = db.query(Profile).filter(Profile.user_email == email).one().get_result()
+    assert saved["tax_breakdown"]["gross_income"] == payload["household_income"]
+    assert saved["bucket_plan"]["buckets"]
+
+
 def test_portfolio_save_persists_edited_weights(test_app: FastAPI):
     client = _client(test_app)
     email = "portfolio-save@example.com"
@@ -412,6 +531,32 @@ def test_profile_update_persists_input_and_reweights_portfolio(test_app: FastAPI
     record_response = client.get(f"/api/v1/users/{email}/record")
     assert record_response.status_code == 200
     assert record_response.json()["profile_input"]["esg_exclusions"] == []
+
+
+def test_profile_update_refreshes_tax_planning(test_app: FastAPI, monkeypatch: pytest.MonkeyPatch):
+    _stub_tax_calculator(monkeypatch)
+    client = _client(test_app)
+    email = "profile-update-tax@example.com"
+    _register(client, email)
+    payload = {
+        **_persona("persona_greenlight.json"),
+        "zip_code": "94105",
+        "state": "CA",
+    }
+
+    onboard_response = client.post(f"/api/v1/onboard?user_email={email}", json=payload)
+    assert onboard_response.status_code == 200
+
+    update_response = client.post(
+        f"/api/v1/profile/update?user_email={email}",
+        json={"profile_patch": {"pretax_401k": 12000}},
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["tax_breakdown"]["pretax_deductions"] == 12000
+    assert updated["tax_breakdown"]["net_income"] < updated["tax_breakdown"]["gross_income"]
+    assert updated["bucket_plan"]["buckets"]
 
 
 def test_onboard_halt_persona_returns_emergency_fund_math(test_app: FastAPI):
