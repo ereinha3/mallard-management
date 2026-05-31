@@ -8,6 +8,13 @@ const FIELDS = [
   { name: 'liquidCapital', label: 'Liquid capital / savings', type: 'currency', placeholder: '45,000' },
   { name: 'emergencyFund', label: 'Emergency fund balance', type: 'currency', placeholder: '20,000' },
   { name: 'age', label: 'Age', type: 'number', placeholder: '38' },
+  {
+    name: 'filing_status',
+    label: 'Tax filing status',
+    type: 'select',
+    options: ['Single', 'Married filing jointly', 'Married filing separately', 'Head of household'],
+  },
+  { name: 'dependents', label: 'Financial dependents', type: 'number', placeholder: '0', min: 0, max: 20 },
 ]
 
 const EMPLOYMENT_FIELDS = [
@@ -41,6 +48,14 @@ function parsePositiveNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function parseBoundedInteger(value, min, max) {
+  const cleaned = String(value).replace(/,/g, '').trim()
+  if (!cleaned) return null
+
+  const parsed = Number(cleaned)
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : null
+}
+
 export default function IntakeForm({ onSubmit }) {
   const [step, setStep] = useState(1)
   const [financialData, setFinancialData] = useState(null)
@@ -50,6 +65,8 @@ export default function IntakeForm({ onSubmit }) {
     liquidCapital: '',
     emergencyFund: '',
     age: '',
+    filing_status: '',
+    dependents: '',
   })
   const [employmentValues, setEmploymentValues] = useState({
     employerCompany: '',
@@ -78,6 +95,26 @@ export default function IntakeForm({ onSubmit }) {
     const parsedValues = {}
 
     FIELDS.forEach(field => {
+      if (field.type === 'select') {
+        const value = values[field.name].trim()
+        if (!value) {
+          nextErrors[field.name] = 'This field is required.'
+        } else {
+          parsedValues[field.name] = value
+        }
+        return
+      }
+
+      if (field.name === 'dependents') {
+        const parsed = parseBoundedInteger(values[field.name], field.min, field.max)
+        if (parsed === null) {
+          nextErrors[field.name] = `Enter a whole number from ${field.min} to ${field.max}.`
+        } else {
+          parsedValues[field.name] = parsed
+        }
+        return
+      }
+
       const parsed = parsePositiveNumber(values[field.name])
       if (parsed === null) {
         nextErrors[field.name] = 'Enter a positive number.'
@@ -163,66 +200,90 @@ export default function IntakeForm({ onSubmit }) {
           <div style={{ display: 'grid', gap: 18 }}>
             {FIELDS.map(field => {
               const hasError = Boolean(errors[field.name])
+              const sharedControlStyle = {
+                width: '100%',
+                height: 48,
+                boxSizing: 'border-box',
+                background: '#FFF9EC',
+                border: `1px solid ${hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'}`,
+                borderRadius: 12,
+                color: '#2B261B',
+                fontSize: 16,
+                fontFamily: 'DM Sans, sans-serif',
+                outline: 'none',
+                padding: field.type === 'currency' ? '0 15px 0 34px' : '0 15px',
+                transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
+              }
+              const focusControl = event => {
+                event.target.style.borderColor = GOLD
+                event.target.style.boxShadow = '0 0 0 3px rgba(201,168,76,0.22)'
+                event.target.style.background = '#FFFFFF'
+              }
+              const blurControl = event => {
+                event.target.style.borderColor = hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'
+                event.target.style.boxShadow = 'none'
+                event.target.style.background = '#FFF9EC'
+              }
 
               return (
                 <label key={field.name} style={{ display: 'grid', gap: 7 }}>
                   <span style={{ color: '#3B3425', fontSize: 13, fontWeight: 700 }}>
                     {field.label}
                   </span>
-                  <div style={{ position: 'relative' }}>
-                    {field.type === 'currency' && (
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: 'absolute',
-                          left: 15,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          color: '#8A7B5B',
-                          fontSize: 15,
-                          fontWeight: 700,
-                        }}
-                      >
-                        $
-                      </span>
-                    )}
-                    <input
+                  {field.type === 'select' ? (
+                    <select
                       value={values[field.name]}
                       onChange={event => handleChange(field.name, event.target.value)}
-                      type="number"
-                      inputMode={field.type === 'currency' ? 'decimal' : 'numeric'}
-                      min="0"
-                      step={field.type === 'currency' ? '0.01' : '1'}
                       required
                       aria-invalid={hasError}
                       aria-describedby={hasError ? `${field.name}-error` : undefined}
-                      placeholder={field.placeholder}
-                      style={{
-                        width: '100%',
-                        height: 48,
-                        boxSizing: 'border-box',
-                        background: '#FFF9EC',
-                        border: `1px solid ${hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'}`,
-                        borderRadius: 12,
-                        color: '#2B261B',
-                        fontSize: 16,
-                        fontFamily: 'DM Sans, sans-serif',
-                        outline: 'none',
-                        padding: field.type === 'currency' ? '0 15px 0 34px' : '0 15px',
-                        transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
-                      }}
-                      onFocus={event => {
-                        event.target.style.borderColor = GOLD
-                        event.target.style.boxShadow = '0 0 0 3px rgba(201,168,76,0.22)'
-                        event.target.style.background = '#FFFFFF'
-                      }}
-                      onBlur={event => {
-                        event.target.style.borderColor = hasError ? '#B94545' : 'rgba(89, 73, 35, 0.22)'
-                        event.target.style.boxShadow = 'none'
-                        event.target.style.background = '#FFF9EC'
-                      }}
-                    />
-                  </div>
+                      style={sharedControlStyle}
+                      onFocus={focusControl}
+                      onBlur={blurControl}
+                    >
+                      <option value="">Select one</option>
+                      {field.options.map(option => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ position: 'relative' }}>
+                      {field.type === 'currency' && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            left: 15,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: '#8A7B5B',
+                            fontSize: 15,
+                            fontWeight: 700,
+                          }}
+                        >
+                          $
+                        </span>
+                      )}
+                      <input
+                        value={values[field.name]}
+                        onChange={event => handleChange(field.name, event.target.value)}
+                        type="number"
+                        inputMode={field.type === 'currency' ? 'decimal' : 'numeric'}
+                        min={field.min ?? 0}
+                        max={field.max}
+                        step={field.type === 'currency' ? '0.01' : '1'}
+                        required
+                        aria-invalid={hasError}
+                        aria-describedby={hasError ? `${field.name}-error` : undefined}
+                        placeholder={field.placeholder}
+                        style={sharedControlStyle}
+                        onFocus={focusControl}
+                        onBlur={blurControl}
+                      />
+                    </div>
+                  )}
                   {hasError && (
                     <span id={`${field.name}-error`} style={{ color: '#B94545', fontSize: 12 }}>
                       {errors[field.name]}
