@@ -24,7 +24,20 @@ except ImportError:
     types = None
 
 from models import ChatMessage
+from persistence import (
+    get_session,
+    get_session_elicitation_state,
+    set_session_elicitation_state,
+)
 from llm.instrument import next_directive, step_from_messages
+from llm.interview_state import (
+    collected_scores,
+    current,
+    initial_state,
+    is_complete,
+    record_and_advance,
+)
+from llm.scoring import assemble_profile, render_question, score_answer
 
 # ── Gemini model ──────────────────────────────────────────────────────────────
 
@@ -460,6 +473,99 @@ async def stream_elicitation(
     def _produce() -> None:
         try:
             for event in _stream_sync(messages):
+                loop.call_soon_threadsafe(q.put_nowait, event)
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                q.put_nowait, {"type": "error", "content": str(exc)}
+            )
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, None)  # sentinel
+
+    threading.Thread(target=_produce, daemon=True).start()
+
+    while True:
+        event = await q.get()
+        if event is None:
+            break
+        yield event
+
+
+def _message_role_content(message: Any) -> tuple[str, str]:
+    if isinstance(message, dict):
+        role = message.get("role", "user")
+        content = message.get("content", "")
+    else:
+        role = getattr(message, "role", "user")
+        content = getattr(message, "content", "")
+    return str(role or "user"), str(content or "")
+
+
+def _has_prior_assistant_message(messages: list[ChatMessage]) -> bool:
+    return any(_message_role_content(message)[0] == "assistant" for message in messages[:-1])
+
+
+def _stream_interview_sync(
+    messages: list[ChatMessage],
+    session_id: str | None,
+) -> Generator[dict, None, None]:
+    db = get_session()
+    try:
+        state = get_session_elicitation_state(db, session_id) or initial_state()
+        if messages:
+            last_role, last_content = _message_role_content(messages[-1])
+            item = current(state)
+            if item is not None and last_role == "user" and _has_prior_assistant_message(messages):
+                try:
+                    score = score_answer(item, last_content, messages)
+                except Exception as exc:
+                    yield {"type": "error", "content": str(exc)}
+                    return
+                state = record_and_advance(state, score)
+
+        set_session_elicitation_state(db, session_id, state)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        yield {"type": "error", "content": str(exc)}
+        return
+    finally:
+        db.close()
+
+    if is_complete(state):
+        try:
+            profile = assemble_profile(messages, collected_scores(state))
+        except Exception as exc:
+            yield {"type": "error", "content": str(exc)}
+            return
+        yield {"type": "profile_ready", "profile": profile}
+        return
+
+    item = current(state)
+    if item is None:
+        yield {"type": "error", "content": "Interview state is invalid."}
+        return
+
+    try:
+        for chunk in render_question(item, messages):
+            yield {"type": "token", "content": chunk}
+    except Exception as exc:
+        yield {"type": "error", "content": str(exc)}
+
+
+async def stream_interview(
+    messages: list[ChatMessage],
+    session_id: str | None = None,
+) -> AsyncGenerator[dict, None]:
+    """
+    Async generator for the score-gated onboarding interview.
+    Uses the same thread/queue bridge as the legacy Gemini elicitation stream.
+    """
+    loop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def _produce() -> None:
+        try:
+            for event in _stream_interview_sync(messages, session_id):
                 loop.call_soon_threadsafe(q.put_nowait, event)
         except Exception as exc:
             loop.call_soon_threadsafe(

@@ -60,6 +60,7 @@ class ChatSession(Base):
     kind: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     extracted_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
+    elicitation_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -142,6 +143,14 @@ def _ensure_additive_columns(db_engine: Engine) -> None:
         if "alpaca_account_id" not in columns:
             connection.exec_driver_sql(
                 "ALTER TABLE investment_accounts ADD COLUMN alpaca_account_id VARCHAR"
+            )
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(chat_sessions)")
+        }
+        if "elicitation_state" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE chat_sessions ADD COLUMN elicitation_state TEXT"
             )
 
 
@@ -338,6 +347,29 @@ def set_alpaca_account_id(db: Session, email: str, account_id: str) -> Investmen
     account = get_or_create_investment_account(db, email)
     account.alpaca_account_id = account_id
     return account
+
+
+def get_session_elicitation_state(db: Session, session_id: str | None) -> dict[str, Any] | None:
+    if not session_id:
+        return None
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or not chat_session.elicitation_state:
+        return None
+    return json.loads(chat_session.elicitation_state)
+
+
+def set_session_elicitation_state(
+    db: Session,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> ChatSession | None:
+    if not session_id:
+        return None
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if chat_session:
+        chat_session.elicitation_state = json.dumps(state)
+        chat_session.updated_at = datetime.utcnow()
+    return chat_session
 
 
 init_db()
