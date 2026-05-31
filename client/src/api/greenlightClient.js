@@ -1,4 +1,13 @@
-const BASE = import.meta.env.VITE_GREENLIGHT_URL ?? 'http://localhost:8000'
+// Default the API base to the SAME host the frontend was served from, on port
+// 8000. This makes out-of-band access work automatically: open the app at
+// localhost:5173 -> calls localhost:8000; open it at a Tailscale/LAN IP -> calls
+// that same IP:8000 (instead of a hardcoded "localhost" that would resolve to
+// the viewer's own machine). Override explicitly with VITE_GREENLIGHT_URL.
+const BASE =
+  import.meta.env.VITE_GREENLIGHT_URL ??
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : 'http://localhost:8000')
 
 /**
  * AUTH ENDPOINTS

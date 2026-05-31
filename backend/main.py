@@ -31,11 +31,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    # Accept any localhost / 127.0.0.1 origin on ANY port (Vite may land on
-    # 5173, 5174, … and the browser may use either host alias). This kills the
-    # "Failed to fetch" CORS-preflight rejection class in local dev.
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_credentials=True,
+    # Allow ANY origin (localhost, LAN, Tailscale IP, etc.). The client uses no
+    # cookies — the auth token lives in JS and the email is in the URL — so we
+    # don't need credentialed CORS, which lets us use the "*" wildcard and stop
+    # maintaining a host/port allow-list. Appropriate for this demo/dev app.
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
