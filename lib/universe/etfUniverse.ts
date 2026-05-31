@@ -15,7 +15,8 @@ export interface EtfEntry {
   name: string;
   totalAssets: number | null;
   expenseRatio: number | null;
-  category: string | null;
+  category: string | null;           // Yahoo Finance category
+  sampleBucket: string | null;       // our bucket id (null = top-AUM set)
   exchange: string | null;
   inTopAum: boolean;
 }
@@ -24,7 +25,8 @@ export interface EtfUniverse {
   builtAt: string;
   totalCount: number;
   topAumCount: number;
-  randomSampleCount: number;
+  diversifiedSampleCount: number;
+  bucketBreakdown: Record<string, number>;  // bucket id → count
   etfs: EtfEntry[];
 }
 
@@ -65,9 +67,14 @@ export function getTopAumEtfs(): EtfEntry[] {
   return load().etfs.filter((e) => e.inTopAum);
 }
 
-/** Random sample only */
-export function getRandomSampleEtfs(): EtfEntry[] {
+/** Diversified sample only (non-top-AUM ETFs, spread across category buckets) */
+export function getDiversifiedSampleEtfs(): EtfEntry[] {
   return load().etfs.filter((e) => !e.inTopAum);
+}
+
+/** Get all ETFs in a specific sample bucket (e.g. "us_sector", "thematic") */
+export function getEtfsByBucket(bucketId: string): EtfEntry[] {
+  return load().etfs.filter((e) => e.sampleBucket === bucketId);
 }
 
 /** Lookup a single ETF by ticker */

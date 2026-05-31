@@ -4,12 +4,18 @@
  * Returns the cached ETF universe. Supports query params for filtering.
  *
  * Query params:
- *   ?set=top        — only top 500 by AUM
- *   ?set=random     — only random sample
- *   ?set=all        — all ETFs (default)
- *   ?category=bond  — filter by category substring (case-insensitive)
- *   ?ticker=VTI     — lookup single ETF
- *   ?meta=true      — return only metadata (counts + builtAt), no ETF list
+ *   ?set=top           — only top 500 by AUM
+ *   ?set=diversified   — only the diversified category-balanced sample
+ *   ?set=all           — all ETFs (default)
+ *   ?bucket=us_sector  — filter by sample bucket id (see SAMPLE_BUCKETS in build script)
+ *   ?category=bond     — filter by Yahoo Finance category substring (case-insensitive)
+ *   ?ticker=VTI        — lookup single ETF
+ *   ?meta=true         — return only metadata (counts, bucketBreakdown, builtAt)
+ *
+ * Sample bucket ids:
+ *   us_equity_large | us_equity_small_mid | us_sector | intl_developed |
+ *   intl_emerging   | bonds_core          | bonds_hiy_intl | factor_smart_beta |
+ *   thematic        | leveraged_inverse   | commodities | esg | income_multiasset
  */
 
 import type { NextApiRequest, NextApiResponse } from "next";
@@ -17,10 +23,10 @@ import { setCORSHeaders } from "../../../lib/api/cors";
 import {
   getEtfUniverse,
   getTopAumEtfs,
-  getRandomSampleEtfs,
+  getDiversifiedSampleEtfs,
   getAllEtfs,
   getEtfByTicker,
-  getEtfsByCategory,
+  getEtfsByBucket,
   getUniverseMeta,
 } from "../../../lib/universe/etfUniverse";
 
@@ -32,7 +38,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { set, category, ticker, meta } = req.query as Record<string, string>;
+    const { set, bucket, category, ticker, meta } = req.query as Record<string, string>;
 
     // Metadata only
     if (meta === "true") {
@@ -46,33 +52,43 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json(etf);
     }
 
+    // Filter by sample bucket (overrides set)
+    if (bucket) {
+      const etfs = getEtfsByBucket(bucket);
+      return res.status(200).json({
+        builtAt: getUniverseMeta().builtAt,
+        bucket,
+        count: etfs.length,
+        etfs,
+      });
+    }
+
     // Get base set
     let etfs = set === "top"
       ? getTopAumEtfs()
-      : set === "random"
-        ? getRandomSampleEtfs()
+      : set === "diversified"
+        ? getDiversifiedSampleEtfs()
         : getAllEtfs();
 
-    // Category filter
+    // Optional Yahoo-category filter
     if (category) {
       const lower = category.toLowerCase();
       etfs = etfs.filter((e) => e.category?.toLowerCase().includes(lower));
     }
 
-    const universe = set === "all" || !set ? getEtfUniverse() : null;
-
+    const meta_ = getUniverseMeta();
     return res.status(200).json({
-      builtAt: universe?.builtAt ?? getUniverseMeta().builtAt,
+      builtAt: meta_.builtAt,
       count: etfs.length,
+      ...((!set || set === "all") && { bucketBreakdown: meta_.bucketBreakdown }),
       etfs,
     });
   } catch (err: any) {
-    // Universe not built yet
     if (err.message?.includes("not built yet")) {
       return res.status(503).json({
         error: "ETF universe not available",
         message: err.message,
-        fix: "Run: npx ts-node scripts/buildEtfUniverse.ts",
+        fix: "Run: npx ts-node --project tsconfig.json scripts/buildEtfUniverse.ts",
       });
     }
     return res.status(500).json({ error: "Internal server error", message: err.message });
