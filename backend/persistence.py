@@ -337,6 +337,40 @@ class FundingTransaction(Base):
     )
 
 
+class Event(Base):
+    """Lightweight audit trail row for key user-visible events."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment="Audit event row identifier.",
+    )
+    user_email: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        index=True,
+        comment="User email associated with the event when available.",
+    )
+    type: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        comment="Stable event type identifier.",
+    )
+    payload: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Optional JSON-encoded event metadata.",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        comment="UTC time when the event was created.",
+    )
+
+
 def _db_url() -> str:
     return os.environ.get("MALLARD_DB_URL", DEFAULT_DB_URL)
 
@@ -461,6 +495,34 @@ def get_user(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 
+def log_event(
+    db: Session,
+    event_type: str,
+    user_email: str | None = None,
+    payload: dict | None = None,
+) -> Event:
+    payload_json = None
+    if payload is not None:
+        try:
+            payload_json = json.dumps(payload)
+        except (TypeError, ValueError):
+            payload_json = None
+
+    event = Event(user_email=user_email, type=event_type, payload=payload_json)
+    db.add(event)
+    return event
+
+
+def list_events(db: Session, email: str, limit: int = 100) -> list[Event]:
+    return (
+        db.query(Event)
+        .filter(Event.user_email == email)
+        .order_by(Event.created_at.desc(), Event.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 def create_user(
     db: Session,
     email: str,
@@ -479,6 +541,10 @@ def create_user(
         hashed_password=pw_hash,
     )
     db.add(user)
+    try:
+        log_event(db, "user_registered", email)
+    except Exception:
+        pass
     return user
 
 
@@ -523,20 +589,29 @@ def _extract_gate_status(result_json: str | None) -> str | None:
 
 
 def upsert_profile(db: Session, email: str, input_json: str, result_json: str) -> Profile:
+    gate_status = _extract_gate_status(result_json)
     profile = db.query(Profile).filter(Profile.user_email == email).first()
     if profile:
         profile.input_data = input_json
         profile.onboard_result = result_json
-        profile.gate_status = _extract_gate_status(result_json)
+        profile.gate_status = gate_status
+        try:
+            log_event(db, "onboard_completed", email, {"gate_status": gate_status})
+        except Exception:
+            pass
         return profile
 
     profile = Profile(
         user_email=email,
         input_data=input_json,
         onboard_result=result_json,
-        gate_status=_extract_gate_status(result_json),
+        gate_status=gate_status,
     )
     db.add(profile)
+    try:
+        log_event(db, "onboard_completed", email, {"gate_status": gate_status})
+    except Exception:
+        pass
     return profile
 
 
@@ -642,8 +717,19 @@ def set_session_status(db: Session, session_id: str, status: str) -> ChatSession
     """Transition a session's lifecycle status (e.g. 'active' -> 'complete')."""
     chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if chat_session:
+        previous_status = chat_session.status
         chat_session.status = status
         chat_session.updated_at = datetime.utcnow()
+        if previous_status != "complete" and status == "complete":
+            try:
+                log_event(
+                    db,
+                    "chat_session_complete",
+                    chat_session.user_email,
+                    {"session_id": chat_session.id},
+                )
+            except Exception:
+                pass
     return chat_session
 
 
@@ -672,6 +758,10 @@ def add_mock_deposit(db: Session, email: str, amount: float) -> FundingTransacti
     )
     db.add(transaction)
     account.cash_available += float(amount)
+    try:
+        log_event(db, "funds_deposited", email, {"amount": amount})
+    except Exception:
+        pass
     return transaction
 
 
