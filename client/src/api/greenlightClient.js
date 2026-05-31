@@ -134,11 +134,11 @@ export async function postOnboard(profile, userEmail = null, sessionId = null) {
 /**
  * POST /api/v1/portfolio — build a portfolio from a profile.
  */
-export async function postPortfolio(profile) {
+export async function postPortfolio(profile, method = 'erc') {
   const res = await fetch(`${BASE}/api/v1/portfolio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile }),
+    body: JSON.stringify({ profile, method }),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
@@ -148,31 +148,13 @@ export async function postPortfolio(profile) {
 }
 
 /**
- * POST /api/v1/projection — run Monte Carlo projection for target weights.
+ * POST /api/v1/projection — run a portfolio projection.
  */
-export async function postProjection({
-  weights,
-  horizon_years,
-  monthly_contribution,
-  capital_on_hand,
-  goal_target,
-  generator = 'stationary_bootstrap',
-  seed = null,
-  n_paths = 10000,
-}) {
+export async function postProjection(payload) {
   const res = await fetch(`${BASE}/api/v1/projection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      weights,
-      horizon_years,
-      monthly_contribution,
-      capital_on_hand,
-      goal_target,
-      generator,
-      ...(seed == null ? {} : { seed }),
-      n_paths,
-    }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
@@ -182,13 +164,13 @@ export async function postProjection({
 }
 
 /**
- * POST /api/v1/rebalance — compare current positions to target weights.
+ * POST /api/v1/rebalance — generate a rebalance recommendation.
  */
-export async function postRebalance({ positions, weights }) {
+export async function postRebalance(payload) {
   const res = await fetch(`${BASE}/api/v1/rebalance`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ positions, weights }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
@@ -198,18 +180,13 @@ export async function postRebalance({ positions, weights }) {
 }
 
 /**
- * POST /api/v1/tax/report — read-only tax-loss harvesting report.
+ * POST /api/v1/tax/report — generate a tax report.
  */
-export async function postTaxReport({ positions, cost_basis, filing_status, bracket = null }) {
+export async function postTaxReport(payload) {
   const res = await fetch(`${BASE}/api/v1/tax/report`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      positions,
-      cost_basis,
-      filing_status,
-      ...(bracket == null ? {} : { bracket }),
-    }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)

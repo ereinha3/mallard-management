@@ -74,8 +74,10 @@ def test_required_instrument_items_are_present() -> None:
 def test_required_soft_items_are_present() -> None:
     items_by_key = {item.key: item for item in SCRIPT}
 
-    for key in ("income_stability", "goal_target", "preferences"):
+    for key in ("goals_horizon", "debts", "goal_target", "preferences"):
         assert items_by_key[key].kind == "soft"
+    # income/job data comes from the intake form, not the chat
+    assert "income_stability" not in items_by_key
 
 
 def test_next_directive_after_script_is_none() -> None:
@@ -83,7 +85,8 @@ def test_next_directive_after_script_is_none() -> None:
 
 
 def test_next_directive_for_gl_item_contains_verbatim() -> None:
-    directive = next_directive(1)
+    gl_index = next(i for i, item in enumerate(SCRIPT) if item.kind == "instrument")
+    directive = next_directive(gl_index)
 
     assert directive is not None
     assert "VERBATIM" in directive

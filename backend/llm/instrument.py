@@ -13,11 +13,21 @@ class ScriptItem:
 
 SCRIPT: list[ScriptItem] = [
     ScriptItem(
-        key="income_stability",
+        key="goals_horizon",
         kind="soft",
         text=(
-            "classify income stability (bond_like / mixed / stock_like) by asking "
-            "about job/employment situation; do not show those labels to the user."
+            "their primary financial goal(s) and the number of years until they "
+            "need the money (their investment time horizon)"
+        ),
+    ),
+    ScriptItem(
+        key="debts",
+        kind="soft",
+        text=(
+            "any outstanding debts — for each, the balance, APR, and type "
+            "(credit_card / student / mortgage / auto / personal / other). "
+            "This drives the responsibility gate, so it matters. The intake form "
+            "did not capture debts."
         ),
     ),
     ScriptItem(
