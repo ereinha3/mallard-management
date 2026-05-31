@@ -220,6 +220,33 @@ export default function AccountsTab({ onboardResult, embedded = false }) {
     })
   }
 
+  const nonLiquidVal = numberOrNull(profileValue('non_liquid_savings'))
+  const homeVal = numberOrNull(profileValue('home_value'))
+
+  const assetsCovered = new Set(
+    (profile.assets && typeof profile.assets === 'object')
+      ? Object.keys(profile.assets).map(k => k.toLowerCase())
+      : []
+  )
+
+  if (nonLiquidVal != null && nonLiquidVal > 0 && !assetsCovered.has('taxable_brokerage') && !assetsCovered.has('non_liquid_savings')) {
+    assets.push({ label: 'Stocks & Brokerage', balance: nonLiquidVal, type: 'brokerage', subtitle: 'Validated profile', key: 'non_liquid_savings' })
+  }
+
+  if (homeVal != null && homeVal > 0 && !assetsCovered.has('primary_home') && !assetsCovered.has('home')) {
+    assets.push({
+      label: 'Primary Home',
+      balance: homeVal,
+      type: 'home',
+      subtitle: 'Validated profile',
+      key: 'home_value',
+      details: [
+        { label: 'Address', value: homeAddress },
+        { label: 'Home value', value: formatCurrency(homeVal) },
+      ],
+    })
+  }
+
   const displayAssets = assets.filter(asset => asset.balance != null && asset.balance > 0)
   const liabilities = debts
     .map((debt, index) => {
