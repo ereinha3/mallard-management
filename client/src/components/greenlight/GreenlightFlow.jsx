@@ -14,8 +14,6 @@ const STEPS = {
   REBALANCE:  'rebalance',
 }
 
-const stepOrder = [STEPS.INTAKE, STEPS.GATE_HALT, STEPS.GATE_GREEN, STEPS.PORTFOLIO, STEPS.REBALANCE]
-
 function StepIndicator({ step }) {
   const labels = ['Intake', 'Gate', 'Portfolio', 'Rebalance']
   const activeIdx =
@@ -66,9 +64,14 @@ function StepIndicator({ step }) {
   )
 }
 
-export default function GreenlightFlow() {
-  const [step, setStep] = useState(STEPS.INTAKE)
-  const [gateResult, setGateResult] = useState(null)
+export default function GreenlightFlow({ onboardResult }) {
+  const initialStatus = onboardResult?.gate_result?.status
+  const [step, setStep] = useState(
+    initialStatus === 'greenlight' ? STEPS.GATE_GREEN
+    : initialStatus ? STEPS.GATE_HALT
+    : STEPS.INTAKE
+  )
+  const [gateResult, setGateResult] = useState(onboardResult ?? null)
 
   function handleIntakeComplete(result) {
     setGateResult(result)
@@ -104,7 +107,7 @@ export default function GreenlightFlow() {
             <div>
               <span
                 className="font-display font-semibold text-base"
-                style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
+                style={{ color: 'var(--text-primary)', letterSpacing: 0 }}
               >
                 Greenlight
               </span>

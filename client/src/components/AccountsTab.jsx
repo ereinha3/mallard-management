@@ -1,0 +1,278 @@
+import { useState } from 'react'
+import {
+  Building, Briefcase, Home, TrendingUp, PiggyBank, Car,
+  CreditCard, Plus, ExternalLink, ShieldCheck, Lock, ArrowRight, X
+} from 'lucide-react'
+import { formatCurrency, formatPercent } from '../lib/utils'
+
+const ASSET_ICONS = {
+  retirement: { icon: Briefcase, color: '#ddb84a', bg: 'rgba(221, 184, 74, 0.1)' },
+  home:       { icon: Home,      color: '#4a72e8', bg: 'rgba(74, 114, 232, 0.1)' },
+  brokerage:  { icon: TrendingUp,color: '#1eb87a', bg: 'rgba(30, 184, 122, 0.1)' },
+  savings:    { icon: PiggyBank, color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)' },
+  vehicle:    { icon: Car,       color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)' },
+  other:      { icon: Building,  color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)' },
+}
+
+const LIABILITY_ICONS = {
+  mortgage:     { icon: Building,  color: '#4a72e8', bg: 'rgba(74, 114, 232, 0.1)' },
+  auto:         { icon: Car,       color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)' },
+  student_loan: { icon: Briefcase, color: '#e64545', bg: 'rgba(230, 69, 69, 0.1)' },
+  credit_card:  { icon: CreditCard,color: '#e64545', bg: 'rgba(230, 69, 69, 0.1)' },
+  other:        { icon: CreditCard,color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)' },
+}
+
+function numberOrNull(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function titleize(value) {
+  return String(value || 'Other').replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
+function assetTypeFor(key) {
+  if (key.includes('401') || key.includes('ira') || key.includes('retirement')) return 'retirement'
+  if (key.includes('home') || key.includes('real_estate')) return 'home'
+  if (key.includes('brokerage')) return 'brokerage'
+  if (key.includes('vehicle') || key.includes('auto')) return 'vehicle'
+  if (key.includes('cash') || key.includes('savings')) return 'savings'
+  return 'other'
+}
+
+function AccountCard({ account, isLiability }) {
+  const [open, setOpen] = useState(false)
+  const config = isLiability
+    ? (LIABILITY_ICONS[account.type] || LIABILITY_ICONS.other)
+    : (ASSET_ICONS[account.type] || ASSET_ICONS.other)
+  const Icon = config.icon
+
+  return (
+    <div className="card-premium p-5 transition-all hover:border-gold-light group">
+      <button type="button" className="w-full flex items-center gap-4 text-left" onClick={() => setOpen(!open)}>
+        <div
+          className="flex items-center justify-center rounded-xl shrink-0"
+          style={{ width: 48, height: 48, background: config.bg, color: config.color }}
+        >
+          <Icon size={22} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-primary truncate group-hover:text-gold-light transition-colors">
+              {account.label}
+            </div>
+            <div className={`text-lg font-mono font-semibold ${isLiability ? 'text-ruby' : 'text-emerald'}`}>
+              {formatCurrency(account.balance, true)}
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-0.5">
+            <div className="text-xs text-muted truncate">
+              {account.subtitle}
+            </div>
+            <div className="flex items-center gap-1 text-gold-light">
+              <span className="text-[10px] font-bold uppercase tracking-widest">Details</span>
+              <ArrowRight size={10} style={{ transform: open ? 'rotate(90deg)' : 'none' }} />
+            </div>
+          </div>
+        </div>
+      </button>
+
+      {open && (
+        <div className="mt-4 pt-4 grid grid-cols-1 gap-2 text-xs" style={{ borderTop: '1px solid var(--border)' }}>
+          {isLiability ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-muted">APR</span>
+                <span className="font-mono text-primary">{account.apr != null ? formatPercent(account.apr * 100) : 'Not provided'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Monthly interest cost</span>
+                <span className="font-mono text-primary">{account.monthly_interest_cost != null ? formatCurrency(account.monthly_interest_cost) : 'Not provided'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Months to payoff</span>
+                <span className="font-mono text-primary">{account.months_to_payoff != null ? account.months_to_payoff : 'Not provided'}</span>
+              </div>
+            </>
+          ) : (
+            <div className="text-muted">
+              Source: onboarded profile field {account.sourceField}.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LinkModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
+      <div className="card-premium p-6 max-w-md w-full mx-4 bg-surface">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div className="font-display font-semibold text-xl text-primary">Plaid connection pending</div>
+            <div className="text-xs text-muted mt-1">Live account linking is not connected in this build.</div>
+          </div>
+          <button type="button" onClick={onClose} className="p-1 rounded-md hover:bg-bg-elevated text-muted">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="text-sm text-secondary leading-relaxed">
+          The accounts shown here come only from your onboarding profile and analysis. Once Plaid is wired, this button can launch the secure account-link flow and replace manually entered balances with live account data.
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 px-4 py-2 bg-gold text-bg-base rounded-lg text-sm font-bold hover:bg-gold-bright transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function AccountsTab({ onboardResult }) {
+  const [showLinkModal, setShowLinkModal] = useState(false)
+  const profile = onboardResult?.validated_profile ?? onboardResult?.profile ?? {}
+  const debts = onboardResult?.financial_analysis?.debt?.debts || profile.debts || []
+
+  const assets = [
+    { label: 'Liquid Cash', balance: numberOrNull(profile.capital_on_hand), type: 'savings', subtitle: 'Validated profile', sourceField: 'validated_profile.capital_on_hand' },
+    { label: 'Emergency Fund', balance: numberOrNull(profile.emergency_fund), type: 'savings', subtitle: 'Validated profile', sourceField: 'validated_profile.emergency_fund' },
+  ]
+
+  if (profile.assets && typeof profile.assets === 'object') {
+    Object.entries(profile.assets).forEach(([key, value]) => {
+      assets.push({
+        label: titleize(key),
+        balance: numberOrNull(value),
+        type: assetTypeFor(key),
+        subtitle: 'Validated profile',
+        sourceField: `validated_profile.assets.${key}`,
+      })
+    })
+  }
+
+  const displayAssets = assets.filter(asset => asset.balance != null && asset.balance > 0)
+  const liabilities = debts
+    .map((debt, index) => {
+      const balance = numberOrNull(debt.balance)
+      if (balance == null || balance <= 0) return null
+      const kind = debt.kind ?? debt.type ?? 'other'
+      return {
+        label: titleize(kind),
+        balance,
+        type: kind,
+        subtitle: debt.apr != null ? `${formatPercent(Number(debt.apr) * 100)} APR` : 'Debt from profile',
+        apr: numberOrNull(debt.apr),
+        monthly_interest_cost: numberOrNull(debt.monthly_interest_cost),
+        months_to_payoff: numberOrNull(debt.months_to_payoff),
+        key: `${kind}-${index}`,
+      }
+    })
+    .filter(Boolean)
+
+  return (
+    <div className="flex flex-col h-full bg-base overflow-y-auto">
+      <div className="px-8 py-6 border-b border-border bg-surface sticky top-0 z-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display font-semibold text-2xl text-primary leading-none">Accounts</h1>
+            <p className="text-xs text-muted mt-2 tracking-wide uppercase font-semibold">
+              {displayAssets.length + liabilities.length} Profile-Backed Items
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowLinkModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gold text-bg-base rounded-lg text-sm font-bold hover:bg-gold-bright transition-colors"
+          >
+            <Plus size={16} strokeWidth={3} />
+            Link Account
+          </button>
+        </div>
+      </div>
+
+      <div className="p-8 space-y-10 max-w-6xl">
+        <section>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-6 bg-emerald rounded-full" />
+              <h2 className="font-display font-semibold text-xl text-primary">Assets</h2>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] font-bold text-muted uppercase tracking-widest">Total Profile Assets</div>
+              <div className="text-xl font-mono font-bold text-emerald">
+                {formatCurrency(displayAssets.reduce((s, a) => s + a.balance, 0), true)}
+              </div>
+            </div>
+          </div>
+          {displayAssets.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {displayAssets.map((acc) => (
+                <AccountCard key={acc.sourceField} account={acc} />
+              ))}
+            </div>
+          ) : (
+            <div className="card-premium p-8 text-center text-sm text-muted">
+              No asset accounts were provided during onboarding.
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-6 bg-ruby rounded-full" />
+              <h2 className="font-display font-semibold text-xl text-primary">Liabilities</h2>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] font-bold text-muted uppercase tracking-widest">Total Debt</div>
+              <div className="text-xl font-mono font-bold text-ruby">
+                {formatCurrency(liabilities.reduce((s, a) => s + a.balance, 0), true)}
+              </div>
+            </div>
+          </div>
+          {liabilities.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {liabilities.map((acc) => (
+                <AccountCard key={acc.key} account={acc} isLiability />
+              ))}
+            </div>
+          ) : (
+            <div className="card-premium p-8 text-center text-sm text-muted">
+              No debts were provided during onboarding.
+            </div>
+          )}
+        </section>
+
+        <footer className="pt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="card-premium p-6 bg-surface border-dashed">
+            <ShieldCheck size={24} className="text-gold mb-3" />
+            <div className="text-sm font-semibold text-primary mb-1">Bank-Grade Security</div>
+            <div className="text-xs text-muted leading-relaxed">
+              Live account credentials are not stored by Mallard. This build is using profile-backed balances only.
+            </div>
+          </div>
+          <div className="card-premium p-6 bg-surface border-dashed">
+            <Lock size={24} className="text-gold mb-3" />
+            <div className="text-sm font-semibold text-primary mb-1">Read-Only Intent</div>
+            <div className="text-xs text-muted leading-relaxed">
+              Future account aggregation should be read-only unless explicit trading approval is added.
+            </div>
+          </div>
+          <div className="card-premium p-6 bg-surface border-dashed">
+            <ExternalLink size={24} className="text-gold mb-3" />
+            <div className="text-sm font-semibold text-primary mb-1">Plaid Not Connected</div>
+            <div className="text-xs text-muted leading-relaxed">
+              The Link Account button now explains the missing integration instead of showing sample institutions.
+            </div>
+          </div>
+        </footer>
+      </div>
+      {showLinkModal && <LinkModal onClose={() => setShowLinkModal(false)} />}
+    </div>
+  )
+}

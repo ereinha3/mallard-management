@@ -60,7 +60,7 @@ function UserBubble({ text }) {
   )
 }
 
-export default function AdvisorChat({ context }) {
+export default function AdvisorChat({ context, user }) {
   const [messages, setMessages] = useState([])
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -68,6 +68,7 @@ export default function AdvisorChat({ context }) {
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const sessionIdRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -82,10 +83,16 @@ export default function AdvisorChat({ context }) {
     setStreamingText('')
     setError(null)
     let accumulated = ''
+    let committed = false
 
     streamAdvisor({
       messages: msgList,
       context,
+      user_email: user?.email,
+      session_id: sessionIdRef.current,
+      onSession: (sessionId) => {
+        sessionIdRef.current = sessionId
+      },
       onToken: (chunk) => {
         accumulated += chunk
         setStreamingText(accumulated)
@@ -96,6 +103,8 @@ export default function AdvisorChat({ context }) {
         setError(msg)
       },
       onDone: () => {
+        if (committed) return
+        committed = true
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
         }
@@ -103,7 +112,7 @@ export default function AdvisorChat({ context }) {
         setIsStreaming(false)
       },
     })
-  }, [context])
+  }, [context, user?.email])
 
   function handleSend(e) {
     e.preventDefault()

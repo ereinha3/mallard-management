@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Feather, CheckCircle, Send, AlertTriangle } from 'lucide-react'
+import { Feather, CheckCircle, Send, AlertTriangle, FastForward } from 'lucide-react'
 import { streamChat, postOnboard } from '../api/greenlightClient'
+import { DUMMY_ONBOARD_RESULT } from '../data/dummyProfile'
 
 // ── Building / analysis screen ────────────────────────────────────────────────
 
@@ -20,7 +21,6 @@ function BuildingScreen({ onboardResult }) {
 
   const gateStatus = onboardResult?.gate_result?.status
   const snapshot = onboardResult?.financial_analysis?.snapshot
-  const risk = onboardResult?.financial_analysis?.risk
 
   const steps = [
     { label: 'Profile validated',       done: progress > 20 },
@@ -178,7 +178,6 @@ function UserBubble({ text }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function OnboardingChat({ user, onComplete }) {
-  const firstName = user?.name?.split(' ')[0] || 'there'
 
   // Conversation state
   const [messages, setMessages] = useState([]) // {role:'user'|'assistant', content:string}[]
@@ -196,6 +195,7 @@ export default function OnboardingChat({ user, onComplete }) {
   const inputRef = useRef(null)
   const abortRef = useRef(false)
   const initializedRef = useRef(false)
+  const sessionIdRef = useRef(null)
 
   // Scroll to bottom whenever messages or streaming text changes
   useEffect(() => {
@@ -207,23 +207,13 @@ export default function OnboardingChat({ user, onComplete }) {
     if (!isStreaming) inputRef.current?.focus()
   }, [isStreaming])
 
-  // Kick off the first AI message on mount (guard against StrictMode double-fire)
-  useEffect(() => {
-    if (initializedRef.current) return
-    initializedRef.current = true
-    const seed = [{ role: 'user', content: `Hi, my name is ${user?.name || 'there'}.` }]
-    setMessages(seed)
-    callBackend(seed)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // After profile_ready → run /onboard → show building screen
   useEffect(() => {
     if (!profile) return
     ;(async () => {
       setBuilding(true)
       try {
-        const result = await postOnboard(profile)
+        const result = await postOnboard(profile, user?.email)
         setOnboardResult(result)
         // Give the building screen 1.8s to animate, then complete
         await new Promise(r => setTimeout(r, 1800))
@@ -235,7 +225,7 @@ export default function OnboardingChat({ user, onComplete }) {
         onComplete(null)
       }
     })()
-  }, [profile]) // eslint-disable-line
+  }, [profile, user?.email]) // eslint-disable-line
 
   const callBackend = useCallback((msgList) => {
     abortRef.current = false
@@ -244,15 +234,23 @@ export default function OnboardingChat({ user, onComplete }) {
     setError(null)
 
     let accumulated = ''
+    let committed = false
 
     streamChat({
       messages: msgList,
+      user_email: user?.email,
+      session_id: sessionIdRef.current,
+      onSession: (sessionId) => {
+        sessionIdRef.current = sessionId
+      },
       onToken: (chunk) => {
         if (abortRef.current) return
         accumulated += chunk
         setStreamingText(accumulated)
       },
       onProfileReady: (profileData) => {
+        if (committed) return
+        committed = true
         // AI has collected enough — commit the streaming message first
         setMessages(prev => {
           const withAI = accumulated
@@ -270,7 +268,8 @@ export default function OnboardingChat({ user, onComplete }) {
         setError(msg)
       },
       onDone: () => {
-        if (abortRef.current) return
+        if (abortRef.current || committed) return
+        committed = true
         // Normal stream end (no profile_ready yet — AI asked a question)
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
@@ -279,6 +278,17 @@ export default function OnboardingChat({ user, onComplete }) {
         setIsStreaming(false)
       },
     })
+  }, [user?.email])
+
+  // Kick off the first AI message on mount (guard against StrictMode double-fire).
+  // Declared after callBackend so it isn't referenced before initialization.
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    const seed = [{ role: 'user', content: `Hi, my name is ${user?.name || 'there'}.` }]
+    setMessages(seed)
+    callBackend(seed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleSend(e) {
@@ -295,9 +305,6 @@ export default function OnboardingChat({ user, onComplete }) {
   if (building) return <BuildingScreen onboardResult={onboardResult} />
 
   // Render all committed messages + current streaming text
-  const allMessages = messages.filter(m => m.role !== 'user' || m.content !== `Hi, my name is ${user?.name || 'there'}.`) // hide seed
-  const visibleMessages = allMessages.filter((_, i) => !(i === 0 && messages[0]?.content?.startsWith('Hi, my name is')))
-
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg-base)', overflow: 'hidden' }}>
 
@@ -327,11 +334,33 @@ export default function OnboardingChat({ user, onComplete }) {
               {isStreaming ? 'Typing...' : 'Personal wealth advisor'}
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: isStreaming ? 'var(--gold-light)' : 'var(--emerald)', transition: 'background 0.3s', animation: isStreaming ? 'pulse 1.2s ease-in-out infinite' : 'none' }} />
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-              {isStreaming ? 'LIVE' : 'READY'}
-            </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+            {/* Dev-only: skip onboarding and load demo data */}
+            <button
+              type="button"
+              onClick={() => onComplete(DUMMY_ONBOARD_RESULT)}
+              title="Developer shortcut: skip the chat and load demo data"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 11px', borderRadius: 8, cursor: 'pointer',
+                background: 'var(--green-soft, rgba(26,107,66,0.12))',
+                border: '1px solid var(--green, var(--emerald))',
+                color: 'var(--green-bright, var(--emerald))',
+                fontSize: 11.5, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace',
+                letterSpacing: '0.04em', transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--green, var(--emerald))'; e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--green-soft, rgba(26,107,66,0.12))'; e.currentTarget.style.color = 'var(--green-bright, var(--emerald))' }}
+            >
+              <FastForward size={13} />
+              DEV: SKIP
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: isStreaming ? 'var(--gold-light)' : 'var(--emerald)', transition: 'background 0.3s', animation: isStreaming ? 'pulse 1.2s ease-in-out infinite' : 'none' }} />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+                {isStreaming ? 'LIVE' : 'READY'}
+              </span>
+            </div>
           </div>
         </div>
 

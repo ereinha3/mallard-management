@@ -1,40 +1,5 @@
 {
-  "name": "finance-engine",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "dev:all": "concurrently -n \"API,Next,Vite\" -c \"green,cyan,yellow\" \"cd backend && python -m uvicorn main:app --reload --port 8000\" \"next dev --port 3000\" \"cd client && npm run dev\"",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "update-tax": "ts-node --project tsconfig.json scripts/updateTaxConstants.ts",
-    "update-tax:dry": "ts-node --project tsconfig.json scripts/updateTaxConstants.ts --dry-run",
-    "build-etf-universe": "ts-node --project tsconfig.json scripts/buildEtfUniverse.ts",
-    "optimize": "ts-node --project tsconfig.json scripts/runQuarterlyOptimization.ts",
-    "optimize:dry": "ts-node --project tsconfig.json scripts/runQuarterlyOptimization.ts --dry-run",
-    "fetch-market-data": "ts-node --project tsconfig.json scripts/fetchMarketData.ts",
-    "fetch-market-data:test": "ts-node --project tsconfig.json scripts/fetchMarketData.ts --limit 10"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "next": "16.2.6",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "yahoo-finance2": "^3.15.2",
-    "zipcodes": "^8.0.0",
-    "zod": "^4.4.3"
-  },
   "devDependencies": {
-    "@types/jest": "^30.0.0",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "concurrently": "^10.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
-    "typescript": "^5"
+    "shadcn": "^4.8.3"
   }
 }

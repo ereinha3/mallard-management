@@ -4,20 +4,6 @@ import {
 } from 'recharts'
 import { formatCurrency } from '../lib/utils'
 
-const FALLBACK_DATA = [
-  { year: '2024', conservative: 520000, base: 540000,     optimistic: 560000 },
-  { year: '2026', conservative: 610000, base: 650000,     optimistic: 700000 },
-  { year: '2028', conservative: 700000, base: 780000,     optimistic: 870000 },
-  { year: '2030', conservative: 790000, base: 940000,     optimistic: 1080000 },
-  { year: '2032', conservative: 870000, base: 1120000,    optimistic: 1340000 },
-  { year: '2034', conservative: 950000, base: 1340000,    optimistic: 1650000 },
-  { year: '2036', conservative: 1010000, base: 1590000,   optimistic: 2010000 },
-  { year: '2038', conservative: 1070000, base: 1900000,   optimistic: 2450000 },
-  { year: '2041', conservative: 1140000, base: 2380000,   optimistic: 3100000 },
-  { year: '2045', conservative: 1050000, base: 2750000,   optimistic: 3800000 },
-  { year: '2050', conservative:  950000, base: 3100000,   optimistic: 4600000 },
-]
-
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
@@ -56,23 +42,35 @@ const tickStyle = {
   fontSize: 11,
 }
 
-export default function ProjectionChart({ data: liveData }) {
-  const data = liveData ?? FALLBACK_DATA
+export default function ProjectionChart({ data: liveData, retirementYear }) {
+  const data = Array.isArray(liveData) ? liveData : []
+
+  if (data.length === 0) {
+    return (
+      <div
+        className="flex items-center justify-center text-sm"
+        style={{ width: '100%', height: 280, color: 'var(--text-muted)' }}
+      >
+        No projection data was returned by the onboarding analysis.
+      </div>
+    )
+  }
+
   return (
     <div style={{ width: '100%', height: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="gradOptimistic" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#1eb87a" stopOpacity={0.25} />
+              <stop offset="5%" stopColor="#1eb87a" stopOpacity={0.25} />
               <stop offset="95%" stopColor="#1eb87a" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="gradBase" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#c49a2c" stopOpacity={0.30} />
+              <stop offset="5%" stopColor="#c49a2c" stopOpacity={0.30} />
               <stop offset="95%" stopColor="#c49a2c" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="gradConservative" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#4a72e8" stopOpacity={0.20} />
+              <stop offset="5%" stopColor="#4a72e8" stopOpacity={0.20} />
               <stop offset="95%" stopColor="#4a72e8" stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -86,12 +84,14 @@ export default function ProjectionChart({ data: liveData }) {
             width={58}
           />
           <Tooltip content={<CustomTooltip />} />
-          <ReferenceLine
-            x="2041"
-            stroke="rgba(196,154,44,0.5)"
-            strokeDasharray="4 4"
-            label={{ value: 'Retire', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
-          />
+          {retirementYear && (
+            <ReferenceLine
+              x={String(retirementYear)}
+              stroke="rgba(196,154,44,0.5)"
+              strokeDasharray="4 4"
+              label={{ value: 'Retire', position: 'top', fill: 'var(--gold-light)', fontSize: 10, fontFamily: 'DM Mono' }}
+            />
+          )}
           <Area
             type="monotone"
             dataKey="optimistic"

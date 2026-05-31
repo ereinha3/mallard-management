@@ -114,6 +114,7 @@ export default function IntakeChat({ onComplete }) {
     setStreamingText('')
     setError(null)
     let accumulated = ''
+    let committed = false
 
     streamChat({
       messages: msgList,
@@ -122,6 +123,8 @@ export default function IntakeChat({ onComplete }) {
         setStreamingText(accumulated)
       },
       onProfileReady: async (profileData) => {
+        if (committed) return
+        committed = true
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
         }
@@ -144,6 +147,8 @@ export default function IntakeChat({ onComplete }) {
         setError(msg)
       },
       onDone: () => {
+        if (committed) return
+        committed = true
         if (accumulated) {
           setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
         }
@@ -155,6 +160,7 @@ export default function IntakeChat({ onComplete }) {
 
   useEffect(() => {
     const seed = [{ role: 'user', content: "Hi, I'd like to check whether I'm ready to start investing." }]
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(seed)
     callBackend(seed)
   }, []) // eslint-disable-line
@@ -224,7 +230,7 @@ export default function IntakeChat({ onComplete }) {
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
             Elicitation · Live Session
           </div>
-          <div className="font-display font-semibold text-xl mt-0.5" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <div className="font-display font-semibold text-xl mt-0.5" style={{ color: 'var(--text-primary)', letterSpacing: 0 }}>
             Should you be investing right now?
           </div>
         </div>

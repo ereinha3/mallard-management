@@ -16,22 +16,28 @@ function getScoreLabel(score) {
   return 'At Risk'
 }
 
-export default function RetirementScore({ score = 78 }) {
+export default function RetirementScore({ score }) {
   const [displayed, setDisplayed] = useState(0)
+  const hasScore = Number.isFinite(score)
+  const safeScore = hasScore ? score : 0
 
   useEffect(() => {
+    if (!hasScore) {
+      return undefined
+    }
     let start = 0
-    const step = score / 40
+    const step = safeScore / 40
     const timer = setInterval(() => {
       start += step
-      if (start >= score) { setDisplayed(score); clearInterval(timer); return }
+      if (start >= safeScore) { setDisplayed(safeScore); clearInterval(timer); return }
       setDisplayed(Math.round(start))
     }, 18)
     return () => clearInterval(timer)
-  }, [score])
+  }, [hasScore, safeScore])
 
-  const offset = CIRCUMFERENCE - (displayed / 100) * CIRCUMFERENCE
-  const color = getScoreColor(score)
+  const visibleScore = hasScore ? displayed : 0
+  const offset = CIRCUMFERENCE - (visibleScore / 100) * CIRCUMFERENCE
+  const color = hasScore ? getScoreColor(safeScore) : 'var(--text-muted)'
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-2">
@@ -62,7 +68,7 @@ export default function RetirementScore({ score = 78 }) {
             className="font-display font-semibold"
             style={{ fontSize: 42, lineHeight: 1, color, letterSpacing: '-0.03em' }}
           >
-            {displayed}
+            {hasScore ? displayed : '—'}
           </span>
           <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             /100
@@ -78,7 +84,7 @@ export default function RetirementScore({ score = 78 }) {
             border: `1px solid ${color}40`,
           }}
         >
-          {getScoreLabel(score)}
+          {hasScore ? getScoreLabel(safeScore) : 'Unavailable'}
         </span>
       </div>
     </div>

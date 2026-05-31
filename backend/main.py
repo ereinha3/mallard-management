@@ -1,9 +1,21 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+_BACKEND_DIR = Path(__file__).resolve().parent
+_ENGINE_DIR = _BACKEND_DIR.parent / "engine"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+if str(_ENGINE_DIR) not in sys.path:
+    sys.path.append(str(_ENGINE_DIR))
+
 from api.v1 import router as v1_router
+from persistence import init_db
 
 app = FastAPI(
     title="Greenlight Gate API",
@@ -19,15 +31,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",   # Create React App / Next.js
-        "http://localhost:5173",   # Vite
-        "http://localhost:5174",   # Vite alternate
-        "http://localhost:5175",   # Vite alternate
-        "http://localhost:5176",   # Vite alternate
-        "http://localhost:4173",   # Vite preview
-    ],
-    allow_credentials=True,
+    # Allow ANY origin (localhost, LAN, Tailscale IP, etc.). The client uses no
+    # cookies — the auth token lives in JS and the email is in the URL — so we
+    # don't need credentialed CORS, which lets us use the "*" wildcard and stop
+    # maintaining a host/port allow-list. Appropriate for this demo/dev app.
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,6 +44,11 @@ app.add_middleware(
 app.include_router(v1_router, prefix="/api/v1", tags=["gate"])
 
 
+@app.on_event("startup")
+async def startup() -> None:
+    init_db()
+
+
 @app.get("/health", tags=["meta"])
-def health() -> dict:
+async def health() -> dict:
     return {"status": "ok", "service": "greenlight-gate"}

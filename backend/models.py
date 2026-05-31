@@ -1,6 +1,21 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, List, Optional, Dict, Literal, Tuple
+from datetime import datetime
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None  # Only for sign-up
+
+
+class AuthResponse(BaseModel):
+    email: str
+    name: str
+    token: str  # Dummy token for now
 
 
 # ── Chat / elicitation ────────────────────────────────────────────────────────
@@ -12,14 +27,48 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(min_length=1)
+    user_email: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class AdvisorChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(min_length=1)
+    user_email: Optional[str] = None
+    session_id: Optional[str] = None
     context: Optional[Any] = Field(
         default=None,
         description="OnboardResponse JSON from /api/v1/onboard — gives the advisor the user's numbers",
     )
+
+
+class ChatMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    seq: int
+    created_at: Optional[str] = None
+
+
+class ChatSessionOut(BaseModel):
+    id: str
+    kind: Literal["elicitation", "advisor"]
+    status: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    extracted_profile: Optional[Dict[str, Any]] = None
+    messages: List[ChatMessageOut] = Field(default_factory=list)
+
+
+class AccountOut(BaseModel):
+    email: str
+    name: str
+    created_at: Optional[str] = None
+
+
+class UserRecord(BaseModel):
+    account: AccountOut
+    profile_input: Optional[Dict[str, Any]] = None
+    onboard_result: Optional[Dict[str, Any]] = None
+    chat_sessions: List[ChatSessionOut] = Field(default_factory=list)
 
 
 # ── Financial profile ─────────────────────────────────────────────────────────
@@ -184,6 +233,140 @@ class OptimizerInput(BaseModel):
     gate_notes: List[str] = Field(default_factory=list)
 
 
+# ── Canonical engine finance endpoint models ─────────────────────────────────
+
+Sleeve = Literal["us_equity", "intl_equity", "bonds", "tips", "gold", "reits"]
+
+
+class ExcludedTicker(BaseModel):
+    ticker: str
+    reason: str
+
+
+class Universe(BaseModel):
+    tickers: List[str]
+    sleeves: Dict[Sleeve, List[str]]
+    risky_sleeves: List[Sleeve]
+    safe_sleeves: List[Sleeve]
+    market_weights: Dict[Sleeve, float]
+    excluded: List[ExcludedTicker] = Field(default_factory=list)
+
+
+class TargetWeights(BaseModel):
+    by_ticker: Dict[str, float]
+    by_sleeve: Dict[Sleeve, float]
+    blend_alpha: float = Field(ge=0, le=1)
+    method: Literal["erc", "black_litterman", "cvar"]
+
+
+class RiskMetrics(BaseModel):
+    expected_vol: float = Field(ge=0)
+    expected_shortfall_95: float = Field(ge=0)
+    risk_contributions: Dict[Sleeve, float]
+
+
+class PortfolioRequest(BaseModel):
+    profile: UserProfileInput
+
+
+class PortfolioResponse(BaseModel):
+    universe: Universe
+    weights: TargetWeights
+    metrics: RiskMetrics
+
+
+class ProjectionRequest(BaseModel):
+    weights: TargetWeights
+    horizon_years: int = Field(ge=1)
+    monthly_contribution: float = Field(ge=0)
+    capital_on_hand: float = Field(ge=0)
+    goal_target: float = Field(ge=0)
+    generator: Literal["stationary_bootstrap", "gaussian"] = "stationary_bootstrap"
+    seed: Optional[int] = None
+    n_paths: int = Field(default=10000, ge=1)
+
+
+class Projection(BaseModel):
+    p_success: float = Field(ge=0, le=1)
+    generator: Literal["stationary_bootstrap", "gaussian"]
+    horizon_years: int = Field(ge=1)
+    percentile_paths: Dict[Literal["p5", "p25", "p50", "p75", "p95"], List[float]]
+    bad_case_terminal: float
+    median_terminal: float
+    n_paths: int = Field(ge=1)
+
+
+class Position(BaseModel):
+    ticker: str
+    shares: float = Field(ge=0)
+    avg_cost: float = Field(ge=0)
+    market_value: float = Field(ge=0)
+
+
+class Positions(BaseModel):
+    items: List[Position]
+    portfolio_value: float = Field(ge=0)
+    cash: float = Field(ge=0)
+
+
+class Drift(BaseModel):
+    current: float = Field(ge=0, le=1)
+    target: float = Field(ge=0, le=1)
+    drift_pp: float
+
+
+class Steer(BaseModel):
+    next_contribution_to: List[Sleeve]
+
+
+class RebalanceTrade(BaseModel):
+    ticker: str
+    side: Literal["buy", "sell"]
+    shares: float = Field(ge=0)
+
+
+class RebalanceDecision(BaseModel):
+    action: Literal["none", "steer", "trade"]
+    drifts: Dict[Sleeve, Drift]
+    steer: Optional[Steer] = None
+    trades: List[RebalanceTrade] = Field(default_factory=list)
+
+
+class RebalanceRequest(BaseModel):
+    positions: Positions
+    weights: TargetWeights
+
+
+class HarvestableLoss(BaseModel):
+    ticker: str
+    unrealized_loss: float = Field(ge=0)
+    note: str
+
+
+class WashSaleWarning(BaseModel):
+    ticker: str
+    window_days: int = Field(default=30, ge=1)
+    suggested_replacement: str
+
+
+class TaxReport(BaseModel):
+    harvestable: List[HarvestableLoss]
+    wash_sale_warnings: List[WashSaleWarning]
+    after_tax_notes: List[str]
+
+
+class TaxReportRequest(BaseModel):
+    positions: Positions
+    cost_basis: Dict[str, float]
+    filing_status: Literal[
+        "single",
+        "married_joint",
+        "married_separate",
+        "head_of_household",
+    ]
+    bracket: Optional[float] = Field(default=None, ge=0)
+
+
 # ── Financial analysis ────────────────────────────────────────────────────────
 
 class FinancialSnapshot(BaseModel):
@@ -268,10 +451,11 @@ class FinancialAnalysis(BaseModel):
 # ── API response ──────────────────────────────────────────────────────────────
 
 class OnboardResponse(BaseModel):
-    status: Literal["greenlight", "halt", "needs_clarification"]
+    status: Literal["greenlight", "halt", "needs_clarification", "no_profile"]
     validated_profile: Optional[ValidatedProfile] = None
     risk_profile: Optional[RiskProfile] = None
     gate_result: Optional[GateResult] = None
     financial_analysis: Optional[FinancialAnalysis] = None
     optimizer_input: Optional[OptimizerInput] = None
+    portfolio: Optional[PortfolioResponse] = None
     clarification_requests: List[ClarificationRequest] = Field(default_factory=list)
