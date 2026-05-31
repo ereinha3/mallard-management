@@ -293,6 +293,8 @@ export default function OnboardingChat({ user, onComplete }) {
       liquidCapital: data.liquidCapital,
       emergencyFund: data.emergencyFund,
       age: data.age,
+      filingStatus: data.filing_status,
+      dependents: data.dependents,
       employerCompany: data.employerCompany,
       jobTitle: data.jobTitle,
       companyTenure: data.companyTenure,
@@ -301,7 +303,7 @@ export default function OnboardingChat({ user, onComplete }) {
     }
     setStep('chat')
 
-    const seedContent = `The user has already provided: income=$${capturedFields.annualIncome}, monthly expenses=$${capturedFields.monthlyExpenses}, liquid capital=$${capturedFields.liquidCapital}, emergency fund=$${capturedFields.emergencyFund}, age=${capturedFields.age}. User works at ${capturedFields.employerCompany} as ${capturedFields.jobTitle}, has been there ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, employment type is ${capturedFields.employmentType}. Please skip asking about these and focus only on understanding their risk tolerance and investing goals in 2-3 questions.`
+    const seedContent = `The user has already completed the intake form. Their annual income is $${capturedFields.annualIncome}, monthly expenses are $${capturedFields.monthlyExpenses}, liquid capital is $${capturedFields.liquidCapital}, emergency fund is $${capturedFields.emergencyFund}, age is ${capturedFields.age}, filing status is ${capturedFields.filingStatus}, and dependents is ${capturedFields.dependents}. Their employer is ${capturedFields.employerCompany}, job title is ${capturedFields.jobTitle}, company tenure is ${capturedFields.companyTenure}, company size is ${capturedFields.companySize}, and employment type is ${capturedFields.employmentType}. Do NOT re-ask about any of those fields. Proceed to income stability classification, then risk tolerance using the GL1-GL13 questions one at a time, then outstanding debts if they are not obvious, then primary investing goals and time horizon. Start with ONE natural question. Never ask multiple things in one message. Vary your phrasing — do not sound like a form.`
     const seed = [{ role: 'user', content: seedContent }]
     setMessages(seed)
     callBackend(seed)
